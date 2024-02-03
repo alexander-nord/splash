@@ -33,8 +33,485 @@
 
 
 
+
+// SPLICING STUFF BEGINS!!!
+
+
+static bool ALEX_DEBUG = true;
+
+
+static char[21] AMINO_CHARS = ['A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'];
+static char[5]  DNA_CHARS   = ['A','C','G','T','-'];
+static char[5]  RNA_CHARS   = ['A','C','G','U','-'];
+
+
+// How many amino acids are we willing to extend
+// to bridge two hits?
+static int MAX_AMINO_EXT = 8;
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: DomainsAreSpliceComaptible
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+bool DomainsAreSpliceCompatible
+(P7_ALIDISPLAY * upstream, P7_ALIDISPLAY * downstream)
+{
+
+  // Start by checking if we either have amino acid
+  // overlap, or are close enough to consider extending
+  int amino_start_1 = upstream->hmmfrom;
+  int amino_end_1   = upstream->hmmto;
+
+  int amino_start_2 = downstream->hmmfrom;
+  int amino_end_2   = downstream->hmmto;
+
+  // If the upstream ain't upstream, then obviously we can't treat
+  // these as splice-compatible!
+  if (!(amino_start_1 < amino_start_2 && amino_end_1 < amino_end_2))
+    return false;
+
+  // Do we have overlap OR sufficient proximity to consider
+  // extending?
+  if (!(amino_end_1 + MAX_AMINO_EXT >= amino_start_2))
+    return false;
+
+
+  // Fantastic!  The amino acid coordinates support splice
+  // compatibility!  Now it's just time to confirm that
+  // the nucleotides also look good.
+
+  int  nucl_start_1 = upstream->sqfrom;
+  int  nucl_end_1   = upstream->sqto;
+  
+  int revcomp1 = 0;
+  if (nucl_start_1 > nucl_end_1)
+    revcomp1 = 1;
+
+
+  int nucl_start_2 = downstream->sqfrom;
+  int nucl_end_2   = downstream->sqto;
+ 
+  int revcomp2 = 0;
+  if (nucl_start_2 > nucl_end_2)
+    revcomp2 = 1;
+
+
+  if (revcomp1 != revcomp2) 
+    return false;
+
+
+  // We want to make sure that these aren't unrealistically
+  // close together on the genome...
+  if (revcomp1) {
+
+    if (nucl_start_2 + (3 * MAX_AMINO_EXT) >= nucl_end_1)
+      return false;
+
+  } else {
+
+    if (nucl_start_2 - (3 * MAX_AMINO_EXT) <= nucl_end_1)
+      return false;
+
+  }
+
+
+  // Looks like we've got a viable upstream / downstream pair!
+  return true;
+
+
+}
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GatherViableDownstreamHits
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+int GatherViableDownstreamHits
+(
+  P7_TOPHITS * TopHits,
+  uint64_t     upstream_hit_id,
+  uint64_t  ** ValidCompsByHitID,
+  int       ** ValidCompUpstreamDoms,
+  int       ** ValidCompDownstreamDoms
+)
+{
+
+  P7_HIT * UpstreamHit = TopHits->hit[upstream_hit_id];
+  int num_upstream_domains = UpstreamHit->ndom;
+
+
+  // We'll setup a temporary array to hold the indices
+  // of hits that could serve as downstream exons for our
+  // candidate (upstream) hit
+  int vc_capacity  = 8;
+  int vc_occupancy = 0;
+  uint64_t * ViableComps        = malloc(vc_capacity * sizeof(uint64_t));
+  int * ViableUpstreamDomains   = malloc(vc_capacity * sizeof(int));
+  int * ViableDownstreamDomains = malloc(vc_capacity * sizeof(int));
+
+
+  // For each hit, gather all of the indices of other hits that
+  // could potentially be downstream exons.
+  uint64_t num_hits = TopHits->N;
+  for (uint64_t downstream_hit_id; downstream_hit_id < num_hits; downstream_hit_id++) {
+
+    // No self-splicing, gentlemen!
+    if (downstream_hit_id == upstream_hit_id)
+      continue;
+
+    // We only consider splicing when the two hits come 
+    // from the same sequence.  Further, because of how
+    // we determine splice viability (specifically, by
+    // checking compatibility of amino acid start/end
+    // coordinates), this wouldn't be a trivial check to
+    // remove to allow for splicing across sequences.
+    if (strcmp(UpstreamHit->name,TopHits->hit[downstream_hit_id]->name))
+      continue;
+
+    // Now that we know these are valid to check, check 'em!
+    P7_HIT * DownstreamHit = TopHits->hit[downstream_hit_id];
+    int num_downstream_domains = DownstreamHit->ndom;
+
+    for (int upstream_domain_id = 0; upstream_domain_id < num_upstream_domains; upstream_domain_id++) {
+
+      P7_DOMAIN * UpstreamDomain = &UpstreamHit->dcl[upstream_domain_id];
+
+      for (int downstream_domain_id = 0; downstream_domain_id < num_downstream_domains; downstream_domain_id++) {
+
+        P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[downstream_domain_id];
+
+        if (DomainsAreSpliceCompatible(UpstreamDomain,DownstreamDomain)) {
+
+          // Do we need to resize before entering new info.?
+          if (vc_occupancy == vc_capacity) {
+
+            uint64_t * TmpComps  = malloc(vc_occupancy * sizeof(uint64_t));
+            int * TmpViableUps   = malloc(vc_occupancy * sizeof(int));
+            int * TmpViableDowns = malloc(vc_occupancy * sizeof(int));
+
+            for (int i=0; i<vc_occupancy; i++) {
+              TmpComps[i]       = ViableComps[i];
+              TmpViableUps[i]   = ViableUpstreamDomains[i];
+              TmpViableDowns[i] = ViableDownstreamDomains[i];
+            }
+
+            free(ViableComps);
+            free(ViableUpstreamDomains);
+            free(ViableDownstreamDomains);
+
+            vc_capacity *= 2;
+            ViableComps             = malloc(vc_capacity * sizeof(uint64_t));
+            ViableUpstreamDomains   = malloc(vc_capacity * sizeof(int));
+            ViableDownstreamDomains = malloc(vc_capacity * sizeof(int));
+
+            for (int i=0; i<vc_occupancy; i++) {
+              ViableComps[i]             = TmpComps[i];
+              ViableUpstreamDomains[i]   = TmpViableUps[i];
+              ViableDownstreamDomains[i] = TmpViableDowns[i];
+            }
+
+            free(TmpComps);
+            free(TmpViableUps);
+            free(TmpViableDowns);
+
+          }
+
+          // Record that splice compatibility!
+          ViableComps[vc_occupancy]             = downstream_hit_id;
+          ViableUpstreamDomains[vc_occupancy]   = upstream_domain_id;
+          ViableDownstreamDomains[vc_occupancy] = downstream_domain_id;
+
+          vc_occupancy++;
+
+        }
+
+      }
+
+    }
+
+
+  }
+
+
+  // Did we find any viable downstream exons for this hit?
+  // If so, copy 'em over!
+  if (vc_occupancy > 0) {
+
+    ValidCompsByHitID[upstream_hit_id]       = malloc(vdh_occupancy * sizeof(uint64_t));
+    ValidCompUpstreamDoms[upstream_hit_id]   = malloc(vdh_occupancy * sizeof(int));
+    ValidCompDownstreamDoms[upstream_hit_id] = malloc(vdh_occupancy * sizeof(int));
+
+    for (int i=0; i<vc_occupancy; i++) {
+      ValidCompsByHitID[upstream_hit_id][i]       = ViableComps[i];
+      ValidCompUpstreamDoms[upstream_hit_id][i]   = ViableUpstreamDomains[i];
+      ValidCompDownstreamDoms[upstream_hit_id][i] = ViableDownstreamDomains[i];
+    }
+
+  }
+
+
+  free(ViableComps);
+  free(ViableUpstreamDomains);
+  free(ViableDownstreamDomains);
+
+
+  return vc_occupancy;
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: AttemptSpliceEdge
+ *
+ *  Inputs:  
+ *
+ *  Output:  (Eventually) splice graphs built around the original hits.
+ *
+ */
+void AttemptSpliceEdge
+(
+  P7_HIT      * UpstreamHit,
+  P7_DOMAIN   * UpstreamDomain,
+  P7_HIT      * DownstreamHit,
+  P7_DOMAIN   * DownstreamDomain,
+  P7_OPROFILE * om, 
+  ESL_GENCODE * gcode
+)
+{
+
+  // We'll want to have the emission score array and transition
+  // costs on-hand as we're scoring the net score change of splicing
+  float * FwdEmissionScores  = malloc((om->abc->Kp * (om->M + 1)) * sizeof(float));
+  float * FwdTransitionProbs = malloc((7           * (om->M + 2)) * sizeof(float));
+
+
+  p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmissionScores);
+
+
+  int mm_transit = 0;
+  int mi_transit =      om->M + 2 ;
+  int md_transit = 2 * (om->M + 2);
+  int ii_transit = 3 * (om->M + 2);
+  int im_transit = 4 * (om->M + 2);
+  int dd_transit = 5 * (om->M + 2);
+  int dm_transit = 6 * (om->M + 2);
+
+  p7_oprofile_GetFwdTransitionArray(om,1,&FwdTransitionProbs[mm_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,5,&FwdTransitionProbs[mi_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,4,&FwdTransitionProbs[md_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,6,&FwdTransitionProbs[ii_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,2,&FwdTransitionProbs[im_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,7,&FwdTransitionProbs[dd_transit]);
+  p7_oprofile_GetFwdTransitionArray(om,3,&FwdTransitionProbs[dm_transit]);
+
+
+  // Convert to log scores (natural)
+  for (i=0; i<7*(om->M+2); i++)
+    FwdTransitionProbs[i] = log(FwdTransitionProbs[i]);
+
+
+  // Use the alignment displays as we consider what these
+  // domain alignments actually look like
+  P7_ALIDISPLAY * UpstreamDisplay   = UpstreamDomain->ad;
+  P7_ALIDISPLAY * DownstreamDisplay = DownstreamDomain->ad;
+
+
+  // NOTE that these are (essentially) numerical codes for the aminos,
+  // so we'll need to use AMINO_CHARS anytime we want the actual letter
+  ESL_DSQ * UpstreamAminos;
+  ESL_DSQ * DownstreamAminos;
+
+  esl_abc_CreateDsq(om->abc,UpstreamDisplay->aseq  ,&UpstreamAminos  );
+  esl_abc_CreateDsq(om->abc,DownstreamDisplay->aseq,&DownstreamAminos);
+
+
+
+  // Get the length of the alignments (including indels, of course!)
+  int upstream_amino_ali_len   = strlen(UpstreamDisplay->aseq);
+  int downstream_amino_ali_len = strlen(DownstreamDisplay->aseq);
+
+  int upstream_nucl_ali_len   = strlen(UpstreamDisplay->ntseq);
+  int downstream_nucl_ali_len = strlen(DownstreamDisplay->ntseq);
+
+  // We'll also need the model consensus sequence in order to check whether
+  // or not an emission is an insertion (if the model consensus character is '.').
+  ESL_DSQ * UpstreamConsensus;
+  ESL_DSQ * DownstreamConsensus;
+
+  esl_abc_CreateDsq(om->abc,UpstreamDisplay->model  ,&UpstreamConsensus  );
+  esl_abc_CreateDsq(om->abc,DownstreamDisplay->model,&DownstreamConsensus);
+
+
+
+  // Because we want to be able to accommodate nucleotide sequences that
+  // are either DNA or RNA, we'll check the 
+  int nucl_type = 0;
+
+
+  for (int i=0; i<upstream_nucl_ali_len; i++) {
+    
+    if (UpstreamDisplay->ntseq[i] == 'T') {
+      nucl_type = eslDNA;
+      break;
+    }
+
+    if (UpstreamDisplay->ntseq[i] == 'U') {
+      nucl_type = eslRNA;
+      break;
+    }
+
+  }
+
+
+  if (nucl_type == 0) {
+
+    for (int i=0; i<downstream_nucl_ali_len; i++) {
+    
+      if (DownstreamDisplay->ntseq[i] == 'T') {
+        nucl_type = eslDNA;
+        break;
+      }
+
+      if (DownstreamDisplay->ntseq[i] == 'U') {
+        nucl_type = eslRNA;
+        break;
+      }
+
+    }
+
+    if (nucl_type == 0) 
+      nucl_type = eslDNA;
+
+  }
+
+
+  ESL_ALPHABET * nucl_alphabet = esl_alphabet_Create(nucl_type);
+
+
+  char[5] NUCL_CHARS = DNA_CHARS;
+  if (nucl_type == eslRNA)
+    NUCL_CHARS = RNA_CHARS;
+
+
+
+  // FINALLY we can grab the nucleotide sequences!
+  ESL_DSQ * UpstreamNucls;
+  ESL_DSQ * DownstreamNucls;
+
+  esl_abc_CreateDsq(nucl_alphabet,UpstreamDisplay->ntseq  ,&UpstreamNucls  );
+  esl_abc_CreateDsq(nucl_alphabet,DownstreamDisplay->ntseq,&DownstreamNucls);
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GenSpliceGraphs
+ *
+ *  Inputs:  
+ *
+ *  Output:  (Eventually) splice graphs built around the original hits.
+ *
+ */
+void GenSpliceGraphs
+(P7_TOPHITS * TopHits, P7_OPROFILE * om, ESL_GENCODE * gcode)
+{
+
+
+  uint64_t num_hits = TopHits->N;
+
+
+  // For each hit, which other hits function as downstream
+  // exons in the splice graph?
+  //
+  // The 'ValidCompsByHitID' gives us pairs of indices in TopHits,
+  // and our indices *into* VCBHID correspond to the entries in the
+  // ValidComp(Up/Down)streamDoms data.
+  //
+  uint64_t ** ValidCompsByHitID       = malloc(num_hits * sizeof(uint64_t *));
+  int      ** ValidCompUpstreamDoms   = malloc(num_hits * sizeof(int *));
+  int      ** ValidCompDownstreamDoms = malloc(num_hits * sizeof(int *));
+  int       * NumCompsByHitID         = malloc(num_hits * sizeof(int));
+
+  for (uint64_t hit_id = 0; hit_id < num_hits; hit_id++) {
+    
+    ValidCompsByHitID[hit_id]       = NULL;
+    ValidCompUpstreamDoms[hit_id]   = NULL;
+    ValidCompDownstreamDoms[hit_id] = NULL;
+
+    NumDownstreamHits[hit_id] = 
+      GatherViableDownstreamHits(TopHits,hit_id,ValidCompsByHitID,ValidCompUpstreamDoms,ValidCompDownstreamDoms);
+
+  }
+
+
+  // Now we can run through all of our paired domains and actually
+  // splice 'em up (or at least try our best to)!
+  for (uint64_t hit_id = 0; hit_id < num_hits; hit_id++) {
+
+    P7_HIT * UpstreamHit = TopHits->hit[hit_id];
+
+    for (int i=0; i<NumDownstreamHits[hit_id]; i++) {
+
+      P7_DOMAIN * UpstreamDomain = &UpstreamHit->dcl[ValidCompUpstreamDoms[hit_id][i]];
+
+      P7_HIT    * DownstreamHit    = TopHits->hit[ValidCompsByHitID[hit_id][i]];
+      P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[ValidCompDownstreamDoms[hit_id][i]];
+
+      AttemptSpliceEdge(UpstreamHit,UpstreamDomain,DownstreamHit,DownstreamDomain,om,gcode);
+
+    }
+
+  }
+
+
+}
+
+
+
+
+
+
+
+
+
+// NOTE:  Everything below this point is the original
+//        hmmsearcht splicing update.  Given how I've
+//        generally improved at writing reasonable code
+//        over the last couple of years, let's see if I
+//        can't do a little better with a refactor...
+
 /* NORD'S SUPER COOL CLUBHOUSE STARTS HERE!
  */
+
+
+
+
+
 
 
 int GetCodonFirstNucl (int aapos) { return ((3*aapos)-2); }
@@ -54,7 +531,7 @@ void FillCodonFromAAPos
 /*  FUNCTION:  DomainsAreSpliceCompatible
  *
  */
-int DomainsAreSpliceCompatible
+int DomainsAreSpliceCompatible_OLD
 (P7_ALIDISPLAY * ad1, P7_ALIDISPLAY * ad2)
 {
   int max_amino_overlap = 10;
@@ -652,6 +1129,16 @@ int CheckSpliceViability
   return eslOK;
   
 }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1277,8 +1764,10 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
       // Okay, back to using tophits_accumulator to track down domains with overlaps
       // and then reverse-engineering the scores of individual alignment decisions...
       p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
-      CheckSpliceViability(tophits_accumulator,om,gcode);
+      //CheckSpliceViability(tophits_accumulator,om,gcode);
       
+      GenSpliceGraphs(tophits_accumulator,om,gcode);
+
       //  END  NORD ////////////////////////////////////////////////////////////////
 
 
