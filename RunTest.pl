@@ -36,13 +36,13 @@ if (!(-e $hmm_file_name)) {
 		die "\n  ERROR:  Failed to locate hmmbuild executable\n\n";
 	}
 
-	my $prot_file_name = $gene_dir_name.'prots.fa';
+	my $msa_file_name = $gene_dir_name.'isos.afa';
 
-	if (!(-e $prot_file_name)) {
-		die "\n  ERROR:  Failed to locate protein file '$prot_file_name'\n\n";
+	if (!(-e $msa_file_name)) {
+		die "\n  ERROR:  Failed to locate alignment file '$msa_file_name'\n\n";
 	}
 
-	my $build_cmd = "$hmmbuild $hmm_file_name $prot_file_name";
+	my $build_cmd = "$hmmbuild $hmm_file_name $msa_file_name";
 	if (system("$build_cmd")) {
 		die "\n  ERROR:  hmmbuild command '$build_cmd' failed\n\n";
 	}
@@ -75,3 +75,4 @@ if (system($hmmsearch_cmd)) {
 
 
 1;
+
