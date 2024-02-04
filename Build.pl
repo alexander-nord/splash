@@ -14,30 +14,28 @@ my $hmmer_dir_name = 'trans-hmmer/';
 
 
 if (!(-d $hmmer_dir_name)) {
-    
-    my $hmmer_tgz = $hmmer_dir_name;
-    $hmmer_tgz =~ s/\/$/\.tgz/;
 
-    if (!(-e $hmmer_tgz)) {
-	die "\n  ERROR: Failed to locate trans-hmmer tarball '$hmmer_tgz'\n\n";
-    }
-    
-    if (system("tar -xzf $hmmer_tgz")) {
-	die "\n  ERROR: Failed to unpack trans-hmmer tarball '$hmmer_tgz'\n\n";
+    my $trans_hmmer_git_url = 'https://github.com/traviswheelerlab/trans-hmmer';
+    if (system("git clone $trans_hmmer_git_url")) {
+	die "\n  ERROR: Failed to clone into $trans_hmmer_git_url\n\n";
     }
     
     chdir($hmmer_dir_name);
+    system("git submodule init");
+    system("git submodule update --remote");
+    system("cp ../alt-configure.ac configure.ac");
     system("autoconf");
     system("./configure");
+    system("cp ../$hmmsearcht_template src/");
     system("make");
     
-    chdir('..');
-    
-}
+} else {
 
-my $hmmer_src_name = $hmmer_dir_name.'src/';
-system("cp $hmmsearcht_template $hmmer_src_name");
-chdir($hmmer_src_name);
-system("make -B");
+    my $hmmer_src_name = $hmmer_dir_name.'src/';
+    system("cp $hmmsearcht_template $hmmer_src_name");
+    chdir($hmmer_src_name);
+    system("make -B");
+
+}
 
 1;

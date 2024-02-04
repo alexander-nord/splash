@@ -350,7 +350,8 @@ void AttemptSpliceEdge
   P7_DOMAIN   * UpstreamDomain,
   P7_HIT      * DownstreamHit,
   P7_DOMAIN   * DownstreamDomain,
-  P7_OPROFILE * om
+  P7_OPROFILE * om,
+  ESL_GENCODE * gcode
 )
 {
 
@@ -543,7 +544,7 @@ void AttemptSpliceEdge
  *
  */
 void GenSpliceGraphs
-(P7_TOPHITS * TopHits, P7_OPROFILE * om)
+(P7_TOPHITS * TopHits, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
 
 
@@ -587,7 +588,7 @@ void GenSpliceGraphs
       P7_HIT    * DownstreamHit    = TopHits->hit[ValidCompsByHitID[hit_id][i]];
       P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[ValidCompDownstreamDoms[hit_id][i]];
 
-      AttemptSpliceEdge(UpstreamHit,UpstreamDomain,DownstreamHit,DownstreamDomain,om);
+      AttemptSpliceEdge(UpstreamHit,UpstreamDomain,DownstreamHit,DownstreamDomain,om,gcode);
 
     }
 
@@ -1158,7 +1159,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      //GenSpliceGraphs(info->th,om);
+      //GenSpliceGraphs(info->th,om,gcode);
       // NORD - END
 
 
