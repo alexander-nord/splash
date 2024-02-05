@@ -76,7 +76,6 @@ static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','
 static char DNA_CHARS[5]    = {'A','C','G','T','-'};
 static char RNA_CHARS[5]    = {'A','C','G','U','-'};
 
-
 // How many amino acids are we willing to extend
 // to bridge two hits?
 static int MAX_AMINO_EXT = 8;
@@ -107,6 +106,47 @@ void DumpSeqData
   printf("\n");
 }
 
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: DumpSeqData
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+ESL_DSQ * GrabNucls
+(ESL_SQ * DNA, int start, int end)
+{
+
+  int len = abs(end - start) + 1;
+
+  ESL_DSQ * Nucls;
+  esl_abc_CreateDsq(eslDNA,len,&Nucls);
+
+  if (start < end) {
+
+    for (int i=0; i<len; i++) {
+      Nucls[i] = DNA[start];
+      start++;
+    }
+
+  } else {
+
+    for (int i=0; i<len; i++) {
+      if (DNA[start] < 4) Nucls[i] = 3-DNA[start];
+      else                Nucls[i] =   DNA[start];
+      start--;
+    }
+
+  }
+
+  return Nucls;
+
+}
 
 
 
@@ -344,6 +384,7 @@ int GatherViableDownstreamHits
 
 
 
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: AttemptSpliceEdge
@@ -359,6 +400,7 @@ void AttemptSpliceEdge
   P7_DOMAIN   * UpstreamDomain,
   P7_HIT      * DownstreamHit,
   P7_DOMAIN   * DownstreamDomain,
+  ESL_SQ      * FullQueryDNA,
   P7_OPROFILE * om,
   ESL_GENCODE * gcode
 )
@@ -415,6 +457,10 @@ void AttemptSpliceEdge
   // domain alignments actually look like
   P7_ALIDISPLAY * UpstreamDisplay   = UpstreamDomain->ad;
   P7_ALIDISPLAY * DownstreamDisplay = DownstreamDomain->ad;
+
+  int revcomp = 0;
+  if (UpstreamDisplay->sqto < UpstreamDisplay->sqfrom) 
+    revcomp = 1;
 
 
   // NOTE that these are (essentially) numerical codes for the aminos,
@@ -518,6 +564,11 @@ void AttemptSpliceEdge
   // So... GET TO WORK!
 
 
+  ESL_DSQ * codon;
+  esl_abc_CreateDsq(ntalpha,"AAA",&codon);
+
+
+
   // How many aminos do we want to extend each hit?
   // Our target is to have 2 aminos of overlap, just for
   // a bit o' fun
@@ -530,13 +581,60 @@ void AttemptSpliceEdge
   // zero (no extension, even to get to our min_overlap_aminos)
   int aminos_to_extend = min_overlap_aminos - init_overlap_aminos;
 
+  ESL_DSQ * UpstreamNuclExt    = NULL;
+  ESL_DSQ * UpstreamAminoExt   = NULL;
+  ESL_DSQ * DownstreamNuclExt  = NULL;
+  ESL_DSQ * DownstreamAminoExt = NULL;
+
   if (aminos_to_extend > 0) {
-  
-    //ExtendUpstreamHit();
-    //ExtendDownstreamHit();
+
+    int nucls_to_extend = aminos_to_extend * 3;
+
+    int new_upstream_sq_to     = UpstreamDisplay->sqto;
+    int new_downstream_sq_from = DownstreamDisplay->sqfrom;
+    
+    if (revcomp) {
+    
+      new_upstream_sq_to     -= nucls_to_extend;
+      new_downstream_sq_from += nucls_to_extend;
+        
+      UpstreamNuclExt   = GrabNucls(FullQueryDNA, UpstreamDisplay->sqto-1, new_upstream_sq_to         );
+      DownstreamNuclExt = GrabNucls(FullQueryDNA, new_downstream_sq_from , DownstreamDisplay->sqfrom+1);
+
+    } else {
+    
+      new_upstream_sq_to     += nucls_to_extend;
+      new_downstream_sq_from -= nucls_to_extend;
+    
+      UpstreamNuclExt   = GrabNucls(FullQueryDNA, UpstreamDisplay->sqto+1, new_upstream_sq_to         );
+      DownstreamNuclExt = GrabNucls(FullQueryDNA, new_downstream_sq_from , DownstreamDisplay->sqfrom-1);
+    
+    }
+
+    esl_abc_CreateDsq(om->abc,aminos_to_extend,&UpstreamAminoExt  );
+    esl_abc_CreateDsq(om->abc,aminos_to_extend,&DownstreamAminoExt);
+
+    for (int i=0; i<aminos_to_extend; i++) {
+
+      codon[0] = UpstreamNuclExt[ i*3   ];
+      codon[1] = UpstreamNuclExt[(i*3)+1];
+      codon[2] = UpstreamNuclExt[(i*3)+2];
+
+      UpstreamAminoExt[i] = esl_gencode_GetTranslation(gcode,codon);
+
+
+      codon[0] = DownstreamNuclExt[ i*3   ];
+      codon[1] = DownstreamNuclExt[(i*3)+1];
+      codon[2] = DownstreamNuclExt[(i*3)+2];
+
+      DownstreamAminoExt[i] = esl_gencode_GetTranslation(gcode,codon);
+
+    }
 
   }
 
+
+  
 
 
 }
@@ -556,7 +654,7 @@ void AttemptSpliceEdge
  *
  */
 void GenSpliceGraphs
-(P7_TOPHITS * TopHits, P7_OPROFILE * om, ESL_GENCODE * gcode)
+(P7_TOPHITS * TopHits, ESL_SQ * FullQueryDNA, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
 
   uint64_t num_hits = TopHits->N;
@@ -598,7 +696,7 @@ void GenSpliceGraphs
       P7_HIT    * DownstreamHit    = TopHits->hit[ValidCompsByHitID[hit_id][i]];
       P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[ValidCompDownstreamDoms[hit_id][i]];
 
-      AttemptSpliceEdge(UpstreamHit,UpstreamDomain,DownstreamHit,DownstreamDomain,om,gcode);
+      AttemptSpliceEdge(UpstreamHit,UpstreamDomain,DownstreamHit,DownstreamDomain,FullQueryDNA,om,gcode);
 
     }
 
@@ -1152,22 +1250,6 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
           p7_oprofile_Destroy(info[i].om);
       }
 
-      esl_sq_Reuse(qsqDNA);
-		
-      /* Sort and remove duplicates */
-      p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
-      assign_Lengths(tophits_accumulator, id_length_list);
-      p7_tophits_RemoveDuplicates(tophits_accumulator, pipelinehits_accumulator->use_bit_cutoffs);
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1177,11 +1259,8 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      if (ALEX_DEBUG) printf("\n\n  ==> BEGINNING  SPLICE STUFF!\n\n");
-
-      GenSpliceGraphs(tophits_accumulator,om,gcode);
-      
-      if (ALEX_DEBUG) printf("\n\n  ==> END OF THE SPLICE STUFF!\n\n");
+      p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
+      GenSpliceGraphs(tophits_accumulator,qsqDNA,om,gcode);
       // NORD - END
 
 
@@ -1193,14 +1272,12 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
 
-
-
-
-
-
-
-
-
+      esl_sq_Reuse(qsqDNA);
+		
+      /* Sort and remove duplicates */
+      p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
+      assign_Lengths(tophits_accumulator, id_length_list);
+      p7_tophits_RemoveDuplicates(tophits_accumulator, pipelinehits_accumulator->use_bit_cutoffs);
 
 
       /* Print the results.  */
