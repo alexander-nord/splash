@@ -64,7 +64,9 @@ typedef struct {
 
 
 
-// SPLICING STUFF BEGINS!!!
+
+
+
 
 
 static int ALEX_DEBUG = 1;
@@ -93,15 +95,16 @@ static int MAX_AMINO_EXT = 8;
  *
  */
 void DumpSeqData
-(ESL_DSQ * Aminos, int num_aminos, ESL_DSQ * Nucls, int num_nucls)
+(ESL_DSQ * Seq, int seq_len, char * seq_type)
 {
-
-  printf("\nNum Aminos: %d\n",num_aminos);
-  for (int i=0; i<num_aminos; i++) printf(" %c ",AMINO_CHARS[Aminos[i]]);
-  printf("\nNum Nucls : %d\n",num_nucls);
-  for (int i=0; i<num_aminos; i++) printf("%c",DNA_CHARS[Nucls[i]]);
+  if (!strcmp(seq_type,"amino")) {
+    for (int i=0; i<seq_len; i++) 
+      printf(" %c ",AMINO_CHARS[Seq[i]]);
+  } else {
+    for (int i=0; i<seq_len; i++) 
+      printf("%c",DNA_CHARS[Seq[i]]);
+  }
   printf("\n");
-
 }
 
 
@@ -226,9 +229,11 @@ int GatherViableDownstreamHits
   uint64_t num_hits = TopHits->N;
   for (uint64_t downstream_hit_id; downstream_hit_id < num_hits; downstream_hit_id++) {
 
+
     // No self-splicing, gentlemen!
     if (downstream_hit_id == upstream_hit_id)
       continue;
+
 
     // We only consider splicing when the two hits come 
     // from the same sequence.  Further, because of how
@@ -239,17 +244,21 @@ int GatherViableDownstreamHits
     if (strcmp(UpstreamHit->name,TopHits->hit[downstream_hit_id]->name))
       continue;
 
+
     // Now that we know these are valid to check, check 'em!
     P7_HIT * DownstreamHit = TopHits->hit[downstream_hit_id];
     int num_downstream_domains = DownstreamHit->ndom;
+
 
     for (int upstream_domain_id = 0; upstream_domain_id < num_upstream_domains; upstream_domain_id++) {
 
       P7_DOMAIN * UpstreamDomain = &UpstreamHit->dcl[upstream_domain_id];
 
+
       for (int downstream_domain_id = 0; downstream_domain_id < num_downstream_domains; downstream_domain_id++) {
 
         P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[downstream_domain_id];
+
 
         if (DomainsAreSpliceCompatible(UpstreamDomain->ad,DownstreamDomain->ad)) {
 
@@ -410,12 +419,11 @@ void AttemptSpliceEdge
 
   // NOTE that these are (essentially) numerical codes for the aminos,
   // so we'll need to use AMINO_CHARS anytime we want the actual letter
-  ESL_DSQ * UpstreamAminos;
-  ESL_DSQ * DownstreamAminos;
+  ESL_DSQ * UpstreamTrans;
+  ESL_DSQ * DownstreamTrans;
 
-  esl_abc_CreateDsq(om->abc,UpstreamDisplay->aseq  ,&UpstreamAminos  );
-  esl_abc_CreateDsq(om->abc,DownstreamDisplay->aseq,&DownstreamAminos);
-
+  esl_abc_CreateDsq(om->abc,UpstreamDisplay->aseq  ,&UpstreamTrans  );
+  esl_abc_CreateDsq(om->abc,DownstreamDisplay->aseq,&DownstreamTrans);
 
 
   // Get the length of the alignments (including indels, of course!)
@@ -425,14 +433,14 @@ void AttemptSpliceEdge
   int upstream_nucl_ali_len   = strlen(UpstreamDisplay->ntseq);
   int downstream_nucl_ali_len = strlen(DownstreamDisplay->ntseq);
 
-  // We'll also need the model consensus sequence in order to check whether
-  // or not an emission is an insertion (if the model consensus character is '.').
-  ESL_DSQ * UpstreamConsensus;
-  ESL_DSQ * DownstreamConsensus;
 
-  esl_abc_CreateDsq(om->abc,UpstreamDisplay->model  ,&UpstreamConsensus  );
-  esl_abc_CreateDsq(om->abc,DownstreamDisplay->model,&DownstreamConsensus);
+  // The consensus aminos from the model (essentially, the query that
+  // we want to compare with the translated sequences)
+  ESL_DSQ * UpstreamModel;
+  ESL_DSQ * DownstreamModel;
 
+  esl_abc_CreateDsq(om->abc,UpstreamDisplay->model  ,&UpstreamModel  );
+  esl_abc_CreateDsq(om->abc,DownstreamDisplay->model,&DownstreamModel);
 
 
   // Because we want to be able to accommodate nucleotide sequences that
@@ -494,9 +502,13 @@ void AttemptSpliceEdge
   // data we've acquired to the ol' terminal...
   if (ALEX_DEBUG) {
     printf("\n\nUPSTREAM\n");
-    DumpSeqData(UpstreamAminos  , upstream_amino_ali_len  , UpstreamNucls  , upstream_nucl_ali_len  );
+    DumpSeqData(UpstreamModel,upstream_amino_ali_len,"amino");
+    DumpSeqData(UpstreamTrans,upstream_amino_ali_len,"amino");
+    DumpSeqData(UpstreamNucls,upstream_nucl_ali_len, "nucl" );
     printf("\nDOWNSTREAM\n");
-    DumpSeqData(DownstreamAminos, downstream_amino_ali_len, DownstreamNucls, downstream_nucl_ali_len);
+    DumpSeqData(DownstreamModel,downstream_amino_ali_len,"amino");
+    DumpSeqData(DownstreamTrans,downstream_amino_ali_len,"amino");
+    DumpSeqData(DownstreamNucls,downstream_nucl_ali_len, "nucl" );
     printf("\n\n");
   }
 
@@ -547,9 +559,7 @@ void GenSpliceGraphs
 (P7_TOPHITS * TopHits, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
 
-
   uint64_t num_hits = TopHits->N;
-
 
   // For each hit, which other hits function as downstream
   // exons in the splice graph?
@@ -596,6 +606,14 @@ void GenSpliceGraphs
 
 
 }
+
+
+
+
+
+
+
+
 
 
 
@@ -1159,7 +1177,11 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      //GenSpliceGraphs(info->th,om,gcode);
+      if (ALEX_DEBUG) printf("\n\n  ==> BEGINNING  SPLICE STUFF!\n\n");
+
+      GenSpliceGraphs(tophits_accumulator,om,gcode);
+      
+      if (ALEX_DEBUG) printf("\n\n  ==> END OF THE SPLICE STUFF!\n\n");
       // NORD - END
 
 
