@@ -97,6 +97,14 @@ static int MIN_AMINO_OVERLAP = 4;
 void DumpSeqData
 (ESL_DSQ * Seq, int seq_len, char * seq_type)
 {
+  printf("  -> %d\n  '",seq_len);
+  for (int i=0; i<seq_len; i++) {
+    if (i) printf(",");
+    printf("%d",(int)Seq[i]);
+  }
+  printf("'\n\n");
+  fflush(stdout);
+
   if (!strcmp(seq_type,"amino")) {
     for (int i=0; i<seq_len; i++) 
       printf(" %c ",AMINO_CHARS[Seq[i]]);
@@ -105,7 +113,38 @@ void DumpSeqData
       printf("%c",DNA_CHARS[Seq[i]]);
   }
   printf("\n");
+  fflush(stdout);
 }
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: InitEmptyDSQ
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+void InitEmptyDSQ
+(const ESL_ALPHABET * alphabet, int len, ESL_DSQ * Target)
+{
+
+  char * DummyStr = malloc(len * sizeof(char));
+  for (int i=0; i<len; i++) 
+    DummyStr[i] = 'A';
+  
+  esl_abc_CreateDsq(alphabet,DummyStr,&Target);
+
+  free(DummyStr);
+
+}
+
+
 
 
 
@@ -123,27 +162,35 @@ ESL_DSQ * GrabNuclRange
 (ESL_SQ * DNA, int start, int end)
 {
 
+  // DEBUGGING
+  printf("  %"PRId64"\n\n",DNA->n);
+  printf("\n\n  %d..%d\n",start,end); fflush(stdout);
+
   int len = abs(end - start) + 1;
 
   ESL_DSQ * Nucls;
-  esl_abc_CreateDsq(eslDNA,len,&Nucls);
+  InitEmptyDSQ(DNA->abc,len,Nucls);
+
+  DumpSeqData(Nucls,len,"dna");
 
   if (start < end) {
 
     for (int i=0; i<len; i++) {
-      Nucls[i] = DNA[start];
+      Nucls[i] = DNA->dsq[start];
       start++;
     }
 
   } else {
 
     for (int i=0; i<len; i++) {
-      if (DNA[start] < 4) Nucls[i] = 3-DNA[start];
-      else                Nucls[i] =   DNA[start];
+      if (DNA->dsq[start] < 4) Nucls[i] = 3-DNA->dsq[start];
+      else                     Nucls[i] =   DNA->dsq[start];
       start--;
     }
 
   }
+
+  DumpSeqData(Nucls,len,"dna");
 
   return Nucls;
 
@@ -202,6 +249,11 @@ void BuildOverlap
 )
 {
 
+  int                     nucl_alphabet = DetermineNuclType(  UpstreamDisplay);
+  if (nucl_alphabet == 0) nucl_alphabet = DetermineNuclType(DownstreamDisplay);
+  if (nucl_alphabet == 0) nucl_alphabet = eslDNA;
+  ESL_ALPHABET * ntalpha = esl_alphabet_Create(nucl_alphabet);
+
 
   // How many amino acids overlap between the two hits?
   int start_amino = DownstreamDisplay->hmmfrom;
@@ -255,7 +307,7 @@ void BuildOverlap
   for (int i=0; i<upstream_overlap_nucls; i++)
     TmpResidues[i] = UpstreamDisplay->ntseq[ntseq_start+i];
 
-  esl_abc_CreateDsq(eslDNA,TmpResidues,&UpstreamOverlapNucls);
+  esl_abc_CreateDsq(ntalpha,TmpResidues,&UpstreamOverlapNucls);
 
 
 
@@ -299,7 +351,7 @@ void BuildOverlap
   for (int i=0; i<downstream_overlap_nucls; i++)
     TmpResidues[i] = DownstreamDisplay->ntseq[1+i];
 
-  esl_abc_CreateDsq(eslDNA,TmpResidues,&DownstreamOverlapNucls);
+  esl_abc_CreateDsq(ntalpha,TmpResidues,&DownstreamOverlapNucls);
 
 
   // CLEAN UP
@@ -325,7 +377,7 @@ void ExtendAndBuildOverlap
   P7_ALIDISPLAY * UpstreamDisplay,
   P7_ALIDISPLAY * DownstreamDisplay,
   int             aminos_to_extend,
-  ESL_SQ        * FullQueryDNA,
+  ESL_SQ        * NuclTargetSeq,
   ESL_DSQ       * UpstreamOverlapNucls,
   ESL_DSQ       * UpstreamOverlapTrans,
   int           * upstream_aminos_ptr,
@@ -336,6 +388,12 @@ void ExtendAndBuildOverlap
   ESL_GENCODE   * gcode
 )
 {
+
+  int                     nucl_alphabet = DetermineNuclType(  UpstreamDisplay);
+  if (nucl_alphabet == 0) nucl_alphabet = DetermineNuclType(DownstreamDisplay);
+  if (nucl_alphabet == 0) nucl_alphabet = eslDNA;
+  ESL_ALPHABET * ntalpha = esl_alphabet_Create(nucl_alphabet);
+
 
   int upstream_ext_amino_start = UpstreamDisplay->hmmto + 1;
   int upstream_ext_amino_end   = UpstreamDisplay->hmmto + aminos_to_extend;
@@ -371,22 +429,27 @@ void ExtendAndBuildOverlap
   }
     
 
-  ESL_DSQ * UpstreamNuclExt   = GrabNuclRange(FullQueryDNA,   upstream_ext_nucl_start,   upstream_ext_nucl_end);
-  ESL_DSQ * DownstreamNuclExt = GrabNuclRange(FullQueryDNA, downstream_ext_nucl_start, downstream_ext_nucl_end);
-    
+  ESL_DSQ * UpstreamNuclExt   = GrabNuclRange(NuclTargetSeq,   upstream_ext_nucl_start,   upstream_ext_nucl_end);
+  ESL_DSQ * DownstreamNuclExt = GrabNuclRange(NuclTargetSeq, downstream_ext_nucl_start, downstream_ext_nucl_end);
 
   ESL_DSQ * UpstreamAminoExt;
   ESL_DSQ * DownstreamAminoExt;
 
-  esl_abc_CreateDsq(om->abc,aminos_to_extend,&UpstreamAminoExt  );
-  esl_abc_CreateDsq(om->abc,aminos_to_extend,&DownstreamAminoExt);
+  InitEmptyDSQ(om->abc,aminos_to_extend,UpstreamAminoExt);
+  InitEmptyDSQ(om->abc,aminos_to_extend,DownstreamAminoExt);
+
+  // DEBUGGING
+  DumpSeqData(UpstreamNuclExt,abs(upstream_ext_nucl_end-upstream_ext_nucl_start)+1,"dna");
+  DumpSeqData(DownstreamNuclExt,abs(downstream_ext_nucl_end-downstream_ext_nucl_start)+1,"dna");
+  printf("^^^^\n\n"); fflush(stdout);
 
 
   ESL_DSQ * Codon;
   esl_abc_CreateDsq(ntalpha,"AAA",&Codon);
 
-
   for (int i=0; i<aminos_to_extend; i++) {
+
+    printf("  %d / %d\n",i,aminos_to_extend); fflush(stdout);
 
     Codon[0] = UpstreamNuclExt[ i*3   ];
     Codon[1] = UpstreamNuclExt[(i*3)+1];
@@ -403,6 +466,9 @@ void ExtendAndBuildOverlap
 
   }
 
+
+  // DEBUGGING
+  printf("HERE?!\n"); fflush(stdout);
 
 
   //
@@ -437,8 +503,8 @@ void ExtendAndBuildOverlap
 
   *upstream_aminos_ptr = upstream_overlap_aminos;
 
-  esl_abc_CreateDsq(om->abc,upstream_overlap_aminos,&UpstreamOverlapTrans);
-  esl_abc_CreateDsq(eslDNA, upstream_overlap_nucls ,&UpstreamOverlapNucls);
+  InitEmptyDSQ(om->abc,upstream_overlap_aminos,UpstreamOverlapTrans);
+  InitEmptyDSQ(ntalpha,upstream_overlap_nucls, UpstreamOverlapNucls);
 
 
   // Annoyingly, because the display will have already been converted to
@@ -487,7 +553,7 @@ void ExtendAndBuildOverlap
 
   // Convert to ESL_DSQ
   ESL_DSQ * TmpUpstreamNucls;
-  esl_abc_CreateDsq(eslDNA,TmpResidues,&TmpUpstreamNucls);
+  esl_abc_CreateDsq(ntalpha,TmpResidues,&TmpUpstreamNucls);
 
   // BUILD IT UP (pt. 2)!
   seq_builder = 0;
@@ -527,8 +593,9 @@ void ExtendAndBuildOverlap
 
   *downstream_aminos_ptr = downstream_overlap_aminos;
 
-  esl_abc_CreateDsq(om->abc,downstream_overlap_aminos,&DownstreamOverlapTrans);
-  esl_abc_CreateDsq(eslDNA, downstream_overlap_nucls, &DownstreamOverlapNucls);
+
+  InitEmptyDSQ(om->abc,downstream_overlap_aminos,DownstreamOverlapTrans);
+  InitEmptyDSQ(ntalpha,downstream_overlap_nucls, DownstreamOverlapNucls);
   
 
   // Once again, we'll need to do some conversion work
@@ -584,7 +651,7 @@ void ExtendAndBuildOverlap
 
   // Convert to ESL_DSQ
   ESL_DSQ * TmpDownstreamNucls;
-  esl_abc_CreateDsq(eslDNA,TmpResidues,&TmpDownstreamNucls);
+  esl_abc_CreateDsq(ntalpha,TmpResidues,&TmpDownstreamNucls);
 
   // BUILD IT UP (pt. 4.2)!
   for (int i=0; i<num_chars_to_convert; i++)
@@ -594,6 +661,7 @@ void ExtendAndBuildOverlap
 
   // CLEAN UP!
   free(TmpResidues);
+  // ntalpha             (ESL_ALPHABET *)
   // UpstreamNuclExt     (ESL_DSQ *)
   // DownstreamNuclExt   (ESL_DSQ *)
   // UpstreamAminoExt    (ESL_DSQ *)
@@ -706,7 +774,7 @@ void AttemptSpliceEdge
 (
   P7_DOMAIN   * UpstreamDomain,
   P7_DOMAIN   * DownstreamDomain,
-  ESL_SQ      * FullQueryDNA,
+  ESL_SQ      * NuclTargetSeq,
   P7_OPROFILE * om,
   ESL_GENCODE * gcode
 )
@@ -724,8 +792,8 @@ void AttemptSpliceEdge
   // If the two hits don't overlap (*require* extension)
   // then init_overlap_aminos will be negative.
   // If the two hits do    overlap, then we might dip below
-  // zero (no extension, even to get to our min_overlap_aminos)
-  int aminos_to_extend = min_overlap_aminos - init_overlap_aminos;
+  // zero (no extension, even to get to MIN_AMINO_OVERLAP)
+  int aminos_to_extend = MIN_AMINO_OVERLAP - init_overlap_aminos;
 
 
   ESL_DSQ *   UpstreamOverlapNucls;
@@ -740,13 +808,19 @@ void AttemptSpliceEdge
   int downstream_overlap_aminos;
   if (aminos_to_extend > 0) {
 
+    // DEBUGGING
+    printf("\nEABO\n\n"); fflush(stdout);
+
     ExtendAndBuildOverlap(UpstreamDomain->ad,DownstreamDomain->ad,
-                          aminos_to_extend,FullQueryDNA,
+                          aminos_to_extend,NuclTargetSeq,
                           UpstreamOverlapNucls,UpstreamOverlapTrans,&upstream_overlap_aminos,
                           DownstreamOverlapNucls,DownstreamOverlapTrans,&downstream_overlap_aminos,
                           om,gcode);
 
   } else {
+
+    // DEBUGGING
+    printf("\n--BO\n\n"); fflush(stdout);
 
     BuildOverlap(UpstreamDomain->ad,DownstreamDomain->ad,
                  UpstreamOverlapNucls,UpstreamOverlapTrans,&upstream_overlap_aminos,
@@ -762,12 +836,12 @@ void AttemptSpliceEdge
   if (ALEX_DEBUG) {
     printf("\n\n");
     printf(":   UPSTREAM\n");
-    DumpSeqData(  UpstreamOverlapTrans,  upstream_overlap_aminos,om->abc);
-    DumpSeqData(  UpstreamOverlapNucls,  upstream_overlap_nucls, eslDNA);
+    DumpSeqData(  UpstreamOverlapTrans,  upstream_overlap_aminos,   "amino");
+    DumpSeqData(  UpstreamOverlapNucls,  upstream_overlap_aminos*3, "dna"  );
     printf("\n");
     printf(": DOWNSTREAM\n");
-    DumpSeqData(DownstreamOverlapTrans,downstream_overlap_aminos,om->abc);
-    DumpSeqData(DownstreamOverlapNucls,downstream_overlap_nucls, eslDNA);
+    DumpSeqData(DownstreamOverlapTrans,downstream_overlap_aminos,   "amino");
+    DumpSeqData(DownstreamOverlapNucls,downstream_overlap_aminos*3, "dna"  );
     printf("\n\n");
   }
 
@@ -1038,10 +1112,23 @@ int GatherViableDownstreamHits
  *
  */
 void GenSpliceGraphs
-(P7_TOPHITS * TopHits, ESL_SQ * FullQueryDNA, P7_OPROFILE * om, ESL_GENCODE * gcode)
+(P7_TOPHITS * TopHits, ESL_SQFILE * GenomicSeqFile, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
 
+
+  // Very first thing we want to do is make sure that our hits are
+  // organized by the 'Seqidx' (the target genomic sequence) and position
+  // within that file.
+  //
+  // NOTE: At present the code isn't especially well-optimized around
+  //       taking advantage of this fact, but I don't think it would be
+  //       difficult to tweak it to be a tad quicker.
+  //
+  p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
+
+
   uint64_t num_hits = TopHits->N;
+
 
   // For each hit, which other hits function as downstream
   // exons in the splice graph?
@@ -1067,6 +1154,12 @@ void GenSpliceGraphs
   }
 
 
+  // Given that our hits are organized by target sequence, we can
+  // be a bit more efficient in our file reading by only pulling
+  // target sequences as they change (wrt the upstream hit)
+  ESL_SQ * NuclTargetSeq = NULL;
+
+
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
   for (uint64_t hit_id = 0; hit_id < num_hits; hit_id++) {
@@ -1080,7 +1173,7 @@ void GenSpliceGraphs
       P7_HIT    * DownstreamHit    = TopHits->hit[ValidCompsByHitID[hit_id][i]];
       P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[ValidCompDownstreamDoms[hit_id][i]];
 
-      AttemptSpliceEdge(UpstreamDomain,DownstreamDomain,FullQueryDNA,om,gcode);
+      AttemptSpliceEdge(UpstreamDomain,DownstreamDomain,NuclTargetSeq,om,gcode);
 
     }
 
@@ -1642,10 +1735,23 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
 
+
+
+
+
       // NORD - START
-      p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
-      GenSpliceGraphs(tophits_accumulator,qsqDNA,om,gcode);
+      if (tophits_accumulator->N)
+        GenSpliceGraphs(tophits_accumulator,dbfp,om,gcode);
       // NORD - END
+
+
+
+
+
+
+
+
+
 
 
 

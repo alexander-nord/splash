@@ -89,7 +89,8 @@ if (!(-e $hmmsearcht)) {
 
 my $hmmsearcht_cmd = "$hmmsearcht $hmm_file_name $dna_file_name";
 if (system("$hmmsearcht_cmd")) {
-    die "\n  ERROR:  hmmsearcht command '$hmmsearcht_cmd' failed\n\n";
+    print "\n\n";
+    die "  ERROR:  hmmsearcht command '$hmmsearcht_cmd' failed\n\n";
 }
 
 
