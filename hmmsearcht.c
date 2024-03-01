@@ -86,10 +86,11 @@ static int MIN_AMINO_OVERLAP = 4;
 //
 // TARGET_SEQ
 //
-typedef _target_seq {
+typedef struct _target_seq {
   
-  ESL_SQ       * Seq;
-  ESL_ALPHABET * abc;
+  ESL_SQ  * esl_sq; // For freeing, we'll need this pointer
+  ESL_DSQ * Seq;
+  const ESL_ALPHABET * abc;
 
   int64_t start;
   int64_t end;
@@ -173,38 +174,31 @@ void InitEmptyDSQ
  *
  */
 ESL_DSQ * GrabNuclRange
-(ESL_SQ * DNA, int start, int end)
+(TARGET_SEQ * TargetNuclSeq, int start, int end)
 {
-
-  // DEBUGGING
-  printf("  %"PRId64"\n\n",DNA->n);
-  printf("\n\n  %d..%d\n",start,end); fflush(stdout);
 
   int len = abs(end - start) + 1;
 
   ESL_DSQ * Nucls;
-  InitEmptyDSQ(DNA->abc,len,Nucls);
-
-  DumpSeqData(Nucls,len,"dna");
+  InitEmptyDSQ(TargetNuclSeq->abc,len,Nucls);
 
   if (start < end) {
 
-    for (int i=0; i<len; i++) {
-      Nucls[i] = DNA->dsq[start];
-      start++;
-    }
+    int read_index = (int)((uint64_t)start - TargetNuclSeq->start) + 1;
+
+    for (int i=0; i<len; i++)
+      Nucls[i] = TargetNuclSeq->Seq[read_index++];
 
   } else {
 
+    int read_index = (int)((uint64_t)end - TargetNuclSeq->start) + 1;
+
     for (int i=0; i<len; i++) {
-      if (DNA->dsq[start] < 4) Nucls[i] = 3-DNA->dsq[start];
-      else                     Nucls[i] =   DNA->dsq[start];
-      start--;
+      if (TargetNuclSeq->Seq[read_index] < 4) Nucls[i] = 3 - TargetNuclSeq->Seq[read_index--];
+      else                                    Nucls[i] =     TargetNuclSeq->Seq[read_index--];
     }
 
   }
-
-  DumpSeqData(Nucls,len,"dna");
 
   return Nucls;
 
@@ -391,7 +385,7 @@ void ExtendAndBuildOverlap
   P7_ALIDISPLAY * UpstreamDisplay,
   P7_ALIDISPLAY * DownstreamDisplay,
   int             aminos_to_extend,
-  ESL_SQ        * NuclTargetSeq,
+  TARGET_SEQ    * TargetNuclSeq,
   ESL_DSQ       * UpstreamOverlapNucls,
   ESL_DSQ       * UpstreamOverlapTrans,
   int           * upstream_aminos_ptr,
@@ -443,8 +437,8 @@ void ExtendAndBuildOverlap
   }
     
 
-  ESL_DSQ * UpstreamNuclExt   = GrabNuclRange(NuclTargetSeq,   upstream_ext_nucl_start,   upstream_ext_nucl_end);
-  ESL_DSQ * DownstreamNuclExt = GrabNuclRange(NuclTargetSeq, downstream_ext_nucl_start, downstream_ext_nucl_end);
+  ESL_DSQ * UpstreamNuclExt   = GrabNuclRange(TargetNuclSeq,   upstream_ext_nucl_start,   upstream_ext_nucl_end);
+  ESL_DSQ * DownstreamNuclExt = GrabNuclRange(TargetNuclSeq, downstream_ext_nucl_start, downstream_ext_nucl_end);
 
   ESL_DSQ * UpstreamAminoExt;
   ESL_DSQ * DownstreamAminoExt;
@@ -788,7 +782,7 @@ void AttemptSpliceEdge
 (
   P7_DOMAIN   * UpstreamDomain,
   P7_DOMAIN   * DownstreamDomain,
-  ESL_SQ      * NuclTargetSeq,
+  TARGET_SEQ  * TargetNuclSeq,
   P7_OPROFILE * om,
   ESL_GENCODE * gcode
 )
@@ -826,7 +820,7 @@ void AttemptSpliceEdge
     printf("\nEABO\n\n"); fflush(stdout);
 
     ExtendAndBuildOverlap(UpstreamDomain->ad,DownstreamDomain->ad,
-                          aminos_to_extend,NuclTargetSeq,
+                          aminos_to_extend,TargetNuclSeq,
                           UpstreamOverlapNucls,UpstreamOverlapTrans,&upstream_overlap_aminos,
                           DownstreamOverlapNucls,DownstreamOverlapTrans,&downstream_overlap_aminos,
                           om,gcode);
@@ -1121,31 +1115,40 @@ int GatherViableDownstreamHits
  *
  */
 void TestNuclGrab
-(ESL_SQFILE * GenomicSeqFile, P7_HIT * Hit)
+(TARGET_SEQ * TargetNuclSeq)
 {
 
-  int start = 100;
-  int end   = 200;
+  int start = TargetNuclSeq->start + 100;
+  int end   = TargetNuclSeq->end   + 200;
 
-  ESL_SQFILE * SeqFile;
-  esl_sqfile_Open(GenomicSeqFile->filename,eslSQFILE_FASTA,NULL,&SeqFile);
-  esl_sqfile_OpenSSI(SeqFile,NULL);
+  ESL_DSQ * FwdRead = GrabNuclRange(TargetNuclSeq,start,end);
+  ESL_DSQ * RevRead = GrabNuclRange(TargetNuclSeq,end,start);
 
-  ESL_SQ * Seq = esl_sq_Create();
-  int dang = esl_sqio_FetchSubseq(SeqFile,Hit->name,(int64_t)start,(int64_t)end,Seq);
+  printf("\n\n  %d..%d\n\n",start,end);
 
-  esl_sq_Digitize(GenomicSeqFile->abc,Seq);
+  int line_chars = 60;
+  for (int i=0; i <= end-start; i += line_chars) {
 
-  for (int seq_pos = 1; seq_pos <= (end-start)+1; seq_pos++) {
-    if (seq_pos % 60 == 0)
-      printf("\n");
-    printf("%c",DNA_CHARS[Seq->dsq[seq_pos]]);
+    printf("\n  ");
+
+    int read_index = i;
+    while (read_index < i+line_chars && read_index <= end-start)
+      printf("%c",DNA_CHARS[FwdRead[read_index++]]);
+    printf("\n  ");
+
+    read_index = i;
+    while (read_index < i+line_chars && read_index <= end-start)
+      printf("%c",DNA_CHARS[RevRead[read_index++]]);
+    printf("\n");
+
   }
-  printf("\n\n");
+
+  printf("\n");
+
 
   exit(69);
 }
-
+/* */
 
 
 
@@ -1154,7 +1157,7 @@ void TestNuclGrab
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GetMinCoord
+ *  Function: GetMinAndMaxCoords
  *
  *  Inputs:  
  *
@@ -1189,7 +1192,7 @@ void GetMinAndMaxCoords
     for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
 
       Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0 dom_id < Hit->ndom; dom_id++) {
+      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
 
         Dom = &(Hit->dcl[0]);
 
@@ -1208,7 +1211,7 @@ void GetMinAndMaxCoords
     for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
 
       Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0 dom_id < Hit->ndom; dom_id++) {
+      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
 
         Dom = &(Hit->dcl[0]);
 
@@ -1237,27 +1240,28 @@ void GetMinAndMaxCoords
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GetNuclTargetSeq
+ *  Function: GetTargetNuclSeq
  *
  *  Inputs:  
  *
  */
-TARGET_SEQ * GetNuclTargetSeq
+TARGET_SEQ * GetTargetNuclSeq
 (ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
 {
 
-  TARGET_SEQ * NuclTargetSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
-  GetMinAndMaxCoords(TopHits,NuclTargetSeq);
+  TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
+  GetMinAndMaxCoords(TopHits,TargetNuclSeq);
 
-  NuclTargetSeq->abc = GenomicSeqFile->abc;
+  TargetNuclSeq->abc = GenomicSeqFile->abc;
 
   ESL_SQFILE * TmpSeqFile;
   esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
   esl_sqfile_OpenSSI(TmpSeqFile,NULL);
 
-  NuclTargetSeq->Seq = esl_sq_Create();
-  esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,NuclTargetSeq->start,NuclTargetSeq->end,NuclTargetSeq->Seq);
-  esl_sq_Digitize(GenomicSeqFile->abc,NuclTargetSeq->Seq);
+  TargetNuclSeq->esl_sq = esl_sq_Create();
+  esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
+  esl_sq_Digitize(GenomicSeqFile->abc,TargetNuclSeq->esl_sq);
+  TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
 
 }
 
@@ -1282,7 +1286,7 @@ void GenSpliceGraphs
 
   // BIG DEBUGGING
   // (trying to figure out how the heck to read genomic sequence)
-  TestNuclGrab(GenomicSeqFile,TopHits->hit[0]);
+  //TestNuclGrab(GenomicSeqFile,TopHits->hit[0]);
 
 
   // Very first thing we want to do is make sure that our hits are
@@ -1325,7 +1329,9 @@ void GenSpliceGraphs
   // Given that our hits are organized by target sequence, we can
   // be a bit more efficient in our file reading by only pulling
   // target sequences as they change (wrt the upstream hit)
-  TARGET_SEQ * NuclTargetSeq = GetNuclTargetSeq(GenomicSeqFile,TopHits);
+  TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
+
+  TestNuclGrab(TargetNuclSeq);
 
 
 
@@ -1342,7 +1348,7 @@ void GenSpliceGraphs
       P7_HIT    * DownstreamHit    = TopHits->hit[ValidCompsByHitID[hit_id][i]];
       P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[ValidCompDownstreamDoms[hit_id][i]];
 
-      AttemptSpliceEdge(UpstreamDomain,DownstreamDomain,NuclTargetSeq,om,gcode);
+      AttemptSpliceEdge(UpstreamDomain,DownstreamDomain,TargetNuclSeq,om,gcode);
 
     }
 

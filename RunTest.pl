@@ -10,7 +10,7 @@ if (@ARGV != 1) {
 
 
 my $hmmer_dir_name = './trans-hmmer/';
-
+my $esl_sfetch = $hmmer_dir_name.'easel/miniapps/esl-sfetch';
 my $hmmbuild   = $hmmer_dir_name.'src/hmmbuild';
 my $hmmsearcht = $hmmer_dir_name.'src/hmmsearcht';
 
@@ -77,6 +77,13 @@ my $dna_file_name = $gene_dir_name.'dna.fa';
     
 if (!(-e $dna_file_name)) {
     die "\n  ERROR:  Failed to locate DNA file '$dna_file_name'\n\n";
+}
+
+
+if (!(-e $dna_file_name.'.ssi')) {
+    if (system($esl_sfetch.' --index '.$dna_file_name)) {
+	die "\n  ERROR:  Failed to generate ssi file for '$dna_file_name'\n\n";
+    }
 }
 
 
