@@ -83,6 +83,20 @@ static int MIN_AMINO_OVERLAP = 4;
 
 
 
+//
+// TARGET_SEQ
+//
+typedef _target_seq {
+  
+  ESL_SQ       * Seq;
+  ESL_ALPHABET * abc;
+
+  int64_t start;
+  int64_t end;
+
+} TARGET_SEQ;
+
+
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
@@ -1101,6 +1115,156 @@ int GatherViableDownstreamHits
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Debugging Function: TestNuclGrab
+ *
+ */
+void TestNuclGrab
+(ESL_SQFILE * GenomicSeqFile, P7_HIT * Hit)
+{
+
+  int start = 100;
+  int end   = 200;
+
+  ESL_SQFILE * SeqFile;
+  esl_sqfile_Open(GenomicSeqFile->filename,eslSQFILE_FASTA,NULL,&SeqFile);
+  esl_sqfile_OpenSSI(SeqFile,NULL);
+
+  ESL_SQ * Seq = esl_sq_Create();
+  int dang = esl_sqio_FetchSubseq(SeqFile,Hit->name,(int64_t)start,(int64_t)end,Seq);
+
+  esl_sq_Digitize(GenomicSeqFile->abc,Seq);
+
+  for (int seq_pos = 1; seq_pos <= (end-start)+1; seq_pos++) {
+    if (seq_pos % 60 == 0)
+      printf("\n");
+    printf("%c",DNA_CHARS[Seq->dsq[seq_pos]]);
+  }
+  printf("\n\n");
+
+  exit(69);
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetMinCoord
+ *
+ *  Inputs:  
+ *
+ */
+void GetMinAndMaxCoords
+(P7_TOPHITS * TopHits, TARGET_SEQ * NuclTargetSeq)
+{
+
+  // First, let's figure out if we're revcomp
+  int revcomp = 0;
+  int64_t min,max;
+
+  P7_HIT    * Hit;
+  P7_DOMAIN * Dom;
+  Dom = &(TopHits->hit[0]->dcl[0]);
+  if (Dom->ad->sqfrom > Dom->ad->sqto) {
+
+    min = Dom->ad->sqto;
+    max = Dom->ad->sqfrom;
+    revcomp = 1;
+
+  } else {
+
+    min = Dom->ad->sqfrom;
+    max = Dom->ad->sqto;
+
+  }
+
+
+  if (revcomp) {
+
+    for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
+
+      Hit = TopHits->hit[hit_id];
+      for (int dom_id = 0 dom_id < Hit->ndom; dom_id++) {
+
+        Dom = &(Hit->dcl[0]);
+
+        if (Dom->ad->sqfrom > max)
+          max = Dom->ad->sqfrom;
+
+        if (Dom->ad->sqto < min)
+          min = Dom->ad->sqto;
+
+      }
+
+    }
+
+  } else {
+
+    for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
+
+      Hit = TopHits->hit[hit_id];
+      for (int dom_id = 0 dom_id < Hit->ndom; dom_id++) {
+
+        Dom = &(Hit->dcl[0]);
+
+        if (Dom->ad->sqto > max)
+          max = Dom->ad->sqto;
+
+        if (Dom->ad->sqfrom < min)
+          min = Dom->ad->sqfrom;
+
+      }
+
+    }
+
+  }
+
+  NuclTargetSeq->start = min;
+  NuclTargetSeq->end   = max;
+
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetNuclTargetSeq
+ *
+ *  Inputs:  
+ *
+ */
+TARGET_SEQ * GetNuclTargetSeq
+(ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
+{
+
+  TARGET_SEQ * NuclTargetSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
+  GetMinAndMaxCoords(TopHits,NuclTargetSeq);
+
+  NuclTargetSeq->abc = GenomicSeqFile->abc;
+
+  ESL_SQFILE * TmpSeqFile;
+  esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
+  esl_sqfile_OpenSSI(TmpSeqFile,NULL);
+
+  NuclTargetSeq->Seq = esl_sq_Create();
+  esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,NuclTargetSeq->start,NuclTargetSeq->end,NuclTargetSeq->Seq);
+  esl_sq_Digitize(GenomicSeqFile->abc,NuclTargetSeq->Seq);
+
+}
+
+
+
+
+
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
@@ -1116,6 +1280,11 @@ void GenSpliceGraphs
 {
 
 
+  // BIG DEBUGGING
+  // (trying to figure out how the heck to read genomic sequence)
+  TestNuclGrab(GenomicSeqFile,TopHits->hit[0]);
+
+
   // Very first thing we want to do is make sure that our hits are
   // organized by the 'Seqidx' (the target genomic sequence) and position
   // within that file.
@@ -1124,8 +1293,7 @@ void GenSpliceGraphs
   //       taking advantage of this fact, but I don't think it would be
   //       difficult to tweak it to be a tad quicker.
   //
-  p7_tophits_SortBySeqidxAndAlipos(tophits_accumulator);
-
+  p7_tophits_SortBySeqidxAndAlipos(TopHits);
 
   uint64_t num_hits = TopHits->N;
 
@@ -1157,7 +1325,8 @@ void GenSpliceGraphs
   // Given that our hits are organized by target sequence, we can
   // be a bit more efficient in our file reading by only pulling
   // target sequences as they change (wrt the upstream hit)
-  ESL_SQ * NuclTargetSeq = NULL;
+  TARGET_SEQ * NuclTargetSeq = GetNuclTargetSeq(GenomicSeqFile,TopHits);
+
 
 
   // Now we can run through all of our paired domains and actually
