@@ -163,7 +163,6 @@ void InitEmptyDSQ
 
 
 
-
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GrabNuclRange
@@ -179,28 +178,33 @@ ESL_DSQ * GrabNuclRange
 
   int len = abs(end - start) + 1;
 
-  ESL_DSQ * Nucls;
-  InitEmptyDSQ(TargetNuclSeq->abc,len,Nucls);
+  char * Seq = malloc(len * sizeof(char));
+
+  // Keep in mind that DSQs are [1..n]
+  int read_index = (int)((uint64_t)start - TargetNuclSeq->start) + 1;
 
   if (start < end) {
-
-    int read_index = (int)((uint64_t)start - TargetNuclSeq->start) + 1;
-
+  
     for (int i=0; i<len; i++)
-      Nucls[i] = TargetNuclSeq->Seq[read_index++];
+      Seq[i] = DNA_CHARS[TargetNuclSeq->Seq[read_index++]];
 
   } else {
 
-    int read_index = (int)((uint64_t)end - TargetNuclSeq->start) + 1;
-
     for (int i=0; i<len; i++) {
-      if (TargetNuclSeq->Seq[read_index] < 4) Nucls[i] = 3 - TargetNuclSeq->Seq[read_index--];
-      else                                    Nucls[i] =     TargetNuclSeq->Seq[read_index--];
+      int fwd_nucl_code = TargetNuclSeq->Seq[read_index--];
+      if (fwd_nucl_code < 4) Seq[i] = DNA_CHARS[3 - fwd_nucl_code];
+      else                   Seq[i] ='N';
     }
 
   }
 
-  return Nucls;
+
+  ESL_DSQ * NuclSubseq;
+  esl_abc_CreateDsq(TargetNuclSeq->abc,Seq,&NuclSubseq);
+
+  free(Seq);
+
+  return NuclSubseq;
 
 }
 
@@ -1118,26 +1122,26 @@ void TestNuclGrab
 (TARGET_SEQ * TargetNuclSeq)
 {
 
-  int start = TargetNuclSeq->start + 100;
-  int end   = TargetNuclSeq->end   + 200;
+  int start = (int)TargetNuclSeq->start + 100;
+  int end   = (int)TargetNuclSeq->end   - 100;
 
   ESL_DSQ * FwdRead = GrabNuclRange(TargetNuclSeq,start,end);
   ESL_DSQ * RevRead = GrabNuclRange(TargetNuclSeq,end,start);
 
-  printf("\n\n  %d..%d\n\n",start,end);
+  printf("\n\n  %d..%d\n\n",start,end); fflush(stdout);
 
   int line_chars = 60;
-  for (int i=0; i <= end-start; i += line_chars) {
+  for (int i=1; i <= (end-start)+1; i += line_chars) {
 
     printf("\n  ");
 
     int read_index = i;
-    while (read_index < i+line_chars && read_index <= end-start)
+    while (read_index < i+line_chars && read_index <= (end-start)+1)
       printf("%c",DNA_CHARS[FwdRead[read_index++]]);
     printf("\n  ");
 
     read_index = i;
-    while (read_index < i+line_chars && read_index <= end-start)
+    while (read_index < i+line_chars && read_index <= (end-start)+1)
       printf("%c",DNA_CHARS[RevRead[read_index++]]);
     printf("\n");
 
@@ -1258,10 +1262,12 @@ TARGET_SEQ * GetTargetNuclSeq
   esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
   esl_sqfile_OpenSSI(TmpSeqFile,NULL);
 
-  TargetNuclSeq->esl_sq = esl_sq_Create();
+  TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
   esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
-  esl_sq_Digitize(GenomicSeqFile->abc,TargetNuclSeq->esl_sq);
+
   TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
+
+  return TargetNuclSeq;
 
 }
 
@@ -1282,12 +1288,6 @@ TARGET_SEQ * GetTargetNuclSeq
 void GenSpliceGraphs
 (P7_TOPHITS * TopHits, ESL_SQFILE * GenomicSeqFile, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
-
-
-  // BIG DEBUGGING
-  // (trying to figure out how the heck to read genomic sequence)
-  //TestNuclGrab(GenomicSeqFile,TopHits->hit[0]);
-
 
   // Very first thing we want to do is make sure that our hits are
   // organized by the 'Seqidx' (the target genomic sequence) and position
@@ -1331,7 +1331,8 @@ void GenSpliceGraphs
   // target sequences as they change (wrt the upstream hit)
   TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
 
-  TestNuclGrab(TargetNuclSeq);
+  // DEBUGGING
+  //TestNuclGrab(TargetNuclSeq);
 
 
 
