@@ -152,55 +152,12 @@ typedef struct _dom_overlap {
   P7_DOMAIN * DownstreamDomain;
   ESL_DSQ   * DownstreamNucls;
 
-
   int   upstream_exon_terminus;
   int downstream_exon_terminus;
 
+  float score_density; // This is a bit apples-to-oranges (log B62)
 
 } DOM_OVERLAP;
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: DumpDOM_OVERLAP
- *
- *  Inputs:
- *
- *  Output:
- *
- */
-void DumpDOM_OVERLAP
-(DOM_OVERLAP * D_O)
-{
-
-  printf("\n\n\n");
-  printf("  Aminos  : %d..%d\n",D_O->amino_start,D_O->amino_end);
-
-  // DOMAIN 1
-  printf("\n");
-  printf("  Domain 1: %d..%d\n",D_O->upstream_nucl_start,D_O->upstream_nucl_end);
-  printf("            ");
-  for (int i=1; i<=abs(D_O->upstream_nucl_start-D_O->upstream_nucl_end)+1; i++) {
-    if (i % 60 == 0) printf("\n            ");
-    printf("%c",DNA_CHARS[D_O->UpstreamNucls[i]]);
-  }  
-  printf("\n\n");
-
-  // DOMAIN 2
-  printf("  Domain 2: %d..%d\n",D_O->downstream_nucl_start,D_O->downstream_nucl_end);
-  printf("            ");
-  for (int i=1; i<=abs(D_O->downstream_nucl_start-D_O->downstream_nucl_end)+1; i++) {
-    if (i % 60 == 0) printf("\n            ");
-    printf("%c",DNA_CHARS[D_O->DownstreamNucls[i]]);
-  }  
-  printf("\n");
-
-}
-
-
 
 
 
@@ -382,13 +339,14 @@ void GetSpliceOptions
  */
 void FindSpliceIndices
 (
-  int * Seq1, // NOTE: Seq1 and Seq2 are [1..len]
-  int   len1,
-  int * Seq2,
-  int   len2,
-  int * ss_A,
-  int * ss_B,
-  int * model_ss
+  int   * Seq1, // NOTE: Seq1 and Seq2 are [1..len]
+  int     len1,
+  int   * Seq2,
+  int     len2,
+  int   * ss_A,
+  int   * ss_B,
+  int   * model_ss,
+  float * score_density
 )
 {
 
@@ -448,6 +406,7 @@ void FindSpliceIndices
 
   int i=len1;
   int j=len2;
+  int ali_len = 0;
   while (*ss_B == 0) {
 
     int match = B62[21 * Seq1[i] + Seq2[j]];
@@ -464,9 +423,15 @@ void FindSpliceIndices
       j--;
     }
 
+    ali_len++;
+
   }
 
+
+  // Grab the location (in the model) of the amino acid that
+  // will need to have its codon composition resolved.
   *model_ss = j;
+
 
   while (*ss_A == 0) {
 
@@ -476,6 +441,32 @@ void FindSpliceIndices
     i--;
   
   }
+
+
+  // Finish our trace to get the full length of the alignment
+  while (i || j) {
+
+    int match = B62[21 * Seq1[i] + Seq2[j]];
+
+    if (i == 0){
+      j--;
+    } else if (j == 0) {
+      i--;
+    } else if (DP1[i][j] == DP1[i-1][j-1] + match) {
+      i--;
+      j--;
+    } else if (DP1[i][j] == DP1[i-1][j] + GAP) {
+      i--;
+    } else {
+      j--;
+    }
+
+    ali_len++;
+
+  }
+
+
+  *score_density = log((float)(DP2[len1][len2] - splice_bonus) / (float)ali_len);
 
 
   /* DEBUGGING */
@@ -496,7 +487,7 @@ void FindSpliceIndices
     if (j == *model_ss) printf("^");
     else                printf(" ");
   }
-  printf("\n\n");
+  printf("\n   : %f\n\n",*score_density);
   /* */
   
 
@@ -545,11 +536,8 @@ void SpliceOverlappingDomains
   int * Trans = malloc((trans_seq_len + 1) * sizeof(int));
 
   trans_seq_len = 0; // Just re-using this as a write index  
-  for (int i=0; i<upstream_nucl_cnt/3; i++)
-    Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[3*i+1]));
-
-  for (int i=0; i<downstream_nucl_cnt/3; i++)
-    Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
+  for (int i=0; i<  upstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,  &(Overlap->UpstreamNucls[3*i+1]));
+  for (int i=0; i<downstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
   
 
   // Pull the subsequence of the model consensus aminos
@@ -560,8 +548,8 @@ void SpliceOverlappingDomains
 
 
   int ss_A, ss_B, model_ss;
-  FindSpliceIndices(Trans,trans_seq_len,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss);
-
+  float score_density;
+  FindSpliceIndices(Trans,trans_seq_len,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss,&score_density);
 
 
   // ss_A and ss_B now correspond to the amino acid indices in 'Trans'
@@ -592,11 +580,13 @@ void SpliceOverlappingDomains
   }
 
 
+  // These are the inclusive end points of the spliced coding regions,
+  // as indices into the '___streamNucls' arrays.
+  //
   Overlap->upstream_exon_terminus   =   upstream_ss + (3 - best_splice_opt);
   Overlap->downstream_exon_terminus = downstream_ss -      best_splice_opt ;
   
-
-  printf("\n\n  (%d,%d)\n\n\n",Overlap->upstream_exon_terminus,Overlap->downstream_exon_terminus);
+  Overlap->score_density = score_density;
 
 
   free(Trans);
@@ -1006,49 +996,6 @@ int GatherViableDownstreamHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * *
- *
- * Debugging Function: TestNuclGrab
- *
- */
-void TestNuclGrab
-(TARGET_SEQ * TargetNuclSeq)
-{
-
-  int start = (int)TargetNuclSeq->start + 100;
-  int end   = (int)TargetNuclSeq->end   - 100;
-
-  ESL_DSQ * FwdRead = GrabNuclRange(TargetNuclSeq,start,end);
-  ESL_DSQ * RevRead = GrabNuclRange(TargetNuclSeq,end,start);
-
-  printf("\n\n  %d..%d\n",start,end);
-
-  int line_chars = 60;
-  for (int i=1; i <= (end-start)+1; i += line_chars) {
-
-    printf("\n  ");
-
-    int read_index = i;
-    while (read_index < i+line_chars && read_index <= (end-start)+1)
-      printf("%c",DNA_CHARS[FwdRead[read_index++]]);
-    printf("\n  ");
-
-    read_index = i;
-    while (read_index < i+line_chars && read_index <= (end-start)+1)
-      printf("%c",DNA_CHARS[RevRead[read_index++]]);
-    printf("\n");
-
-  }
-  printf("\n");
-
-  exit(69);
-}
-
-
-
-
-
-
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetMinAndMaxCoords
@@ -1229,12 +1176,9 @@ void GenSpliceGraphs
 
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
-  for (uint64_t upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++) {
-
+  for (uint64_t upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++)
     for (int splice_edge_id = 0; splice_edge_id < ViableSpliceTargets[upstream_hit_id]; splice_edge_id++)
       InitSpliceEdge(TopHits,SpliceEdges[upstream_hit_id][splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
-
-  }
 
 
   free(ViableSpliceTargets);
