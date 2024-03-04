@@ -64,12 +64,35 @@ typedef struct {
 
 
 
-
-
-
-
-
 static int ALEX_DEBUG = 1;
+
+
+static int B62[441] = {
+   4,  0, -2, -1, -2,  0, -2, -1, -1, -1, -1, -1, -1, -1, -1,  1, -1, -2, -3, -2,  0,
+   0,  9, -3, -4, -2, -3, -3, -1, -3, -1, -1, -3, -3, -3, -3, -1, -1, -1, -2, -2,  0,
+  -2, -3,  6,  2, -3, -1, -1, -3, -1, -4, -3,  1, -1,  0, -2,  0,  1, -3, -4, -3,  0, 
+  -1, -4,  2,  5, -3, -2,  0, -3,  1, -3, -2,  0, -1,  2,  0,  0,  0, -3, -3, -2,  0, 
+  -2, -2, -3, -3,  6, -3, -1,  0, -3,  0,  0, -3, -4, -3, -3, -2, -2, -1,  1,  3,  0, 
+   0, -3, -1, -2, -3,  6, -2, -4, -2, -4, -3, -2, -2, -2, -2,  0,  1,  0, -2, -3,  0, 
+  -2, -3,  1,  0, -1, -2,  8, -3, -1, -3, -2,  1, -2,  0,  0, -1,  0, -2, -2,  2,  0, 
+  -1, -1, -3, -3,  0, -4, -3,  4, -3,  2,  1, -3, -3, -3, -3, -2, -2,  1, -3, -1,  0, 
+  -1, -3, -1,  1, -3, -2, -1, -3,  5, -2, -1,  0, -1,  1,  2,  0,  0, -3, -3, -2,  0, 
+  -1, -1, -4, -3,  0, -4, -3,  2, -2,  4,  2, -3, -3, -2, -2, -2, -2,  3, -2, -1,  0, 
+  -1, -1, -3, -2,  0, -3, -2,  1, -1,  2,  5, -2, -2,  0, -1, -1, -1, -2, -1, -1,  0, 
+  -2, -3,  1,  0, -3,  0, -1, -3,  0, -3, -2,  6, -2,  0,  0,  1,  0, -3, -4, -2,  0, 
+  -1, -3, -1, -1, -4, -2, -2, -3, -1, -3, -2, -1,  7, -1, -2, -1,  1, -2, -4, -3,  0, 
+  -1, -3,  0,  2, -3, -2,  0, -3,  1, -2,  0,  0, -1,  5,  1,  0,  0, -2, -2, -1,  0, 
+  -1, -3, -2,  0, -3, -2,  0, -3,  2, -2, -1,  0, -2,  1,  5, -1, -1, -3, -3, -2,  0, 
+   1, -1,  0,  0, -2,  0, -1, -2,  0, -2, -1,  1, -1,  0, -1,  4,  1, -2, -3, -2,  0, 
+  -1, -1,  1,  0, -2,  1,  0, -2,  0, -2, -1,  0,  1,  0, -1,  1,  4, -2, -3, -2,  0, 
+   0, -1, -3, -2, -1, -3, -3,  3, -2,  1,  1, -3, -2, -2, -3, -2, -2,  4, -3, -1,  0, 
+  -3, -2, -4, -3,  1, -2, -2, -3, -3, -2, -1, -4, -4, -2, -3, -3, -3, -3, 11,  2,  0, 
+  -2, -2, -3, -2,  3, -3,  2, -1, -2, -1, -1, -2, -3, -1, -2, -2, -2, -1,  2,  7,  0, 
+   0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0
+};
+static int GAP = -3;
+
+static float SSSCORE[2] = {-0.05,0.05}; // Non-canon vs canon splice site
 
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
@@ -81,6 +104,8 @@ static char RNA_CHARS[5]    = {'A','C','G','U','-'};
 static int MAX_AMINO_EXT     = 5;
 static int MIN_AMINO_OVERLAP = 4;
 
+
+int intMax (int a, int b) { if (a>b) return a; return b; }
 
 
 //
@@ -128,7 +153,8 @@ typedef struct _dom_overlap {
   ESL_DSQ   * DownstreamNucls;
 
 
-  int optimal_splice_index;
+  int   upstream_exon_terminus;
+  int downstream_exon_terminus;
 
 
 } DOM_OVERLAP;
@@ -150,7 +176,7 @@ void DumpDOM_OVERLAP
 (DOM_OVERLAP * D_O)
 {
 
-  printf("\n");
+  printf("\n\n\n");
   printf("  Aminos  : %d..%d\n",D_O->amino_start,D_O->amino_end);
 
   // DOMAIN 1
@@ -170,39 +196,12 @@ void DumpDOM_OVERLAP
     if (i % 60 == 0) printf("\n            ");
     printf("%c",DNA_CHARS[D_O->DownstreamNucls[i]]);
   }  
-  printf("\n\n");
-
   printf("\n");
 
 }
 
 
 
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: InitEmptyDSQ
- *
- *  Inputs:
- *
- *  Output:
- *
- */
-void InitEmptyDSQ
-(const ESL_ALPHABET * alphabet, int len, ESL_DSQ * Target)
-{
-
-  char * DummyStr = malloc(len * sizeof(char));
-  for (int i=0; i<len; i++) 
-    DummyStr[i] = 'A';
-  
-  esl_abc_CreateDsq(alphabet,DummyStr,&Target);
-
-  free(DummyStr);
-
-}
 
 
 
@@ -281,73 +280,85 @@ int DetermineNuclType
 
 
 
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: FindOptimalSpliceSite
+ *  Function: GetSpliceOptions
  *
  *  Inputs:  
  *
- *  Output:  
+ *  Output:
  *
  */
-void FindOptimalSpliceSite
+void GetSpliceOptions
 (
-  DOM_OVERLAP * SpliceEdge,
-  int           upstream_hmm_to,
-  int           downstream_hmm_to,
-  P7_OPROFILE * om,
+  DOM_OVERLAP * Overlap,
+  int   upstream_ss,
+  int   downstream_ss,
+  int * SpliceCodons,
+  int * Canon5Prime,
+  int * Canon3Prime,
   ESL_GENCODE * gcode
 )
 {
 
-  // We'll want to have the emission score array and transition
-  // costs on-hand as we're scoring the net score change of splicing
-  float * FwdEmissionScores  = malloc((om->abc->Kp * (om->M + 1)) * sizeof(float));
-  float * FwdTransitionProbs = malloc((7           * (om->M + 2)) * sizeof(float));
+  ESL_DSQ * Codon;
+  esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
+
+  for (int i=0; i<5; i++) {
+    Canon5Prime[i] = 0;
+    Canon3Prime[i] = 0;
+  }
 
 
-  p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmissionScores);
+  // Let's simplify our pointing
+  ESL_DSQ * UN = Overlap->UpstreamNucls;
+  ESL_DSQ * DN = Overlap->DownstreamNucls;
 
 
-  int mm_transit = 0;
-  int mi_transit =  om->M + 2;
-  int md_transit = (om->M + 2) * 2;
-  int ii_transit = (om->M + 2) * 3;
-  int im_transit = (om->M + 2) * 4;
-  int dd_transit = (om->M + 2) * 5;
-  int dm_transit = (om->M + 2) * 6;
 
-  p7_oprofile_GetFwdTransitionArray(om,1,&FwdTransitionProbs[mm_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,5,&FwdTransitionProbs[mi_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,4,&FwdTransitionProbs[md_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,6,&FwdTransitionProbs[ii_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,2,&FwdTransitionProbs[im_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,7,&FwdTransitionProbs[dd_transit]);
-  p7_oprofile_GetFwdTransitionArray(om,3,&FwdTransitionProbs[dm_transit]);
-
-
-  // Convert to log scores (natural)
-  for (int i=0; i<7*(om->M+2); i++)
-    FwdTransitionProbs[i] = log(FwdTransitionProbs[i]);
+  // Option 1: |ABCxx...yy|
+  Codon[1] = UN[upstream_ss+1];
+  Codon[2] = UN[upstream_ss+2];
+  Codon[3] = UN[upstream_ss+3];
   
-
-  // We'll also want to have some simple way of acknowledging whether a
-  // splice site looks good (i.e., is canonical)
-  float    canon_ss_score = log(0.98);
-  float noncanon_ss_score = log(0.02);
+  SpliceCodons[0] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (UN[  upstream_ss+4] == 2 && UN[  upstream_ss+5] == 3) Canon5Prime[0] = 1;
+  if (DN[downstream_ss-2] == 0 && DN[downstream_ss-1] == 2) Canon3Prime[0] = 1;
 
 
-  // We'll need a background model for... stuff?
-  P7_BG * BackgroundModel = p7_bg_Create(om->abc);
-  float null_transit_prob = BackgroundModel->p1;
+
+  // Option 2: |ABxx...yyC|
+  Codon[1] = UN[  upstream_ss+1];
+  Codon[2] = UN[  upstream_ss+2];
+  Codon[3] = DN[downstream_ss-1];
+  
+  SpliceCodons[1] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (UN[  upstream_ss+3] == 2 && UN[  upstream_ss+4] == 3) Canon5Prime[1] = 1;
+  if (DN[downstream_ss-3] == 0 && DN[downstream_ss-2] == 2) Canon3Prime[1] = 1;
 
 
-  // The above work sets up up to be able to interact with the model that
-  // provided the hits we're going to attempt to splice into one another.
-  //
-  // Now we can get to work with actually finding an optimal splice site!
+
+  // Option 3: |Axx...yyBC|
+  Codon[1] = UN[  upstream_ss+1];
+  Codon[2] = DN[downstream_ss-2];
+  Codon[3] = DN[downstream_ss-1];
+  
+  SpliceCodons[2] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (UN[  upstream_ss+2] == 2 && UN[  upstream_ss+3] == 3) Canon5Prime[2] = 1;
+  if (DN[downstream_ss-4] == 0 && DN[downstream_ss-3] == 2) Canon3Prime[2] = 1;
 
 
+
+  // Option 4: |xx...yyABC|
+  Codon[1] = DN[downstream_ss-3];
+  Codon[2] = DN[downstream_ss-2];
+  Codon[3] = DN[downstream_ss-1];
+  SpliceCodons[3] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+
+  if (UN[  upstream_ss+1] == 2 && UN[  upstream_ss+2] == 3) Canon5Prime[3] = 1;
+  if (DN[downstream_ss-5] == 0 && DN[downstream_ss-4] == 2) Canon3Prime[3] = 1;
 
 
 }
@@ -358,20 +369,267 @@ void FindOptimalSpliceSite
 
 
 
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: AttemptSpliceEdge
+ *  Function: FindSpliceIndices
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-void AttemptSpliceEdge
+void FindSpliceIndices
+(
+  int * Seq1, // NOTE: Seq1 and Seq2 are [1..len]
+  int   len1,
+  int * Seq2,
+  int   len2,
+  int * ss_A,
+  int * ss_B,
+  int * model_ss
+)
+{
+
+  int ** DP1 = (int **) malloc((len1+1)*sizeof(int *)); //   Upstream DP table
+  int ** DP2 = (int **) malloc((len1+1)*sizeof(int *)); // Downstream DP table
+  int ** SPL = (int **) malloc((len1+1)*sizeof(int *)); // Splice Hyperjump!
+
+
+  for (int i=0; i<=len1; i++) {
+    DP1[i] = (int *) malloc((len2+1) * sizeof(int));
+    DP2[i] = (int *) malloc((len2+1) * sizeof(int));
+    SPL[i] = (int *) malloc((len2+1) * sizeof(int));
+    for (int j=0; j<=len2; j++) {
+      DP1[i][j] = 0;
+      DP2[i][j] = 0;
+      SPL[i][j] = 0;
+    }
+  }
+
+  for (int i=1; i<=len1; i++) {
+    DP1[i][0] = i * GAP;
+    DP2[i][0] = i * GAP;
+  }
+
+  for (int j=1; j<=len2; j++) {
+    DP1[0][j] = j * GAP;
+    DP1[0][j] = j * GAP;
+  }
+
+
+  // I'll just dangle this carrot to incentivize splicing at some point
+  int splice_bonus = 20;
+
+
+  // Program Dynamically!
+  for (int i=1; i<=len1; i++) {
+
+    for (int j=1; j<=len2; j++) {
+
+      int match = B62[21 * Seq1[i] + Seq2[j]];
+
+      DP1[i][j] = intMax(intMax(DP1[i-1][j], DP1[i][j-1])+GAP, DP1[i-1][j-1]+match);
+      
+      SPL[i][j] = intMax(SPL[i-1][j],DP1[i][j]+splice_bonus);
+
+      DP2[i][j] = intMax(intMax(DP2[i-1][j], DP2[i][j-1])+GAP, DP2[i-1][j-1]+match);
+      DP2[i][j] = intMax(SPL[i][j]+match,DP2[i][j]);
+
+    }
+
+  }
+
+
+  // Where did we splice?!
+  *ss_A=0;
+  *ss_B=0;
+
+  int i=len1;
+  int j=len2;
+  while (*ss_B == 0) {
+
+    int match = B62[21 * Seq1[i] + Seq2[j]];
+
+    if (DP2[i][j] == SPL[i][j]+match) {
+      *ss_B = i;
+
+    } else if (DP2[i][j] == DP2[i-1][j-1] + match) {
+      i--;
+      j--;
+    } else if (DP2[i][j] == DP2[i-1][j]+GAP) {
+      i--;
+    } else {
+      j--;
+    }
+
+  }
+
+  *model_ss = j;
+
+  while (*ss_A == 0) {
+
+    if (SPL[i][j] == DP1[i][j]+splice_bonus)
+      *ss_A = i;
+    
+    i--;
+  
+  }
+
+
+  /* DEBUGGING */
+  printf("\n   ");
+  for (int i=1; i<=len1; i++) {
+    if (i >= *ss_A && i <= *ss_B) printf("_");
+    else                          printf(" ");
+  }
+  printf("\n   ");
+  for (int i=1; i<=len1; i++) 
+    printf("%c",AMINO_CHARS[Seq1[i]]);
+  printf("\n  (");
+  for (int j=1; j<=len2; j++) 
+    printf("%c",AMINO_CHARS[Seq2[j]]);
+  printf(")\n");
+  printf("   ");
+  for (int j=1; j<=len2; j++) {
+    if (j == *model_ss) printf("^");
+    else                printf(" ");
+  }
+  printf("\n\n");
+  /* */
+  
+
+  // Cleanup
+  for (i=0; i<=len1; i++) {
+    free(DP1[i]);
+    free(SPL[i]);
+    free(DP2[i]);
+  }
+  free(DP1);
+  free(SPL);
+  free(DP2);
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SpliceOverlappingDomains
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void SpliceOverlappingDomains
+(
+  DOM_OVERLAP * Overlap, 
+  ESL_DSQ     * Consensus,
+  float       * FwdEmitScores, 
+  P7_OPROFILE * om, 
+  ESL_GENCODE * gcode
+)
+{
+
+  // int amino = esl_gencode_GetTranslation(gcode,Codon);
+  int   upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
+  int downstream_nucl_cnt = abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end) + 1;
+
+  int trans_seq_len = (upstream_nucl_cnt + downstream_nucl_cnt) / 3;
+
+  int * Trans = malloc((trans_seq_len + 1) * sizeof(int));
+
+  trans_seq_len = 0; // Just re-using this as a write index  
+  for (int i=0; i<upstream_nucl_cnt/3; i++)
+    Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[3*i+1]));
+
+  for (int i=0; i<downstream_nucl_cnt/3; i++)
+    Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
+  
+
+  // Pull the subsequence of the model consensus aminos
+  int css_len = Overlap->amino_end - Overlap->amino_start + 1;
+  int * ConsSubSeq = malloc((css_len + 1) * sizeof(int));
+  for (int i=1; i<=css_len; i++)
+    ConsSubSeq[i] = Consensus[Overlap->amino_start + i];
+
+
+  int ss_A, ss_B, model_ss;
+  FindSpliceIndices(Trans,trans_seq_len,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss);
+
+
+
+  // ss_A and ss_B now correspond to the amino acid indices in 'Trans'
+  // that we're going to chop with the splice site.
+
+
+  // Each index is positioned at the last 'uncontested' nucleotide
+  int   upstream_ss = 3*(ss_A - 1);
+  int downstream_ss = 3*(ss_B - upstream_nucl_cnt/3) + 1;
+  
+  int * SpliceCodons = malloc(4*sizeof(int));
+  int * Canon5Prime  = malloc(4*sizeof(int)); // GT
+  int * Canon3Prime  = malloc(4*sizeof(int)); // AG
+
+  GetSpliceOptions(Overlap,upstream_ss,downstream_ss,SpliceCodons,Canon5Prime,Canon3Prime,gcode);
+
+
+  // Let's see which SpliceCodon has the best match to the model at
+  // the "model_ss," while also factoring in splice site signals.
+  int   best_splice_opt   = 0;
+  float best_splice_score = -5.0;
+  for (int i=0; i<4; i++) { 
+    float splice_score = FwdEmitScores[om->abc->Kp * model_ss + SpliceCodons[i]] + SSSCORE[Canon5Prime[i]] + SSSCORE[Canon3Prime[i]];
+    if (splice_score > best_splice_score) {
+      best_splice_score = splice_score;
+      best_splice_opt   = i;
+    }
+  }
+
+
+  Overlap->upstream_exon_terminus   =   upstream_ss + (3 - best_splice_opt);
+  Overlap->downstream_exon_terminus = downstream_ss -      best_splice_opt ;
+  
+
+  printf("\n\n  (%d,%d)\n\n\n",Overlap->upstream_exon_terminus,Overlap->downstream_exon_terminus);
+
+
+  free(Trans);
+  free(ConsSubSeq);
+  free(SpliceCodons);
+  free(Canon5Prime);
+  free(Canon3Prime);
+  // Codon
+  // FullConsensus
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: InitSpliceEdge
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void InitSpliceEdge
 (
   P7_TOPHITS  * TopHits,
   DOM_OVERLAP * SpliceEdge,
   TARGET_SEQ  * TargetNuclSeq,
+  ESL_DSQ     * Consensus,
+  float       * FwdEmitScores,
   P7_OPROFILE * om,
   ESL_GENCODE * gcode
 )
@@ -498,8 +756,8 @@ void AttemptSpliceEdge
   SpliceEdge->UpstreamDomain   =   UpDom;
   SpliceEdge->DownstreamDomain = DownDom;
 
-  // DEBUGGING
-  DumpDOM_OVERLAP(SpliceEdge);
+
+  SpliceOverlappingDomains(SpliceEdge,Consensus,FwdEmitScores,om,gcode);
 
 }
 
@@ -958,14 +1216,31 @@ void GenSpliceGraphs
   TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
 
 
+  // We'll want to have the emission scores on-hand
+  float * FwdEmitScores = malloc(om->abc->Kp * (om->M + 2) * sizeof(float));
+  p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmitScores);
+
+
+  // Grab the consensus sequence, too! (for dp alignment)
+  ESL_DSQ * Consensus;
+  esl_abc_CreateDsq(om->abc,om->consensus,&Consensus);
+
+
+
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
   for (uint64_t upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++) {
 
     for (int splice_edge_id = 0; splice_edge_id < ViableSpliceTargets[upstream_hit_id]; splice_edge_id++)
-      AttemptSpliceEdge(TopHits,SpliceEdges[upstream_hit_id][splice_edge_id],TargetNuclSeq,om,gcode);
+      InitSpliceEdge(TopHits,SpliceEdges[upstream_hit_id][splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
 
   }
+
+
+  free(ViableSpliceTargets);
+  free(FwdEmitScores);
+  // TargetNuclSeq
+  // Consensus
 
 
 }
