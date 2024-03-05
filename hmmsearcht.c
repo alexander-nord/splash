@@ -1169,6 +1169,8 @@ SPLICE_NODE * InitSpliceNode
   NewNode->cumulative_score = 0.0; // Best score up to and including this node
   NewNode->best_path_score  = 0.0; // Best full path score using this node
 
+  return NewNode;
+
 }
 
 
@@ -1228,10 +1230,12 @@ void FindBestPathToNode
 void EvangelizePath
 (SPLICE_NODE * Node)
 {
-  float path_score = Node->best_path_score;
+  // No point evangelizing to the wind
+  if (Node->num_in_edges == 0) return;
 
   SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[Node->best_in_edge];
 
+  float path_score = Node->best_path_score;
   if (path_score > UpstreamNode->best_path_score) {
       
     UpstreamNode->best_path_score = path_score;
@@ -1269,36 +1273,38 @@ int * GenCumScoreSort
   int * SortIndex  = malloc(num_nodes*sizeof(int));
   int * WriteIndex = malloc(num_nodes*sizeof(int));
 
-  for (int i=0; i<num_nodes; i++)
-    SortIndex[i] = i+1;
+  for (int i=0; i<num_nodes; i++) {
+    SortIndex[i]  = i+1;
+    WriteIndex[i] = i+1;
+  }
 
   for (int window_size = 1; window_size < num_nodes; window_size *= 2) {
 
     int write_pos = 0;
     while (write_pos + window_size < num_nodes) {
 
-      int a_start = write_pos;
-      int a_end   = a_start + window_size;
+      int a_pos = write_pos;
+      int a_end = a_pos + window_size;
       
-      int b_start = a_end;
-      int b_end   = b_start + window_size;
+      int b_pos = a_end;
+      int b_end = b_pos + window_size;
       if (b_end > num_nodes)
         b_end = num_nodes;
 
-      while (a_start < a_end && b_start < b_end) {
+      while (a_pos < a_end && b_pos < b_end) {
 
-        if (SpliceGraph[SortIndex[a_start]]->cumulative_score > SpliceGraph[SortIndex[b_start]]->cumulative_score)
-          WriteIndex[write_pos++] = SortIndex[a_start++];
+        if (SpliceGraph[SortIndex[a_pos]]->cumulative_score > SpliceGraph[SortIndex[b_pos]]->cumulative_score)
+          WriteIndex[write_pos++] = SortIndex[a_pos++];
         else
-          WriteIndex[write_pos++] = SortIndex[b_start++];
+          WriteIndex[write_pos++] = SortIndex[b_pos++];
       
       }
 
-      while (a_start < a_end)
-        WriteIndex[write_pos++] = SortIndex[a_start++];
+      while (a_pos < a_end)
+        WriteIndex[write_pos++] = SortIndex[a_pos++];
 
-      while (b_start < b_end)
-        WriteIndex[write_pos++] = SortIndex[b_start++];
+      while (b_pos < b_end)
+        WriteIndex[write_pos++] = SortIndex[b_pos++];
 
     }
 
@@ -1400,6 +1406,7 @@ SPLICE_NODE ** BuildSpliceGraph
 
   // Generate a sorting of cumulative scores (high to low)
   int * CumScoreSortIndex = GenCumScoreSort(SpliceGraph,*num_nodes);
+
   for (int node_sort_id=0; node_sort_id<*num_nodes; node_sort_id++) {
     
     node_id = CumScoreSortIndex[node_sort_id];
@@ -1410,8 +1417,6 @@ SPLICE_NODE ** BuildSpliceGraph
     }
   
   }
-
-
 
   // CLEAN UP, PLEASE!!!
   for (int hit_id=0; hit_id<num_hits; hit_id++)
@@ -1459,7 +1464,6 @@ void SpliceHits
 
 
   // For each hit, how many possible splice edges are there (all domains)?
-  //
   int num_edges = 0;
   for (int hit_id = 0; hit_id < num_hits; hit_id++)
     SpliceEdges = GatherViableSpliceEdges(TopHits,hit_id,SpliceEdges,&edge_capacity,&num_edges);
@@ -1491,7 +1495,7 @@ void SpliceHits
   // Now we can do some simple graph-ery and find our best path(s?)
   // through the full HMM (hopefully)
   int num_nodes;
-  BuildSpliceGraph(TopHits,SpliceEdges,num_edges,&num_nodes);
+  SPLICE_NODE ** SpliceGraph = BuildSpliceGraph(TopHits,SpliceEdges,num_edges,&num_nodes);
 
 
   free(FwdEmitScores);
