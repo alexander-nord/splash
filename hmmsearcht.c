@@ -108,6 +108,9 @@ static int MIN_AMINO_OVERLAP = 4;
 int intMax (int a, int b) { if (a>b) return a; return b; }
 
 
+
+
+//////////////////////////////////////////////////////////
 //
 //  TARGET_SEQ
 //
@@ -124,30 +127,30 @@ typedef struct _target_seq {
 
 
 
+
+//////////////////////////////////////////////////////////
 //
-//  DOM_OVERLAP
+//  DOMAIN_OVERLAP
 //
-typedef struct _dom_overlap {
+typedef struct _domain_overlap {
 
   const ESL_ALPHABET * ntalpha;
 
   int amino_start;
   int amino_end;
 
-
-  uint64_t upstream_hit_id;
-  int      upstream_dom_id;
-  int      upstream_nucl_start;
-  int      upstream_nucl_end;
+  int upstream_hit_id;
+  int upstream_dom_id;
+  int upstream_nucl_start;
+  int upstream_nucl_end;
 
   P7_DOMAIN * UpstreamDomain;
   ESL_DSQ   * UpstreamNucls;
   
-
-  uint64_t downstream_hit_id;
-  int      downstream_dom_id;
-  int      downstream_nucl_start;
-  int      downstream_nucl_end;
+  int downstream_hit_id;
+  int downstream_dom_id;
+  int downstream_nucl_start;
+  int downstream_nucl_end;
 
   P7_DOMAIN * DownstreamDomain;
   ESL_DSQ   * DownstreamNucls;
@@ -155,9 +158,52 @@ typedef struct _dom_overlap {
   int   upstream_exon_terminus;
   int downstream_exon_terminus;
 
-  float score_density; // This is a bit apples-to-oranges (log B62)
+  int   upstream_spliced_nucl_end;
+  int downstream_spliced_nucl_start;
 
-} DOM_OVERLAP;
+  // We'll use the log(B62) spliced alignment's score density
+  // as the effective score contribution of the proposed splicing
+  // in the splice graph.
+  float score_density;
+  float score;
+
+} DOMAIN_OVERLAP;
+
+
+
+
+//////////////////////////////////////////////////////////
+//
+//  SPLICE_NODE
+//
+typedef struct _splice_node {
+
+
+  int hit_id;
+  int dom_id;
+  int node_id;
+
+
+  int num_in_edges;
+  int best_in_edge;
+  DOMAIN_OVERLAP ** InEdgeOverlaps;
+  struct _splice_node ** UpstreamNodes;
+
+
+  int num_out_edges;
+  int best_out_edge;
+  DOMAIN_OVERLAP ** OutEdgeOverlaps;
+  struct _splice_node ** DownstreamNodes;
+
+
+  float hit_score;
+  float cumulative_score;
+  float best_path_score;
+
+
+} SPLICE_NODE;
+
+
 
 
 
@@ -250,7 +296,7 @@ int DetermineNuclType
  */
 void GetSpliceOptions
 (
-  DOM_OVERLAP * Overlap,
+  DOMAIN_OVERLAP * Overlap,
   int   upstream_ss,
   int   downstream_ss,
   int * SpliceCodons,
@@ -466,7 +512,11 @@ void FindSpliceIndices
   }
 
 
-  *score_density = log((float)(DP2[len1][len2] - splice_bonus) / (float)ali_len);
+  // As I'm thinking about how to incorporate the scores of these
+  // silly splicey things into a graph where we also have *actual*
+  // scores associated with hits, I'll grab ahold of a few thangs...
+  float total_score   = (float)(DP2[len1][len2] - splice_bonus);
+  *score_density      = log(total_score / ali_len);
 
 
   /* DEBUGGING */
@@ -487,7 +537,10 @@ void FindSpliceIndices
     if (j == *model_ss) printf("^");
     else                printf(" ");
   }
-  printf("\n   : %f\n\n",*score_density);
+  printf("\n");
+  printf("   : total   : %f\n",total_score);
+  printf("   : density : %f\n",*score_density);
+  printf("\n");
   /* */
   
 
@@ -519,11 +572,11 @@ void FindSpliceIndices
  */
 void SpliceOverlappingDomains
 (
-  DOM_OVERLAP * Overlap, 
-  ESL_DSQ     * Consensus,
-  float       * FwdEmitScores, 
-  P7_OPROFILE * om, 
-  ESL_GENCODE * gcode
+  DOMAIN_OVERLAP * Overlap, 
+  ESL_DSQ        * Consensus,
+  float          * FwdEmitScores, 
+  P7_OPROFILE    * om, 
+  ESL_GENCODE    * gcode
 )
 {
 
@@ -550,6 +603,8 @@ void SpliceOverlappingDomains
   int ss_A, ss_B, model_ss;
   float score_density;
   FindSpliceIndices(Trans,trans_seq_len,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss,&score_density);
+
+  Overlap->score_density = score_density;
 
 
   // ss_A and ss_B now correspond to the amino acid indices in 'Trans'
@@ -579,6 +634,9 @@ void SpliceOverlappingDomains
     }
   }
 
+  // I'm a dirty little freak
+  Overlap->score = (score_density + best_splice_score) * MIN_AMINO_OVERLAP;
+
 
   // These are the inclusive end points of the spliced coding regions,
   // as indices into the '___streamNucls' arrays.
@@ -586,7 +644,13 @@ void SpliceOverlappingDomains
   Overlap->upstream_exon_terminus   =   upstream_ss + (3 - best_splice_opt);
   Overlap->downstream_exon_terminus = downstream_ss -      best_splice_opt ;
   
-  Overlap->score_density = score_density;
+  if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (Overlap->upstream_exon_terminus - 1);
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (Overlap->downstream_exon_terminus - 1);
+  } else {
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (Overlap->upstream_exon_terminus - 1);
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (Overlap->downstream_exon_terminus - 1);
+  }
 
 
   free(Trans);
@@ -595,7 +659,6 @@ void SpliceOverlappingDomains
   free(Canon5Prime);
   free(Canon3Prime);
   // Codon
-  // FullConsensus
 
 }
 
@@ -606,27 +669,27 @@ void SpliceOverlappingDomains
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: InitSpliceEdge
+ *  Function: SketchSpliceEdge
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-void InitSpliceEdge
+void SketchSpliceEdge
 (
-  P7_TOPHITS  * TopHits,
-  DOM_OVERLAP * SpliceEdge,
-  TARGET_SEQ  * TargetNuclSeq,
-  ESL_DSQ     * Consensus,
-  float       * FwdEmitScores,
-  P7_OPROFILE * om,
-  ESL_GENCODE * gcode
+  P7_TOPHITS     * TopHits,
+  DOMAIN_OVERLAP * Edge,
+  TARGET_SEQ     * TargetNuclSeq,
+  ESL_DSQ        * Consensus,
+  float          * FwdEmitScores,
+  P7_OPROFILE    * om,
+  ESL_GENCODE    * gcode
 )
 {
 
-  P7_DOMAIN *   UpDom = &(TopHits->hit[SpliceEdge->upstream_hit_id]->dcl[SpliceEdge->upstream_dom_id]);
-  P7_DOMAIN * DownDom = &(TopHits->hit[SpliceEdge->downstream_hit_id]->dcl[SpliceEdge->downstream_dom_id]);
+  P7_DOMAIN *   UpDom = &(TopHits->hit[Edge->upstream_hit_id]->dcl[Edge->upstream_dom_id]);
+  P7_DOMAIN * DownDom = &(TopHits->hit[Edge->downstream_hit_id]->dcl[Edge->downstream_dom_id]);
 
 
   int   upstream_hmm_from =   UpDom->ad->hmmfrom;
@@ -645,16 +708,16 @@ void InitSpliceEdge
     strand = -3;
 
 
-  SpliceEdge->upstream_nucl_end = upstream_nt_to;
-  SpliceEdge->downstream_nucl_start = downstream_nt_from;
+  Edge->upstream_nucl_end = upstream_nt_to;
+  Edge->downstream_nucl_start = downstream_nt_from;
 
 
   int amino_overlap  = 1 + upstream_hmm_to - downstream_hmm_from;
   int codons_to_pull = MIN_AMINO_OVERLAP - amino_overlap;
   if (codons_to_pull > 0) {
 
-    SpliceEdge->upstream_nucl_end     += strand * codons_to_pull;
-    SpliceEdge->downstream_nucl_start -= strand * codons_to_pull;
+    Edge->upstream_nucl_end     += strand * codons_to_pull;
+    Edge->downstream_nucl_start -= strand * codons_to_pull;
 
     amino_overlap = MIN_AMINO_OVERLAP;
 
@@ -666,13 +729,13 @@ void InitSpliceEdge
 
 
   // Log the start and end amino acid coord.s
-  SpliceEdge->amino_start = upstream_hmm_to - ((amino_overlap-1) - codons_to_pull);
-  SpliceEdge->amino_end   = SpliceEdge->amino_start + (amino_overlap-1);
+  Edge->amino_start = upstream_hmm_to - ((amino_overlap-1) - codons_to_pull);
+  Edge->amino_end   = Edge->amino_start + (amino_overlap-1);
 
 
   // Prime these coordinates
-  SpliceEdge->upstream_nucl_start = SpliceEdge->upstream_nucl_end     - (codons_to_pull * strand);
-  SpliceEdge->downstream_nucl_end = SpliceEdge->downstream_nucl_start + (codons_to_pull * strand);
+  Edge->upstream_nucl_start = Edge->upstream_nucl_end     - (codons_to_pull * strand);
+  Edge->downstream_nucl_end = Edge->downstream_nucl_start + (codons_to_pull * strand);
 
 
   // Find the upstream nucleotide start (we need to be mindful of gaps)
@@ -683,7 +746,7 @@ void InitSpliceEdge
     
     if (AD->model[ad_pos] == '.') { // // // insertion relative to hmm
 
-      SpliceEdge->upstream_nucl_start -= strand;
+      Edge->upstream_nucl_start -= strand;
 
     } else if (AD->aseq[ad_pos] == '-') { // insertion relative to genome
 
@@ -691,7 +754,7 @@ void InitSpliceEdge
 
     } else { // // // // // // // // // // // Match state! (easy!)
 
-      SpliceEdge->upstream_nucl_start -= strand;
+      Edge->upstream_nucl_start -= strand;
       overlap_aminos_covered++;
 
     }
@@ -708,7 +771,7 @@ void InitSpliceEdge
 
     if (AD->model[ad_pos] == '.') { // // // insertion relative to hmm
 
-      SpliceEdge->downstream_nucl_end += strand;
+      Edge->downstream_nucl_end += strand;
 
     } else if (AD->aseq[ad_pos] == '-') { // insertion relative to genome
 
@@ -716,7 +779,7 @@ void InitSpliceEdge
 
     } else { // // // // // // // // // // // Match state! (easy!)
 
-      SpliceEdge->downstream_nucl_end += strand;
+      Edge->downstream_nucl_end += strand;
       overlap_aminos_covered++;
 
     }
@@ -728,26 +791,27 @@ void InitSpliceEdge
 
   // We'll need to trim the last nucleotide to have inclusive bounds
   if (strand < 0) {
-    SpliceEdge->upstream_nucl_start--;
-    SpliceEdge->downstream_nucl_end++;
+    Edge->upstream_nucl_start--;
+    Edge->downstream_nucl_end++;
   } else {
-    SpliceEdge->upstream_nucl_start++;
-    SpliceEdge->downstream_nucl_end--;
+    Edge->upstream_nucl_start++;
+    Edge->downstream_nucl_end--;
   }
 
 
   // Grab them nucleotides!
-  SpliceEdge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,SpliceEdge->upstream_nucl_start,SpliceEdge->upstream_nucl_end);
-  SpliceEdge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,SpliceEdge->downstream_nucl_start,SpliceEdge->downstream_nucl_end);
+  Edge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,Edge->upstream_nucl_start,Edge->upstream_nucl_end);
+  Edge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,Edge->downstream_nucl_start,Edge->downstream_nucl_end);
 
 
   // Finish off by adding these friendly little pointers
-  SpliceEdge->ntalpha          = TargetNuclSeq->abc;
-  SpliceEdge->UpstreamDomain   =   UpDom;
-  SpliceEdge->DownstreamDomain = DownDom;
+  Edge->ntalpha          = TargetNuclSeq->abc;
+  Edge->UpstreamDomain   =   UpDom;
+  Edge->DownstreamDomain = DownDom;
 
 
-  SpliceOverlappingDomains(SpliceEdge,Consensus,FwdEmitScores,om,gcode);
+  SpliceOverlappingDomains(Edge,Consensus,FwdEmitScores,om,gcode);
+
 
 }
 
@@ -841,20 +905,24 @@ int DomainsAreSpliceCompatible
 
 
 
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GatherViableDownstreamHits
+ *  Function: GatherViableSpliceEdges
  *
  *  Inputs:
  *
  *  Output:
  *
  */
-int GatherViableDownstreamHits
+DOMAIN_OVERLAP ** GatherViableSpliceEdges
 (
   P7_TOPHITS * TopHits,
-  uint64_t upstream_hit_id,
-  DOM_OVERLAP *** SpliceEdges
+  int upstream_hit_id,
+  DOMAIN_OVERLAP ** SpliceEdges,
+  int * splice_edge_capacity,
+  int * num_splice_edges
 )
 {
 
@@ -862,20 +930,9 @@ int GatherViableDownstreamHits
   int num_upstream_doms = UpstreamHit->ndom;
 
 
-  // We'll setup a temporary array to hold the indices
-  // of hits that could serve as downstream exons for our
-  // candidate (upstream) hit
-  int vc_capacity  = 8;
-  int vc_occupancy = 0;
-  int      * ViableUpstreamDoms   = malloc(vc_capacity * sizeof(int));
-  uint64_t * ViableDownstreamHits = malloc(vc_capacity * sizeof(uint64_t));
-  int      * ViableDownstreamDoms = malloc(vc_capacity * sizeof(int));
-
-
   // For each hit, gather all of the indices of other hits that
   // could potentially be downstream exons.
-  uint64_t num_hits = TopHits->N;
-  for (uint64_t downstream_hit_id=0; downstream_hit_id < num_hits; downstream_hit_id++) {
+  for (int downstream_hit_id=0; downstream_hit_id < (int)(TopHits->N); downstream_hit_id++) {
 
 
     // We only consider splicing when the two hits come 
@@ -908,46 +965,35 @@ int GatherViableDownstreamHits
 
         if (DomainsAreSpliceCompatible(UpstreamDomain->ad,DownstreamDomain->ad)) {
 
-          // Do we need to resize before entering new info.?
-          if (vc_occupancy == vc_capacity) {
+          // MUST WE RESIZE?!
+          if (*num_splice_edges == *splice_edge_capacity) {
 
-            int      * TmpUpDoms   = malloc(vc_occupancy * sizeof(int));
-            uint64_t * TmpDownHits = malloc(vc_occupancy * sizeof(uint64_t));
-            int      * TmpDownDoms = malloc(vc_occupancy * sizeof(int));
+            DOMAIN_OVERLAP ** TmpSpliceEdges = (DOMAIN_OVERLAP **)malloc(*splice_edge_capacity * sizeof(DOMAIN_OVERLAP *));
+            for (int j=0; j<*num_splice_edges; j++)
+              TmpSpliceEdges[j] = SpliceEdges[j];
 
-            for (int i=0; i<vc_occupancy; i++) {
-              TmpUpDoms[i]   = ViableUpstreamDoms[i];
-              TmpDownHits[i] = ViableDownstreamHits[i];
-              TmpDownDoms[i] = ViableDownstreamDoms[i];
-            }
+            *splice_edge_capacity *= 2;
+            SpliceEdges = (DOMAIN_OVERLAP **)malloc(*splice_edge_capacity * sizeof(DOMAIN_OVERLAP *));
+            for (int j=0; j<*num_splice_edges; j++)
+              SpliceEdges[j] = TmpSpliceEdges[j];
 
-            free(ViableUpstreamDoms);
-            free(ViableDownstreamHits);
-            free(ViableDownstreamDoms);
-
-            vc_capacity *= 2;
-            ViableUpstreamDoms   = malloc(vc_capacity * sizeof(int));
-            ViableDownstreamHits = malloc(vc_capacity * sizeof(uint64_t));
-            ViableDownstreamDoms = malloc(vc_capacity * sizeof(int));
-
-            for (int i=0; i<vc_occupancy; i++) {
-              ViableUpstreamDoms[i]   = TmpUpDoms[i];
-              ViableDownstreamHits[i] = TmpDownHits[i];
-              ViableDownstreamDoms[i] = TmpDownDoms[i];
-            }
-
-            free(TmpUpDoms);
-            free(TmpDownHits);
-            free(TmpDownDoms);
+            free(TmpSpliceEdges);
 
           }
 
-          // Record that splice compatibility!
-          ViableUpstreamDoms[vc_occupancy]   = upstream_dom_id;
-          ViableDownstreamHits[vc_occupancy] = downstream_hit_id;
-          ViableDownstreamDoms[vc_occupancy] = downstream_dom_id;
 
-          vc_occupancy++;
+          // Record that splice compatibility!
+          SpliceEdges[*num_splice_edges] = (DOMAIN_OVERLAP *)malloc(sizeof(DOMAIN_OVERLAP));
+      
+          // Initialize this DOMAIN_OVERLAP entry
+          DOMAIN_OVERLAP * Edge = SpliceEdges[*num_splice_edges];
+
+          Edge->upstream_hit_id   = upstream_hit_id;
+          Edge->upstream_dom_id   = upstream_dom_id;
+          Edge->downstream_hit_id = downstream_hit_id;
+          Edge->downstream_dom_id = downstream_dom_id;
+
+          *num_splice_edges += 1;
 
         }
 
@@ -955,39 +1001,9 @@ int GatherViableDownstreamHits
 
     }
 
-
   }
 
-
-  // Did we find any viable downstream exons for this hit?
-  // If so, copy 'em over!
-  if (vc_occupancy > 0) {
-    
-    SpliceEdges[upstream_hit_id] = (DOM_OVERLAP **)malloc(vc_occupancy * sizeof(DOM_OVERLAP *));
-
-    for (int i=0; i<vc_occupancy; i++) {
-          
-      SpliceEdges[upstream_hit_id][i] = (DOM_OVERLAP *)malloc(sizeof(DOM_OVERLAP));
-      
-      // Initialize this DOM_OVERLAP entry
-      DOM_OVERLAP * OverlapIniter = SpliceEdges[upstream_hit_id][i];
-
-      OverlapIniter->upstream_hit_id   = upstream_hit_id;
-      OverlapIniter->upstream_dom_id   = ViableUpstreamDoms[i];
-      OverlapIniter->downstream_hit_id = ViableDownstreamHits[i];
-      OverlapIniter->downstream_dom_id = ViableDownstreamDoms[i];
-
-    }
-
-  }
-
-
-  free(ViableUpstreamDoms);
-  free(ViableDownstreamHits);
-  free(ViableDownstreamDoms);
-
-
-  return vc_occupancy;
+  return SpliceEdges;
 
 }
 
@@ -1030,7 +1046,7 @@ void GetMinAndMaxCoords
 
   if (revcomp) {
 
-    for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
+    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
 
       Hit = TopHits->hit[hit_id];
       for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
@@ -1049,7 +1065,7 @@ void GetMinAndMaxCoords
 
   } else {
 
-    for (uint64_t hit_id = 0; hit_id < TopHits->N; hit_id++) {
+    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
 
       Hit = TopHits->hit[hit_id];
       for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
@@ -1122,14 +1138,307 @@ TARGET_SEQ * GetTargetNuclSeq
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GenSpliceGraphs
+ *  Function: InitSpliceNode
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+SPLICE_NODE * InitSpliceNode
+(P7_TOPHITS * TopHits, int hit_id, int dom_id, int node_id, int max_splice_edges)
+{
+  
+  SPLICE_NODE * NewNode = (SPLICE_NODE *)malloc(sizeof(SPLICE_NODE));
+
+  NewNode->hit_id  = hit_id;
+  NewNode->dom_id  = dom_id;
+  NewNode->node_id = node_id;
+
+  NewNode->num_out_edges   =  0;
+  NewNode->best_out_edge   = -1;
+  NewNode->OutEdgeOverlaps = (DOMAIN_OVERLAP **)malloc(max_splice_edges*sizeof(DOMAIN_OVERLAP *));
+  NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(max_splice_edges*sizeof(SPLICE_NODE    *));
+
+  NewNode->num_in_edges   =  0;
+  NewNode->best_in_edge   = -1;
+  NewNode->InEdgeOverlaps = (DOMAIN_OVERLAP **)malloc(max_splice_edges*sizeof(DOMAIN_OVERLAP *));
+  NewNode->UpstreamNodes  = (SPLICE_NODE    **)malloc(max_splice_edges*sizeof(SPLICE_NODE    *));
+
+  NewNode->hit_score        = TopHits->hit[hit_id]->dcl[dom_id].bitscore;
+  NewNode->cumulative_score = 0.0; // Best score up to and including this node
+  NewNode->best_path_score  = 0.0; // Best full path score using this node
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FindBestPathToNode
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void FindBestPathToNode
+(SPLICE_NODE * Node)
+{
+
+  // Have we already examined this node?
+  if (Node->best_in_edge >= 0)
+    return;
+
+  for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
+  
+    FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
+
+    // What's the score of the path up to the current node using
+    // this as our input edge?
+    float edge_sum_score = Node->UpstreamNodes[in_edge_id]->cumulative_score;
+    edge_sum_score += Node->InEdgeOverlaps[in_edge_id]->score;
+
+    if (edge_sum_score > Node->cumulative_score) {
+      Node->cumulative_score = edge_sum_score;
+      Node->best_in_edge     = in_edge_id;
+    }
+
+  }
+
+  Node->cumulative_score += Node->hit_score;
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: EvangelizePath
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void EvangelizePath
+(SPLICE_NODE * Node)
+{
+  float path_score = Node->best_path_score;
+
+  SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[Node->best_in_edge];
+
+  if (path_score > UpstreamNode->best_path_score) {
+      
+    UpstreamNode->best_path_score = path_score;
+    
+    for (int i=0; i<UpstreamNode->num_out_edges; i++) {
+      if (UpstreamNode->DownstreamNodes[i] == Node) {
+        UpstreamNode->best_out_edge = i;
+        break;
+      }
+    }
+
+    EvangelizePath(UpstreamNode);
+    
+  }
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GenCumScoreSort
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+int * GenCumScoreSort
+(SPLICE_NODE ** SpliceGraph, int num_nodes)
+{
+
+  int * SortIndex  = malloc(num_nodes*sizeof(int));
+  int * WriteIndex = malloc(num_nodes*sizeof(int));
+
+  for (int i=0; i<num_nodes; i++)
+    SortIndex[i] = i+1;
+
+  for (int window_size = 1; window_size < num_nodes; window_size *= 2) {
+
+    int write_pos = 0;
+    while (write_pos + window_size < num_nodes) {
+
+      int a_start = write_pos;
+      int a_end   = a_start + window_size;
+      
+      int b_start = a_end;
+      int b_end   = b_start + window_size;
+      if (b_end > num_nodes)
+        b_end = num_nodes;
+
+      while (a_start < a_end && b_start < b_end) {
+
+        if (SpliceGraph[SortIndex[a_start]]->cumulative_score > SpliceGraph[SortIndex[b_start]]->cumulative_score)
+          WriteIndex[write_pos++] = SortIndex[a_start++];
+        else
+          WriteIndex[write_pos++] = SortIndex[b_start++];
+      
+      }
+
+      while (a_start < a_end)
+        WriteIndex[write_pos++] = SortIndex[a_start++];
+
+      while (b_start < b_end)
+        WriteIndex[write_pos++] = SortIndex[b_start++];
+
+    }
+
+    for (int i=0; i<num_nodes; i++)
+      SortIndex[i] = WriteIndex[i];
+
+  }
+  free(WriteIndex);
+
+  return SortIndex;
+
+}
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: BuildSpliceGraph
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+SPLICE_NODE ** BuildSpliceGraph
+(P7_TOPHITS * TopHits, DOMAIN_OVERLAP ** SpliceEdges, int num_edges, int * num_nodes)
+{
+
+  int num_hits = (int)(TopHits->N);
+  
+
+  int max_hit_doms = 0;
+  *num_nodes = 0;
+
+  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+    int hit_doms = TopHits->hit[hit_id]->ndom;
+    if (hit_doms > max_hit_doms)
+      max_hit_doms = hit_doms;
+    *num_nodes += hit_doms;
+  }
+
+  // We're going to build a table to help us easily switch
+  // back and forth between (hit_id,domain_id) and node_id
+  int ** HitDomNodeIDs = malloc(num_hits * sizeof(int *));
+
+  // Maybe we'll even make some splice nodes... who knows?
+  SPLICE_NODE ** SpliceGraph = (SPLICE_NODE **)malloc((*num_nodes + 1)*sizeof(SPLICE_NODE *));
+
+  int node_id = 0;
+  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+
+    HitDomNodeIDs[hit_id] = malloc(max_hit_doms * sizeof(int));
+    for (int dom_id=0; dom_id<max_hit_doms; dom_id++) {
+
+      if (dom_id < TopHits->hit[hit_id]->ndom) {
+
+        HitDomNodeIDs[hit_id][dom_id] = ++node_id;
+
+        SpliceGraph[node_id] = InitSpliceNode(TopHits,hit_id,dom_id,node_id,num_edges);
+
+      } else {
+
+        HitDomNodeIDs[hit_id][dom_id] = 0;
+
+      }
+
+    }
+
+  }
+
+
+  for (int edge_id=0; edge_id<num_edges; edge_id++) {
+
+    DOMAIN_OVERLAP * Edge = SpliceEdges[edge_id];
+
+    int upstream_node_id = HitDomNodeIDs[Edge->upstream_hit_id][Edge->upstream_dom_id];
+    SPLICE_NODE * UpstreamNode = SpliceGraph[upstream_node_id];
+
+    int downstream_node_id = HitDomNodeIDs[Edge->downstream_hit_id][Edge->downstream_dom_id];
+    SPLICE_NODE * DownstreamNode = SpliceGraph[downstream_node_id];
+
+    UpstreamNode->OutEdgeOverlaps[UpstreamNode->num_out_edges] = Edge;
+    UpstreamNode->DownstreamNodes[UpstreamNode->num_out_edges] = DownstreamNode;
+    UpstreamNode->num_out_edges += 1;
+    
+    DownstreamNode->InEdgeOverlaps[DownstreamNode->num_in_edges] = Edge;
+    DownstreamNode->UpstreamNodes[DownstreamNode->num_in_edges]  = UpstreamNode;
+    DownstreamNode->num_in_edges += 1;
+
+
+  }
+
+
+  // Find the best path to each node
+  for (node_id=1; node_id<=*num_nodes; node_id++)
+    FindBestPathToNode(SpliceGraph[node_id]);
+
+
+  // Generate a sorting of cumulative scores (high to low)
+  int * CumScoreSortIndex = GenCumScoreSort(SpliceGraph,*num_nodes);
+  for (int node_sort_id=0; node_sort_id<*num_nodes; node_sort_id++) {
+    
+    node_id = CumScoreSortIndex[node_sort_id];
+
+    if (SpliceGraph[node_id]->best_path_score == 0.0) {
+      SpliceGraph[node_id]->best_path_score = SpliceGraph[node_id]->cumulative_score;
+      EvangelizePath(SpliceGraph[node_id]);
+    }
+  
+  }
+
+
+
+  // CLEAN UP, PLEASE!!!
+  for (int hit_id=0; hit_id<num_hits; hit_id++)
+    free(HitDomNodeIDs[hit_id]);
+  free(HitDomNodeIDs);
+  free(CumScoreSortIndex);
+
+  return SpliceGraph;
+
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SpliceHits
  *
  *  Inputs:  
  *
  *  Output:  (Eventually) splice graphs built around the original hits.
  *
  */
-void GenSpliceGraphs
+void SpliceHits
 (P7_TOPHITS * TopHits, ESL_SQFILE * GenomicSeqFile, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
 
@@ -1141,20 +1450,19 @@ void GenSpliceGraphs
   //
   p7_tophits_SortBySeqidxAndAlipos(TopHits);
 
-  uint64_t num_hits = TopHits->N;
+  int num_hits = (int)(TopHits->N);
+
+
+  // We'll just make an unordered list of our splice edges for now
+  int edge_capacity = 2 * num_hits;
+  DOMAIN_OVERLAP ** SpliceEdges = (DOMAIN_OVERLAP **)malloc(edge_capacity * sizeof(DOMAIN_OVERLAP *));
 
 
   // For each hit, how many possible splice edges are there (all domains)?
   //
-  int * ViableSpliceTargets = malloc(num_hits * sizeof(int));
-  DOM_OVERLAP *** SpliceEdges = (DOM_OVERLAP ***)malloc(num_hits * sizeof(DOM_OVERLAP **));
-
-  for (uint64_t hit_id = 0; hit_id < num_hits; hit_id++) {
-    
-    SpliceEdges[hit_id]         = NULL;
-    ViableSpliceTargets[hit_id] = GatherViableDownstreamHits(TopHits,hit_id,SpliceEdges);
-
-  }
+  int num_edges = 0;
+  for (int hit_id = 0; hit_id < num_hits; hit_id++)
+    SpliceEdges = GatherViableSpliceEdges(TopHits,hit_id,SpliceEdges,&edge_capacity,&num_edges);
 
 
   // Given that our hits are organized by target sequence, we can
@@ -1168,20 +1476,24 @@ void GenSpliceGraphs
   p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmitScores);
 
 
-  // Grab the consensus sequence, too! (for dp alignment)
+  // Grab the consensus sequence, too! (for our quick 'n' dirty dp alignment)
   ESL_DSQ * Consensus;
   esl_abc_CreateDsq(om->abc,om->consensus,&Consensus);
 
 
-
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
-  for (uint64_t upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++)
-    for (int splice_edge_id = 0; splice_edge_id < ViableSpliceTargets[upstream_hit_id]; splice_edge_id++)
-      InitSpliceEdge(TopHits,SpliceEdges[upstream_hit_id][splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
+  for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++)
+    SketchSpliceEdge(TopHits,SpliceEdges[splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
 
 
-  free(ViableSpliceTargets);
+  // Them's some lil' splice edges, alrighty!
+  // Now we can do some simple graph-ery and find our best path(s?)
+  // through the full HMM (hopefully)
+  int num_nodes;
+  BuildSpliceGraph(TopHits,SpliceEdges,num_edges,&num_nodes);
+
+
   free(FwdEmitScores);
   // TargetNuclSeq
   // Consensus
@@ -1748,7 +2060,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
       // NORD - START
       if (tophits_accumulator->N)
-        GenSpliceGraphs(tophits_accumulator,dbfp,om,gcode);
+        SpliceHits(tophits_accumulator,dbfp,om,gcode);
       // NORD - END
 
 
