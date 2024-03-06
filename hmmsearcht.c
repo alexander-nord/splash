@@ -223,8 +223,10 @@ typedef struct _splice_node {
 //
 typedef struct _splice_graph {
 
+
   P7_TOPHITS  * TopHits;
   P7_OPROFILE * Model;
+
 
   int num_hits;
   int max_doms; // Maximum number of domains in a single hit (table width)
@@ -235,18 +237,22 @@ typedef struct _splice_graph {
   int num_edges;
   SPLICE_NODE ** Nodes; // NOTE: these go from [1..num_nodes]
 
+
   int * CumScoreSort; // Yes, it says cum.  FOR CUMULATIVE!
+
 
   int   num_n_term;
   int * NTermNodeIDs; // Sorted by cumulative score
 
   int   num_c_term;
-  int * CTermNodeIDs; // Also sorted by cum score. CUM.
+  int * CTermNodeIDs; // Also sorted by cum score. ~CUM~
+
 
   int   has_full_path;
   int   best_full_path_start;
   int   best_full_path_end;
   float best_full_path_score;
+
 
 } SPLICE_GRAPH;
 
@@ -1870,11 +1876,31 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: SearchForMissingExons
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void SearchForMissingExons
+(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+{
+  
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: SpliceHits
  *
  *  Inputs:  
  *
- *  Output:  (Eventually) splice graphs built around the original hits.
+ *  Output:
  *
  */
 void SpliceHits
@@ -1931,6 +1957,11 @@ void SpliceHits
   SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,om,SpliceEdges,num_edges);
 
   DumpGraph(Graph);
+
+
+  if (!Graph->has_full_path) 
+    SearchForMissingExons(Graph,TargetNuclSeq);
+
 
   free(FwdEmitScores);
   // TargetNuclSeq
