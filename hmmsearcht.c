@@ -64,7 +64,8 @@ typedef struct {
 
 
 
-static int ALEX_DEBUG = 1;
+
+
 
 
 static int B62[441] = {
@@ -172,6 +173,9 @@ typedef struct _domain_overlap {
 
 
 
+
+
+
 //////////////////////////////////////////////////////////
 //
 //  SPLICE_NODE
@@ -185,15 +189,19 @@ typedef struct _splice_node {
 
 
   int num_in_edges;
-  int best_in_edge;
-  DOMAIN_OVERLAP ** InEdgeOverlaps;
+  int best_in_edge; // Relative to the following arrays
+  DOMAIN_OVERLAP ** InEdges;
   struct _splice_node ** UpstreamNodes;
 
 
   int num_out_edges;
-  int best_out_edge;
-  DOMAIN_OVERLAP ** OutEdgeOverlaps;
+  int best_out_edge; // Relative to the following arrays
+  DOMAIN_OVERLAP ** OutEdges;
   struct _splice_node ** DownstreamNodes;
+
+
+  int is_n_terminal;
+  int is_c_terminal;
 
 
   float hit_score;
@@ -202,6 +210,199 @@ typedef struct _splice_node {
 
 
 } SPLICE_NODE;
+
+
+
+
+
+
+
+//////////////////////////////////////////////////////////
+//
+//  SPLICE_GRAPH
+//
+typedef struct _splice_graph {
+
+  P7_TOPHITS  * TopHits;
+  P7_OPROFILE * Model;
+
+  int num_hits;
+  int max_doms; // Maximum number of domains in a single hit (table width)
+  int ** HitDomToNodeID; // Go from a hit-domain pair to a node index
+
+
+  int num_nodes;
+  int num_edges;
+  SPLICE_NODE ** Nodes; // NOTE: these go from [1..num_nodes]
+
+  int * CumScoreSort; // Yes, it says cum.  FOR CUMULATIVE!
+
+  int   num_n_term;
+  int * NTermNodeIDs; // Sorted by cumulative score
+
+  int   num_c_term;
+  int * CTermNodeIDs; // Also sorted by cum score. CUM.
+
+  int   has_full_path;
+  int   best_full_path_start;
+  int   best_full_path_end;
+  float best_full_path_score;
+
+} SPLICE_GRAPH;
+
+
+
+
+
+
+/* DEBUGGING FUNCTION: DumpNode  */
+void DumpNode (SPLICE_NODE * Node)
+{
+  printf("   |\n");
+  printf("   |       NODE %d\n",Node->node_id);
+  printf("   |     ,---------------------------------------------------\n");
+  printf("   |     |\n");
+  printf("   |     |  Source in P7_TOPHITS  :  Hit %d, Domain %d\n", Node->hit_id, Node->dom_id);
+  printf("   |     |\n");
+  printf("   |     |  Score of Source Hit      :  %f\n",Node->hit_score);
+  printf("   |     |  Score of Path Up To Node :  %f\n",Node->cumulative_score);
+  printf("   |     |  Total Score of Best Path\n");
+  printf("   |     |      that Uses this Node  :  %f\n",Node->best_path_score);
+  printf("   |     |\n");
+  if (Node->num_in_edges > 0) {
+    printf("   |     |  Number of Incoming Edges :  %d\n",Node->num_in_edges);
+    printf("   |     |  Best Upstream Node       :  Node %d\n",Node->UpstreamNodes[Node->best_in_edge]->node_id);
+  } else if (Node->is_n_terminal) {
+    printf("   |     |  * N-TERMINAL NODE\n");
+  } else {
+    printf("   |     |  - No Incoming Edges\n");
+  }
+  printf("   |     |\n");
+  if (Node->num_out_edges > 0) {
+    printf("   |     |  Number of Outgoing Edges :  %d\n",Node->num_out_edges);
+    printf("   |     |  Best Downstream Node     :  Node %d\n",Node->DownstreamNodes[Node->best_out_edge]->node_id);
+  } else if (Node->is_c_terminal) {
+    printf("   |     |  * C-TERMINAL NODE\n");
+  } else {
+    printf("   |     |  - No Outgoing Edges\n");
+  }
+  printf("   |     |\n");
+  printf("   |     '\n");
+  printf("   |\n");
+}
+/* DEBUGGING FUNCTION: DumpGraph */
+void DumpGraph(SPLICE_GRAPH * Graph)
+{
+  printf("\n\n");
+  printf("     SPLICE GRAPH\n");
+  printf("   +=========================================================+\n");
+  printf("   |\n");
+  printf("   |  Total Number of Nodes      : %d\n",Graph->num_nodes);
+  printf("   |  Total Number of Edges      : %d\n",Graph->num_edges);
+  printf("   |\n");
+  printf("   |  Number of N-terminal nodes : %d\n",Graph->num_n_term);
+  printf("   |  Number of C-terminal nodes : %d\n",Graph->num_c_term);
+  printf("   |\n");
+  if (Graph->has_full_path)
+    printf("   |  * This graph has at least one full path through the HMM!\n");
+  printf("   |\n");
+  printf("   |\n");
+  for (int i=1; i<=Graph->num_nodes; i++) DumpNode(Graph->Nodes[i]);
+  printf("   |\n");
+  printf("   |\n");
+  printf("   +=========================================================+\n");
+  printf("\n\n\n");
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FloatHighLowSortIndex
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+int * FloatHighLowSortIndex
+(float * Vals, int num_vals)
+{
+
+  int * Write = malloc(num_vals * sizeof(int));
+  int * Read  = malloc(num_vals * sizeof(int));
+  int * Tmp;
+
+  for (int i=0; i<num_vals; i++) {
+    Write[i] = i;
+    Read[i]  = i;
+  }
+
+  // Of course I'm doing a merge sort
+  int writer,left_reader,left_break,right_reader,right_break;
+  int ms_block_size = 1;
+  while (ms_block_size < num_vals) {
+
+    writer = 0;
+    while (writer+ms_block_size < num_vals) {
+
+      left_reader = writer;
+      left_break  = writer + ms_block_size;
+
+      right_reader = left_break;
+      right_break  = right_reader + ms_block_size;
+      if (right_break > num_vals)
+        right_break = num_vals;
+
+      while (left_reader < left_break && right_reader < right_break) {
+        if (Vals[Read[left_reader]] > Vals[Read[right_reader]])
+          Write[writer++] = Read[left_reader++];
+        else 
+          Write[writer++] = Read[right_reader++];
+      }
+      while ( left_reader <  left_break) Write[writer++] = Read[ left_reader++];
+      while (right_reader < right_break) Write[writer++] = Read[right_reader++];
+
+    }
+
+    while (writer < num_vals) 
+      Write[writer++] = Read[writer];
+
+    // Flip 'em
+    Tmp = Read;
+    Read = Write;
+    Write = Tmp;
+
+    // Again! Again!
+    ms_block_size *= 2;
+
+  }
+
+  free(Write);
+  return Read;
+
+}
+/*  Function: FloatLowHighSortIndex
+ *
+ */
+int * FloatLowHighSortIndex
+(float * Vals, int num_vals)
+{
+  int * SortIndex = FloatHighLowSortIndex(Vals,num_vals);
+  for (int i=0; i<num_vals/2; i++) {
+    int tmp = SortIndex[i];
+    SortIndex[i] = SortIndex[(num_vals-1)-i];
+    SortIndex[(num_vals-1)-i] = tmp;
+  }
+  return SortIndex;
+}
+
+
+
 
 
 
@@ -519,7 +720,7 @@ void FindSpliceIndices
   *score_density      = log(total_score / ali_len);
 
 
-  /* DEBUGGING */
+  /* DEBUGGING *
   printf("\n   ");
   for (int i=1; i<=len1; i++) {
     if (i >= *ss_A && i <= *ss_B) printf("_");
@@ -610,7 +811,6 @@ void SpliceOverlappingDomains
   // ss_A and ss_B now correspond to the amino acid indices in 'Trans'
   // that we're going to chop with the splice site.
 
-
   // Each index is positioned at the last 'uncontested' nucleotide
   int   upstream_ss = 3*(ss_A - 1);
   int downstream_ss = 3*(ss_B - upstream_nucl_cnt/3) + 1;
@@ -633,6 +833,7 @@ void SpliceOverlappingDomains
       best_splice_opt   = i;
     }
   }
+
 
   // I'm a dirty little freak
   Overlap->score = (score_density + best_splice_score) * MIN_AMINO_OVERLAP;
@@ -952,7 +1153,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
     for (int upstream_dom_id = 0; upstream_dom_id < num_upstream_doms; upstream_dom_id++) {
 
-      P7_DOMAIN * UpstreamDomain = &UpstreamHit->dcl[upstream_dom_id];
+      P7_ALIDISPLAY * UpstreamDisplay = (&UpstreamHit->dcl[upstream_dom_id])->ad;
 
       for (int downstream_dom_id = 0; downstream_dom_id < num_downstream_doms; downstream_dom_id++) {
 
@@ -961,9 +1162,9 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
           continue;
 
 
-        P7_DOMAIN * DownstreamDomain = &DownstreamHit->dcl[downstream_dom_id];
+        P7_ALIDISPLAY * DownstreamDisplay = (&DownstreamHit->dcl[downstream_dom_id])->ad;
 
-        if (DomainsAreSpliceCompatible(UpstreamDomain->ad,DownstreamDomain->ad)) {
+        if (DomainsAreSpliceCompatible(UpstreamDisplay,DownstreamDisplay)) {
 
           // MUST WE RESIZE?!
           if (*num_splice_edges == *splice_edge_capacity) {
@@ -1146,32 +1347,83 @@ TARGET_SEQ * GetTargetNuclSeq
  *
  */
 SPLICE_NODE * InitSpliceNode
-(P7_TOPHITS * TopHits, int hit_id, int dom_id, int node_id, int max_splice_edges)
+(SPLICE_GRAPH * Graph, int hit_id, int dom_id, int node_id)
 {
   
   SPLICE_NODE * NewNode = (SPLICE_NODE *)malloc(sizeof(SPLICE_NODE));
+
 
   NewNode->hit_id  = hit_id;
   NewNode->dom_id  = dom_id;
   NewNode->node_id = node_id;
 
+
   NewNode->num_out_edges   =  0;
   NewNode->best_out_edge   = -1;
-  NewNode->OutEdgeOverlaps = (DOMAIN_OVERLAP **)malloc(max_splice_edges*sizeof(DOMAIN_OVERLAP *));
-  NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(max_splice_edges*sizeof(SPLICE_NODE    *));
+  NewNode->OutEdges        = (DOMAIN_OVERLAP **)malloc(Graph->num_edges*sizeof(DOMAIN_OVERLAP *));
+  NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(Graph->num_edges*sizeof(SPLICE_NODE    *));
 
   NewNode->num_in_edges   =  0;
   NewNode->best_in_edge   = -1;
-  NewNode->InEdgeOverlaps = (DOMAIN_OVERLAP **)malloc(max_splice_edges*sizeof(DOMAIN_OVERLAP *));
-  NewNode->UpstreamNodes  = (SPLICE_NODE    **)malloc(max_splice_edges*sizeof(SPLICE_NODE    *));
+  NewNode->InEdges        = (DOMAIN_OVERLAP **)malloc(Graph->num_edges*sizeof(DOMAIN_OVERLAP *));
+  NewNode->UpstreamNodes  = (SPLICE_NODE    **)malloc(Graph->num_edges*sizeof(SPLICE_NODE    *));
 
-  NewNode->hit_score        = TopHits->hit[hit_id]->dcl[dom_id].bitscore;
+
+  NewNode->is_n_terminal = 0;
+  if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmfrom == 1)
+    NewNode->is_n_terminal = 1;
+
+  NewNode->is_c_terminal = 0;
+  if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmto == Graph->Model->M)
+    NewNode->is_c_terminal = 1;
+
+
+  NewNode->hit_score        = Graph->TopHits->hit[hit_id]->dcl[dom_id].bitscore;
   NewNode->cumulative_score = 0.0; // Best score up to and including this node
   NewNode->best_path_score  = 0.0; // Best full path score using this node
 
   return NewNode;
 
 }
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ConnectNodesByEdge
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void ConnectNodesByEdge
+(DOMAIN_OVERLAP * Edge, SPLICE_GRAPH * Graph)
+{
+
+  int upstream_node_id = Graph->HitDomToNodeID[Edge->upstream_hit_id][Edge->upstream_dom_id];
+  SPLICE_NODE * UpstreamNode = Graph->Nodes[upstream_node_id];
+
+  int downstream_node_id = Graph->HitDomToNodeID[Edge->downstream_hit_id][Edge->downstream_dom_id];
+  SPLICE_NODE * DownstreamNode = Graph->Nodes[downstream_node_id];
+
+  UpstreamNode->OutEdges[UpstreamNode->num_out_edges] = Edge;
+  UpstreamNode->DownstreamNodes[UpstreamNode->num_out_edges] = DownstreamNode;
+  UpstreamNode->num_out_edges += 1;
+    
+  DownstreamNode->InEdges[DownstreamNode->num_in_edges] = Edge;
+  DownstreamNode->UpstreamNodes[DownstreamNode->num_in_edges]  = UpstreamNode;
+  DownstreamNode->num_in_edges += 1;
+
+}
+
+
+
 
 
 
@@ -1191,7 +1443,7 @@ void FindBestPathToNode
 {
 
   // Have we already examined this node?
-  if (Node->best_in_edge >= 0)
+  if (Node->cumulative_score != 0.0)
     return;
 
   for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
@@ -1201,7 +1453,7 @@ void FindBestPathToNode
     // What's the score of the path up to the current node using
     // this as our input edge?
     float edge_sum_score = Node->UpstreamNodes[in_edge_id]->cumulative_score;
-    edge_sum_score += Node->InEdgeOverlaps[in_edge_id]->score;
+    edge_sum_score += Node->InEdges[in_edge_id]->score;
 
     if (edge_sum_score > Node->cumulative_score) {
       Node->cumulative_score = edge_sum_score;
@@ -1230,29 +1482,132 @@ void FindBestPathToNode
 void EvangelizePath
 (SPLICE_NODE * Node)
 {
-  // No point evangelizing to the wind
-  if (Node->num_in_edges == 0) return;
 
-  SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[Node->best_in_edge];
+  if (Node->best_path_score == 0.0) 
+    Node->best_path_score = Node->cumulative_score;
 
-  float path_score = Node->best_path_score;
-  if (path_score > UpstreamNode->best_path_score) {
-      
-    UpstreamNode->best_path_score = path_score;
-    
-    for (int i=0; i<UpstreamNode->num_out_edges; i++) {
-      if (UpstreamNode->DownstreamNodes[i] == Node) {
-        UpstreamNode->best_out_edge = i;
-        break;
+  for (int i=0; i<Node->num_in_edges; i++) {
+
+    SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[i];
+
+    if (Node->best_path_score > UpstreamNode->best_path_score) {
+
+      // NOTE: This isn't necessarily the most rigorous
+      //       definition of the best outgoing edge, but
+      //       for our purposes it's fine.
+      for (int j=0; j<UpstreamNode->num_out_edges; j++) {
+        if (UpstreamNode->DownstreamNodes[j] == Node) {
+          UpstreamNode->best_out_edge = j;
+          break;
+        }
       }
-    }
 
-    EvangelizePath(UpstreamNode);
+      // We'll only set the upstream node's best_path_score
+      // to this node's bps *if* the upstream node is how we
+      // achieved our best_path_score!
+      if (i == Node->best_in_edge) {
+        UpstreamNode->best_path_score = Node->best_path_score;    
+        EvangelizePath(UpstreamNode);
+      }
     
+    }
   }
 
 }
 
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GatherNTermNodes
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void GatherNTermNodes
+(SPLICE_GRAPH * Graph)
+{
+
+  // We'll re-count N terminal hits, just to be certain
+  int num_n_term = 0;
+
+  int   * NTermIDs    = malloc(Graph->num_nodes * sizeof(int  ));
+  float * NTermScores = malloc(Graph->num_nodes * sizeof(float));
+
+  for (int i=1; i<=Graph->num_nodes; i++) {
+    if (Graph->Nodes[i]->is_n_terminal) {
+      NTermIDs[num_n_term] = i;
+      NTermScores[num_n_term] = Graph->Nodes[i]->best_path_score;
+      num_n_term++;
+    }
+  }
+
+  int * NTermScoreSort = FloatHighLowSortIndex(NTermScores,num_n_term);
+  
+  if (Graph->NTermNodeIDs)
+    free(Graph->NTermNodeIDs);
+
+  Graph->NTermNodeIDs = malloc(num_n_term * sizeof(int));
+  Graph->num_n_term   = num_n_term;
+  for (int i=0; i<num_n_term; i++)
+    Graph->NTermNodeIDs[i] = NTermIDs[NTermScoreSort[i]];
+
+  free(NTermIDs);
+  free(NTermScores);
+  free(NTermScoreSort);
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GatherCTermNodes
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void GatherCTermNodes
+(SPLICE_GRAPH * Graph)
+{
+
+  // We'll re-count C terminal hits, just to be certain
+  int num_c_term = 0;
+
+  int   * CTermIDs    = malloc(Graph->num_nodes * sizeof(int  ));
+  float * CTermScores = malloc(Graph->num_nodes * sizeof(float));
+
+  for (int i=1; i<=Graph->num_nodes; i++) {
+    if (Graph->Nodes[i]->is_c_terminal) {
+      CTermIDs[num_c_term] = i;
+      CTermScores[num_c_term] = Graph->Nodes[i]->best_path_score;
+      num_c_term++;
+    }
+  }
+
+  int * CTermScoreSort = FloatHighLowSortIndex(CTermScores,num_c_term);
+  
+  if (Graph->CTermNodeIDs)
+    free(Graph->CTermNodeIDs);
+
+  Graph->CTermNodeIDs = malloc(num_c_term * sizeof(int));
+  Graph->num_c_term   = num_c_term;
+  for (int i=0; i<num_c_term; i++)
+    Graph->CTermNodeIDs[i] = CTermIDs[CTermScoreSort[i]];
+
+  free(CTermIDs);
+  free(CTermScores);
+  free(CTermScoreSort);
+
+}
 
 
 
@@ -1266,57 +1621,183 @@ void EvangelizePath
  *  Output:
  *
  */
-int * GenCumScoreSort
-(SPLICE_NODE ** SpliceGraph, int num_nodes)
+void GenCumScoreSort
+(SPLICE_GRAPH * Graph)
 {
 
-  int * SortIndex  = malloc(num_nodes*sizeof(int));
-  int * WriteIndex = malloc(num_nodes*sizeof(int));
+  float * Scores = malloc(Graph->num_nodes * sizeof(float));
+  for (int i=0; i<Graph->num_nodes; i++)
+    Scores[i] = Graph->Nodes[i+1]->cumulative_score;
 
-  for (int i=0; i<num_nodes; i++) {
-    SortIndex[i]  = i+1;
-    WriteIndex[i] = i+1;
+  int * SortIndex = FloatHighLowSortIndex(Scores,Graph->num_nodes);
+  for (int i=0; i<Graph->num_nodes; i++)
+    SortIndex[i]++;
+
+  if (Graph->CumScoreSort != NULL)
+    free(Graph->CumScoreSort);
+  Graph->CumScoreSort = SortIndex;
+
+  free(Scores);
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: EvaluatePaths
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void EvaluatePaths
+(SPLICE_GRAPH * Graph)
+{
+
+  // Find the best path to each node
+  for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
+    FindBestPathToNode(Graph->Nodes[node_id]);
+
+  GenCumScoreSort(Graph);
+
+  for (int sort_id=0; sort_id<Graph->num_nodes; sort_id++) {
+    
+    int node_id = Graph->CumScoreSort[sort_id];
+    SPLICE_NODE * Node = Graph->Nodes[node_id];
+    EvangelizePath(Node);
+
   }
 
-  for (int window_size = 1; window_size < num_nodes; window_size *= 2) {
 
-    int write_pos = 0;
-    while (write_pos + window_size < num_nodes) {
+  // We gather the N- and C-terminal nodes at the end of this
+  // function because these are fundamentally an ordering of
+  // paths through the graph
+  GatherNTermNodes(Graph);
+  GatherCTermNodes(Graph);
 
-      int a_pos = write_pos;
-      int a_end = a_pos + window_size;
-      
-      int b_pos = a_end;
-      int b_end = b_pos + window_size;
-      if (b_end > num_nodes)
-        b_end = num_nodes;
 
-      while (a_pos < a_end && b_pos < b_end) {
+}
 
-        if (SpliceGraph[SortIndex[a_pos]]->cumulative_score > SpliceGraph[SortIndex[b_pos]]->cumulative_score)
-          WriteIndex[write_pos++] = SortIndex[a_pos++];
-        else
-          WriteIndex[write_pos++] = SortIndex[b_pos++];
-      
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FillOutGraphStructure
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void FillOutGraphStructure
+(SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** SpliceEdges)
+{
+
+  // We'll want to be a little careful, just because this is our flagship
+  // datastructure...
+  if (Graph->Nodes != NULL) {
+    for (int i=1; i<=Graph->num_nodes; i++)
+      if (Graph->Nodes[i] != NULL)
+        free(Graph->Nodes[i]);
+    free(Graph->Nodes);
+  }
+  Graph->Nodes = (SPLICE_NODE **)malloc((Graph->num_nodes + 1)*sizeof(SPLICE_NODE *));
+
+
+  if (Graph->HitDomToNodeID != NULL) {
+    for (int i=0; i<Graph->num_hits; i++)
+      if (Graph->HitDomToNodeID[i])
+        free(Graph->HitDomToNodeID[i]);
+    free(Graph->HitDomToNodeID);
+  }
+  Graph->HitDomToNodeID = malloc(Graph->num_hits * sizeof(int *));
+  
+
+  int node_id = 0;
+  for (int hit_id=0; hit_id<Graph->num_hits; hit_id++) {
+
+    Graph->HitDomToNodeID[hit_id] = malloc(Graph->max_doms * sizeof(int));
+    
+    for (int dom_id=0; dom_id<Graph->max_doms; dom_id++) {
+
+      Graph->HitDomToNodeID[hit_id][dom_id] = 0;
+
+      if (dom_id < Graph->TopHits->hit[hit_id]->ndom) {
+
+        Graph->HitDomToNodeID[hit_id][dom_id] = ++node_id;
+        
+        Graph->Nodes[node_id] = InitSpliceNode(Graph,hit_id,dom_id,node_id);
+
       }
-
-      while (a_pos < a_end)
-        WriteIndex[write_pos++] = SortIndex[a_pos++];
-
-      while (b_pos < b_end)
-        WriteIndex[write_pos++] = SortIndex[b_pos++];
 
     }
 
-    for (int i=0; i<num_nodes; i++)
-      SortIndex[i] = WriteIndex[i];
-
   }
-  free(WriteIndex);
 
-  return SortIndex;
+
+  for (int edge_id=0; edge_id<Graph->num_edges; edge_id++)
+    ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
+
+  EvaluatePaths(Graph);
 
 }
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FindBestFullPath
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void FindBestFullPath
+(SPLICE_GRAPH * Graph)
+{
+  
+  // NOTE: Because NTermNodeIDs is sorted by best_path_score,
+  //       we can break the first time we find a full path.
+
+  SPLICE_NODE * Walker;
+  for (int i=0; i<Graph->num_n_term; i++) {
+
+    Walker = Graph->Nodes[Graph->NTermNodeIDs[i]];
+
+    while (Walker->num_out_edges)
+      Walker = Walker->DownstreamNodes[Walker->best_out_edge];
+
+    if (Walker->is_c_terminal) {
+      Graph->has_full_path        = 1;
+      Graph->best_full_path_start = Graph->NTermNodeIDs[i];
+      Graph->best_full_path_end   = Walker->node_id;
+      Graph->best_full_path_score = Walker->best_path_score;
+      return;
+    }
+
+  }
+
+}
+
+
+
+
 
 
 
@@ -1330,101 +1811,54 @@ int * GenCumScoreSort
  *  Output:
  *
  */
-SPLICE_NODE ** BuildSpliceGraph
-(P7_TOPHITS * TopHits, DOMAIN_OVERLAP ** SpliceEdges, int num_edges, int * num_nodes)
+SPLICE_GRAPH * BuildSpliceGraph
+(P7_TOPHITS * TopHits, P7_OPROFILE * om, DOMAIN_OVERLAP ** SpliceEdges, int num_edges)
 {
 
-  int num_hits = (int)(TopHits->N);
-  
+  SPLICE_GRAPH * Graph = (SPLICE_GRAPH *)malloc(sizeof(SPLICE_GRAPH));
 
-  int max_hit_doms = 0;
-  *num_nodes = 0;
+  Graph->TopHits = TopHits;
+  Graph->Model   = om;
 
-  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+  Graph->Nodes          = NULL;
+  Graph->CumScoreSort   = NULL;
+  Graph->NTermNodeIDs   = NULL;
+  Graph->CTermNodeIDs   = NULL;
+  Graph->HitDomToNodeID = NULL;
+
+
+  // Obtain our basic metadata
+  Graph->num_nodes  = 0;
+  Graph->num_edges  = num_edges;
+  Graph->num_n_term = 0;
+  Graph->num_c_term = 0;
+
+  // Eventually, we'll need to know if we have a full
+  // path through this graph.
+  Graph->has_full_path        = 0;
+  Graph->best_full_path_start = 0;
+  Graph->best_full_path_end   = 0;
+  Graph->best_full_path_score = 0.0;
+
+
+  Graph->num_hits = (int)(TopHits->N);
+  Graph->max_doms = 0;
+  for (int hit_id = 0; hit_id<Graph->num_hits; hit_id++) {
+    
     int hit_doms = TopHits->hit[hit_id]->ndom;
-    if (hit_doms > max_hit_doms)
-      max_hit_doms = hit_doms;
-    *num_nodes += hit_doms;
-  }
-
-  // We're going to build a table to help us easily switch
-  // back and forth between (hit_id,domain_id) and node_id
-  int ** HitDomNodeIDs = malloc(num_hits * sizeof(int *));
-
-  // Maybe we'll even make some splice nodes... who knows?
-  SPLICE_NODE ** SpliceGraph = (SPLICE_NODE **)malloc((*num_nodes + 1)*sizeof(SPLICE_NODE *));
-
-  int node_id = 0;
-  for (int hit_id=0; hit_id<num_hits; hit_id++) {
-
-    HitDomNodeIDs[hit_id] = malloc(max_hit_doms * sizeof(int));
-    for (int dom_id=0; dom_id<max_hit_doms; dom_id++) {
-
-      if (dom_id < TopHits->hit[hit_id]->ndom) {
-
-        HitDomNodeIDs[hit_id][dom_id] = ++node_id;
-
-        SpliceGraph[node_id] = InitSpliceNode(TopHits,hit_id,dom_id,node_id,num_edges);
-
-      } else {
-
-        HitDomNodeIDs[hit_id][dom_id] = 0;
-
-      }
-
-    }
-
-  }
-
-
-  for (int edge_id=0; edge_id<num_edges; edge_id++) {
-
-    DOMAIN_OVERLAP * Edge = SpliceEdges[edge_id];
-
-    int upstream_node_id = HitDomNodeIDs[Edge->upstream_hit_id][Edge->upstream_dom_id];
-    SPLICE_NODE * UpstreamNode = SpliceGraph[upstream_node_id];
-
-    int downstream_node_id = HitDomNodeIDs[Edge->downstream_hit_id][Edge->downstream_dom_id];
-    SPLICE_NODE * DownstreamNode = SpliceGraph[downstream_node_id];
-
-    UpstreamNode->OutEdgeOverlaps[UpstreamNode->num_out_edges] = Edge;
-    UpstreamNode->DownstreamNodes[UpstreamNode->num_out_edges] = DownstreamNode;
-    UpstreamNode->num_out_edges += 1;
     
-    DownstreamNode->InEdgeOverlaps[DownstreamNode->num_in_edges] = Edge;
-    DownstreamNode->UpstreamNodes[DownstreamNode->num_in_edges]  = UpstreamNode;
-    DownstreamNode->num_in_edges += 1;
-
-
-  }
-
-
-  // Find the best path to each node
-  for (node_id=1; node_id<=*num_nodes; node_id++)
-    FindBestPathToNode(SpliceGraph[node_id]);
-
-
-  // Generate a sorting of cumulative scores (high to low)
-  int * CumScoreSortIndex = GenCumScoreSort(SpliceGraph,*num_nodes);
-
-  for (int node_sort_id=0; node_sort_id<*num_nodes; node_sort_id++) {
+    if (hit_doms > Graph->max_doms)
+      Graph->max_doms = hit_doms;
     
-    node_id = CumScoreSortIndex[node_sort_id];
-
-    if (SpliceGraph[node_id]->best_path_score == 0.0) {
-      SpliceGraph[node_id]->best_path_score = SpliceGraph[node_id]->cumulative_score;
-      EvangelizePath(SpliceGraph[node_id]);
-    }
+    Graph->num_nodes += hit_doms;
   
   }
 
-  // CLEAN UP, PLEASE!!!
-  for (int hit_id=0; hit_id<num_hits; hit_id++)
-    free(HitDomNodeIDs[hit_id]);
-  free(HitDomNodeIDs);
-  free(CumScoreSortIndex);
+  // Build that stinky graph!
+  FillOutGraphStructure(Graph,SpliceEdges);
+  FindBestFullPath(Graph);
 
-  return SpliceGraph;
+  return Graph;
 
 }
 
@@ -1494,9 +1928,9 @@ void SpliceHits
   // Them's some lil' splice edges, alrighty!
   // Now we can do some simple graph-ery and find our best path(s?)
   // through the full HMM (hopefully)
-  int num_nodes;
-  SPLICE_NODE ** SpliceGraph = BuildSpliceGraph(TopHits,SpliceEdges,num_edges,&num_nodes);
+  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,om,SpliceEdges,num_edges);
 
+  DumpGraph(Graph);
 
   free(FwdEmitScores);
   // TargetNuclSeq
@@ -1504,6 +1938,27 @@ void SpliceHits
 
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
