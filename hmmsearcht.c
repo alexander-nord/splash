@@ -64,8 +64,14 @@ typedef struct {
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *   SPLICING STUFF
+ *
+ */
 
 
+static int SPL_DEBUG = 1; // Print debugging output?
 
 
 static int B62[441] = {
@@ -102,8 +108,8 @@ static char RNA_CHARS[5]    = {'A','C','G','U','-'};
 
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
-static int MAX_AMINO_EXT     = 5;
-static int MIN_AMINO_OVERLAP = 4;
+static int MAX_AMINO_EXT     = 6;
+static int MIN_AMINO_OVERLAP = 6;
 
 
 int intMax (int a, int b) { if (a>b) return a; return b; }
@@ -365,18 +371,34 @@ int * FloatHighLowSortIndex
         right_break = num_vals;
 
       while (left_reader < left_break && right_reader < right_break) {
-        if (Vals[Read[left_reader]] > Vals[Read[right_reader]])
-          Write[writer++] = Read[left_reader++];
-        else 
-          Write[writer++] = Read[right_reader++];
+        if (Vals[Read[left_reader]] > Vals[Read[right_reader]]) {
+          Write[writer] = Read[left_reader];
+          writer++;
+          left_reader++;
+        }
+        else { 
+          Write[writer] = Read[right_reader];
+          writer++;
+          right_reader++;
+        }
       }
-      while ( left_reader <  left_break) Write[writer++] = Read[ left_reader++];
-      while (right_reader < right_break) Write[writer++] = Read[right_reader++];
+      while ( left_reader <  left_break) {
+        Write[writer] = Read[left_reader];
+        writer++;
+        left_reader++;
+      }
+      while (right_reader < right_break) {
+        Write[writer] = Read[right_reader];
+        writer++;
+        right_reader++;
+      }
 
     }
 
-    while (writer < num_vals) 
-      Write[writer++] = Read[writer];
+    while (writer < num_vals) {
+      Write[writer] = Read[writer];
+      writer++;
+    }
 
     // Flip 'em
     Tmp = Read;
@@ -457,6 +479,7 @@ ESL_DSQ * GrabNuclRange
   esl_abc_CreateDsq(TargetNuclSeq->abc,Seq,&NuclSubseq);
 
   free(Seq);
+
 
   return NuclSubseq;
 
@@ -825,6 +848,7 @@ void SpliceOverlappingDomains
   int * Canon5Prime  = malloc(4*sizeof(int)); // GT
   int * Canon3Prime  = malloc(4*sizeof(int)); // AG
 
+
   GetSpliceOptions(Overlap,upstream_ss,downstream_ss,SpliceCodons,Canon5Prime,Canon3Prime,gcode);
 
 
@@ -858,6 +882,7 @@ void SpliceOverlappingDomains
     Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (Overlap->upstream_exon_terminus - 1);
     Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (Overlap->downstream_exon_terminus - 1);
   }
+
 
 
   free(Trans);
@@ -1019,7 +1044,6 @@ void SketchSpliceEdge
 
   SpliceOverlappingDomains(Edge,Consensus,FwdEmitScores,om,gcode);
 
-
 }
 
 
@@ -1133,6 +1157,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 )
 {
 
+
   P7_HIT * UpstreamHit  = TopHits->hit[upstream_hit_id];
   int num_upstream_doms = UpstreamHit->ndom;
 
@@ -1209,6 +1234,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
     }
 
   }
+
 
   return SpliceEdges;
 
@@ -1864,6 +1890,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   FillOutGraphStructure(Graph,SpliceEdges);
   FindBestFullPath(Graph);
 
+
   return Graph;
 
 }
@@ -1935,6 +1962,12 @@ void SpliceHits
   TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
 
 
+
+  // DEBUGGING
+  if (SPL_DEBUG) {fprintf(stderr,"\n*  TNS acquired\n\n");fflush(stderr);}
+
+
+
   // We'll want to have the emission scores on-hand
   float * FwdEmitScores = malloc(om->abc->Kp * (om->M + 2) * sizeof(float));
   p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmitScores);
@@ -1945,10 +1978,22 @@ void SpliceHits
   esl_abc_CreateDsq(om->abc,om->consensus,&Consensus);
 
 
+
+  // DEBUGGING
+  if (SPL_DEBUG) {fprintf(stderr,"\n*  Prepped to sketch splice edges\n\n");fflush(stderr);}
+
+
+
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
   for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++)
     SketchSpliceEdge(TopHits,SpliceEdges[splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
+
+
+
+  // DEBUGGING
+  if (SPL_DEBUG) {fprintf(stderr,"\n*  Using edges to build splice graph\n\n");fflush(stderr);}
+
 
 
   // Them's some lil' splice edges, alrighty!
@@ -1956,6 +2001,8 @@ void SpliceHits
   // through the full HMM (hopefully)
   SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,om,SpliceEdges,num_edges);
 
+
+  // DEBUGGING
   DumpGraph(Graph);
 
 
