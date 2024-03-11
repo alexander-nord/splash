@@ -26,6 +26,13 @@ if (!(-d $hmmer_dir_name)) {
     system("cp ../alt-configure.ac configure.ac");
     system("autoconf");
     system("./configure");
+
+    chdir('easel/');
+    system("autoconf");
+    system("./configure");
+    system("make");
+
+    chdir('../');
     system("cp ../$hmmsearcht_template src/");
     system("make");
     
