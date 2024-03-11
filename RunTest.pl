@@ -32,7 +32,7 @@ if (!(-d $gene_dir_name)) {
 
     # In case only the gene name was provided, we'll
     # see if there's a human entry for this gene.
-    my $test_gene_dir_name = 'inputs-for-hmmsearcht/homo_sapiens/'.lc($gene_dir_name);
+    my $test_gene_dir_name = '../inputs-for-hmmsearcht/homo_sapiens/'.lc($gene_dir_name);
 
     if (!(-d $test_gene_dir_name)) {
 	die "\n  ERROR:  Failed to locate gene directory '$gene_dir_name'\n\n";
