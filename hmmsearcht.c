@@ -71,7 +71,23 @@ typedef struct {
  */
 
 
-static int SPL_DEBUG = 1; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
+int FUNCTION_DEPTH = 0;
+void DEBUG_OUT (const char * message, const int func_depth_change) {
+
+  if (func_depth_change > 0) 
+    FUNCTION_DEPTH += func_depth_change;
+  
+  fprintf(stderr,"  SplDebug:");
+  for (int i=0; i<FUNCTION_DEPTH; i++) 
+    fprintf(stderr,"  ");
+  fprintf(stderr,"%s\n",message);
+  fflush(stderr);
+  
+  if (func_depth_change < 0) 
+    FUNCTION_DEPTH += func_depth_change;
+
+}
 
 
 static int B62[441] = {
@@ -344,6 +360,7 @@ void DumpGraph(SPLICE_GRAPH * Graph)
 int * FloatHighLowSortIndex
 (float * Vals, int num_vals)
 {
+  if (DEBUGGING) DEBUG_OUT("Starting 'FloatHighLowSortIndex'",1);
 
   int * Write = malloc(num_vals * sizeof(int));
   int * Read  = malloc(num_vals * sizeof(int));
@@ -410,6 +427,8 @@ int * FloatHighLowSortIndex
 
   }
 
+  if (DEBUGGING) DEBUG_OUT("'FloatHighLowSortIndex' Complete",-1);
+
   free(Write);
   return Read;
 
@@ -420,12 +439,14 @@ int * FloatHighLowSortIndex
 int * FloatLowHighSortIndex
 (float * Vals, int num_vals)
 {
+  if (DEBUGGING) DEBUG_OUT("Starting 'FloatLowHighSortIndex'",1);
   int * SortIndex = FloatHighLowSortIndex(Vals,num_vals);
   for (int i=0; i<num_vals/2; i++) {
     int tmp = SortIndex[i];
     SortIndex[i] = SortIndex[(num_vals-1)-i];
     SortIndex[(num_vals-1)-i] = tmp;
   }
+  if (DEBUGGING) DEBUG_OUT("'FloatLowHighSortIndex' Complete",-1);
   return SortIndex;
 }
 
@@ -535,6 +556,21 @@ void GetSpliceOptions
   ESL_GENCODE * gcode
 )
 {
+  
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetSpliceOptions'",1);
+
+
+  if (DEBUGGING) {
+    fprintf(stderr,"\n");
+    fprintf(stderr,"  > GSO Dom1: %d / %d\n",(int)(Overlap->upstream_hit_id),(int)(Overlap->upstream_dom_id));
+    fprintf(stderr,"            : %d..%d\n",(int)(Overlap->upstream_nucl_start),(int)(Overlap->upstream_nucl_end));
+    fprintf(stderr,"\n");
+    fprintf(stderr,"  > GSO Dom2: %d / %d\n",(int)(Overlap->downstream_hit_id),(int)(Overlap->downstream_dom_id));
+    fprintf(stderr,"            : %d..%d\n",(int)(Overlap->downstream_nucl_start),(int)(Overlap->downstream_nucl_end));
+    fprintf(stderr,"\n");
+    fflush(stderr);
+  }
+
 
   ESL_DSQ * Codon;
   esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
@@ -593,6 +629,7 @@ void GetSpliceOptions
   if (UN[  upstream_ss+1] == 2 && UN[  upstream_ss+2] == 3) Canon5Prime[3] = 1;
   if (DN[downstream_ss-5] == 0 && DN[downstream_ss-4] == 2) Canon3Prime[3] = 1;
 
+  if (DEBUGGING) DEBUG_OUT("'GetSpliceOptions' Complete",-1);
 
 }
 
@@ -625,6 +662,8 @@ void FindSpliceIndices
   float * score_density
 )
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindSpliceIndices'",1);
 
   int ** DP1 = (int **) malloc((len1+1)*sizeof(int *)); //   Upstream DP table
   int ** DP2 = (int **) malloc((len1+1)*sizeof(int *)); // Downstream DP table
@@ -784,6 +823,8 @@ void FindSpliceIndices
   free(SPL);
   free(DP2);
 
+  if (DEBUGGING) DEBUG_OUT("'FindSpliceIndices' Complete",-1);
+
 }
 
 
@@ -809,6 +850,8 @@ void SpliceOverlappingDomains
   ESL_GENCODE    * gcode
 )
 {
+
+   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceOverlappingDomains'",1);
 
   // int amino = esl_gencode_GetTranslation(gcode,Codon);
   int   upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
@@ -892,6 +935,8 @@ void SpliceOverlappingDomains
   free(Canon3Prime);
   // Codon
 
+  if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete",-1);
+
 }
 
 
@@ -919,6 +964,8 @@ void SketchSpliceEdge
   ESL_GENCODE    * gcode
 )
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SketchSpliceEdge'",1);
 
   P7_DOMAIN *   UpDom = &(TopHits->hit[Edge->upstream_hit_id]->dcl[Edge->upstream_dom_id]);
   P7_DOMAIN * DownDom = &(TopHits->hit[Edge->downstream_hit_id]->dcl[Edge->downstream_dom_id]);
@@ -1044,6 +1091,8 @@ void SketchSpliceEdge
 
   SpliceOverlappingDomains(Edge,Consensus,FwdEmitScores,om,gcode);
 
+  if (DEBUGGING) DEBUG_OUT("'SketchSpliceEdge' Complete",-1);
+
 }
 
 
@@ -1069,6 +1118,10 @@ int DomainsAreSpliceCompatible
 (P7_ALIDISPLAY * upstream, P7_ALIDISPLAY * downstream)
 {
 
+   
+  if (DEBUGGING) DEBUG_OUT("Starting 'DomainsAreSpliceCompatible'",1);
+
+  
   // Start by checking if we either have amino acid
   // overlap, or are close enough to consider extending
   int amino_start_1 = upstream->hmmfrom;
@@ -1079,13 +1132,17 @@ int DomainsAreSpliceCompatible
 
   // If the upstream ain't upstream, then obviously we can't treat
   // these as splice-compatible!
-  if (!(amino_start_1 < amino_start_2 && amino_end_1 < amino_end_2))
+  if (!(amino_start_1 < amino_start_2 && amino_end_1 < amino_end_2)) {
+    if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
     return 0;
+  }
 
   // Do we have overlap OR sufficient proximity to consider
   // extending?
-  if (!(amino_end_1 + MAX_AMINO_EXT >= amino_start_2))
+  if (!(amino_end_1 + MAX_AMINO_EXT >= amino_start_2)) {
+    if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
     return 0;
+  }
 
 
   // Fantastic!  The amino acid coordinates support splice
@@ -1108,28 +1165,36 @@ int DomainsAreSpliceCompatible
     revcomp2 = 1;
 
 
-  if (revcomp1 != revcomp2) 
+  if (revcomp1 != revcomp2) {
+    if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
     return 0;
+  }
 
 
   // We want to make sure that these aren't unrealistically
   // close together on the genome...
   if (revcomp1) {
 
-    if (nucl_start_2 + (3 * MAX_AMINO_EXT) >= nucl_end_1)
+    if (nucl_start_2 + (3 * MAX_AMINO_EXT) >= nucl_end_1) {
+      if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
       return 0;
+    }
 
   } else {
 
-    if (nucl_start_2 - (3 * MAX_AMINO_EXT) <= nucl_end_1)
+    if (nucl_start_2 - (3 * MAX_AMINO_EXT) <= nucl_end_1) {
+      if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
       return 0;
+    }
 
   }
 
 
+  if (DEBUGGING) DEBUG_OUT("'DomainsAreSpliceCompatible' Complete",-1);
+
+
   // Looks like we've got a viable upstream / downstream pair!
   return 1;
-
 
 }
 
@@ -1156,6 +1221,8 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
   int * num_splice_edges
 )
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GatherViableSpliceEdges'",1);
 
 
   P7_HIT * UpstreamHit  = TopHits->hit[upstream_hit_id];
@@ -1235,6 +1302,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
   }
 
+  if (DEBUGGING) DEBUG_OUT("'GatherViableSpliceEdges' Complete",-1);
 
   return SpliceEdges;
 
@@ -1254,7 +1322,9 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
  */
 void GetMinAndMaxCoords
 (P7_TOPHITS * TopHits, TARGET_SEQ * NuclTargetSeq)
-{
+{  
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetMinAndMaxCoords'",1);
 
   // First, let's figure out if we're revcomp
   int revcomp = 0;
@@ -1320,6 +1390,8 @@ void GetMinAndMaxCoords
   NuclTargetSeq->start = min;
   NuclTargetSeq->end   = max;
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetMinAndMaxCoords'",-1);
+
 }
 
 
@@ -1339,6 +1411,8 @@ TARGET_SEQ * GetTargetNuclSeq
 (ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
 {
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetTargetNuclSeq'",1);
+
   TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
   GetMinAndMaxCoords(TopHits,TargetNuclSeq);
 
@@ -1357,6 +1431,8 @@ TARGET_SEQ * GetTargetNuclSeq
   }
 
   TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
+
+  if (DEBUGGING) DEBUG_OUT("'GetTargetNuclSeq' Complete",-1);
 
   return TargetNuclSeq;
 
@@ -1381,6 +1457,8 @@ TARGET_SEQ * GetTargetNuclSeq
 SPLICE_NODE * InitSpliceNode
 (SPLICE_GRAPH * Graph, int hit_id, int dom_id, int node_id)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'InitSpliceNode'",1);
   
   SPLICE_NODE * NewNode = (SPLICE_NODE *)malloc(sizeof(SPLICE_NODE));
 
@@ -1414,6 +1492,8 @@ SPLICE_NODE * InitSpliceNode
   NewNode->cumulative_score = 0.0; // Best score up to and including this node
   NewNode->best_path_score  = 0.0; // Best full path score using this node
 
+  if (DEBUGGING) DEBUG_OUT("'InitSpliceNode' Complete",-1);
+
   return NewNode;
 
 }
@@ -1438,6 +1518,8 @@ void ConnectNodesByEdge
 (DOMAIN_OVERLAP * Edge, SPLICE_GRAPH * Graph)
 {
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'ConnectNodesByEdge'",1);
+
   int upstream_node_id = Graph->HitDomToNodeID[Edge->upstream_hit_id][Edge->upstream_dom_id];
   SPLICE_NODE * UpstreamNode = Graph->Nodes[upstream_node_id];
 
@@ -1451,6 +1533,8 @@ void ConnectNodesByEdge
   DownstreamNode->InEdges[DownstreamNode->num_in_edges] = Edge;
   DownstreamNode->UpstreamNodes[DownstreamNode->num_in_edges]  = UpstreamNode;
   DownstreamNode->num_in_edges += 1;
+
+  if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
 
 }
 
@@ -1474,9 +1558,13 @@ void FindBestPathToNode
 (SPLICE_NODE * Node)
 {
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindBestPathToNode'",1);
+
   // Have we already examined this node?
-  if (Node->cumulative_score != 0.0)
+  if (Node->cumulative_score != 0.0) {
+    if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
     return;
+  }
 
   for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
   
@@ -1496,6 +1584,8 @@ void FindBestPathToNode
 
   Node->cumulative_score += Node->hit_score;
 
+  if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
+
 }
 
 
@@ -1514,6 +1604,8 @@ void FindBestPathToNode
 void EvangelizePath
 (SPLICE_NODE * Node)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'EvangelizePath'",1);
 
   if (Node->best_path_score == 0.0) 
     Node->best_path_score = Node->cumulative_score;
@@ -1545,6 +1637,8 @@ void EvangelizePath
     }
   }
 
+  if (DEBUGGING) DEBUG_OUT("'EvangelizePath' Complete",-1);
+
 }
 
 
@@ -1563,6 +1657,8 @@ void EvangelizePath
 void GatherNTermNodes
 (SPLICE_GRAPH * Graph)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GatherNTermNodes'",1);
 
   // We'll re-count N terminal hits, just to be certain
   int num_n_term = 0;
@@ -1592,6 +1688,8 @@ void GatherNTermNodes
   free(NTermScores);
   free(NTermScoreSort);
 
+  if (DEBUGGING) DEBUG_OUT("'GatherNTermNodes' Complete",-1);
+
 }
 
 
@@ -1610,6 +1708,8 @@ void GatherNTermNodes
 void GatherCTermNodes
 (SPLICE_GRAPH * Graph)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GatherCTermNodes'",1);
 
   // We'll re-count C terminal hits, just to be certain
   int num_c_term = 0;
@@ -1639,6 +1739,8 @@ void GatherCTermNodes
   free(CTermScores);
   free(CTermScoreSort);
 
+  if (DEBUGGING) DEBUG_OUT("'GatherNTermNodes' Complete",-1);
+
 }
 
 
@@ -1657,6 +1759,8 @@ void GenCumScoreSort
 (SPLICE_GRAPH * Graph)
 {
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'GenCumScoreSort'",1);
+
   float * Scores = malloc(Graph->num_nodes * sizeof(float));
   for (int i=0; i<Graph->num_nodes; i++)
     Scores[i] = Graph->Nodes[i+1]->cumulative_score;
@@ -1670,6 +1774,8 @@ void GenCumScoreSort
   Graph->CumScoreSort = SortIndex;
 
   free(Scores);
+
+  if (DEBUGGING) DEBUG_OUT("'GenCumScoreSort' Complete",-1);
 
 }
 
@@ -1690,6 +1796,8 @@ void GenCumScoreSort
 void EvaluatePaths
 (SPLICE_GRAPH * Graph)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'EvaluatePaths'",1);
 
   // Find the best path to each node
   for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
@@ -1713,6 +1821,8 @@ void EvaluatePaths
   GatherCTermNodes(Graph);
 
 
+  if (DEBUGGING) DEBUG_OUT("'EvaluatePaths' Complete",-1);
+
 }
 
 
@@ -1734,6 +1844,9 @@ void EvaluatePaths
 void FillOutGraphStructure
 (SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** SpliceEdges)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'FillOutGraphStructure'",1);
+
 
   // We'll want to be a little careful, just because this is our flagship
   // datastructure...
@@ -1782,6 +1895,8 @@ void FillOutGraphStructure
 
   EvaluatePaths(Graph);
 
+  if (DEBUGGING) DEBUG_OUT("'FillOutGraphStructure' Complete",-1);
+
 }
 
 
@@ -1804,6 +1919,8 @@ void FindBestFullPath
 (SPLICE_GRAPH * Graph)
 {
   
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindBestFullPath'",1);
+
   // NOTE: Because NTermNodeIDs is sorted by best_path_score,
   //       we can break the first time we find a full path.
 
@@ -1820,10 +1937,13 @@ void FindBestFullPath
       Graph->best_full_path_start = Graph->NTermNodeIDs[i];
       Graph->best_full_path_end   = Walker->node_id;
       Graph->best_full_path_score = Walker->best_path_score;
+      if (DEBUGGING) DEBUG_OUT("'FindBestFullPath' Complete",-1);
       return;
     }
 
   }
+
+  if (DEBUGGING) DEBUG_OUT("'FindBestFullPath' Complete",-1);
 
 }
 
@@ -1846,6 +1966,9 @@ void FindBestFullPath
 SPLICE_GRAPH * BuildSpliceGraph
 (P7_TOPHITS * TopHits, P7_OPROFILE * om, DOMAIN_OVERLAP ** SpliceEdges, int num_edges)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'BuildSpliceGraph'",1);
+
 
   SPLICE_GRAPH * Graph = (SPLICE_GRAPH *)malloc(sizeof(SPLICE_GRAPH));
 
@@ -1890,6 +2013,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   FillOutGraphStructure(Graph,SpliceEdges);
   FindBestFullPath(Graph);
 
+  if (DEBUGGING) DEBUG_OUT("'BuildSpliceGraph' Complete",-1);
 
   return Graph;
 
@@ -1913,7 +2037,9 @@ SPLICE_GRAPH * BuildSpliceGraph
 void SearchForMissingExons
 (SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
 {
-  
+  if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
+ 
+  if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
 }
 
 
@@ -1933,6 +2059,8 @@ void SearchForMissingExons
 void SpliceHits
 (P7_TOPHITS * TopHits, ESL_SQFILE * GenomicSeqFile, P7_OPROFILE * om, ESL_GENCODE * gcode)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SpliceHits'",1);
 
   // Very first thing we want to do is make sure that our hits are
   // organized by the 'Seqidx' (the target genomic sequence) and position
@@ -1964,7 +2092,7 @@ void SpliceHits
 
 
   // DEBUGGING
-  if (SPL_DEBUG) {fprintf(stderr,"\n*  TNS acquired\n\n");fflush(stderr);}
+  if (DEBUGGING) DEBUG_OUT("TNS Acquired",0);
 
 
 
@@ -1980,7 +2108,7 @@ void SpliceHits
 
 
   // DEBUGGING
-  if (SPL_DEBUG) {fprintf(stderr,"\n*  Prepped to sketch splice edges\n\n");fflush(stderr);}
+  if (DEBUGGING) DEBUG_OUT("Prepped to sketch splice edges",0);
 
 
 
@@ -1992,7 +2120,7 @@ void SpliceHits
 
 
   // DEBUGGING
-  if (SPL_DEBUG) {fprintf(stderr,"\n*  Using edges to build splice graph\n\n");fflush(stderr);}
+  if (DEBUGGING) DEBUG_OUT("Using edges to build splice graph",0);
 
 
 
@@ -2015,7 +2143,12 @@ void SpliceHits
   // Consensus
 
 
+  if (DEBUGGING) DEBUG_OUT("'SpliceHits' Complete",-1);
+
 }
+
+
+
 
 
 
