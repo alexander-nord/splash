@@ -116,7 +116,7 @@ static int B62[441] = {
 static int GAP = -3;
 
 static float SSSCORE[2] = {-0.05,0.05}; // Non-canon vs canon splice site
-
+static float EDGE_FAIL_SCORE = -1000.0;
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
 static char DNA_CHARS[5]    = {'A','C','G','T','-'};
@@ -124,11 +124,12 @@ static char RNA_CHARS[5]    = {'A','C','G','U','-'};
 
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
-static int MAX_AMINO_EXT     = 6;
-static int MIN_AMINO_OVERLAP = 6;
+static int MAX_AMINO_EXT     = 4;
+static int MIN_AMINO_OVERLAP = 8;
 
 
 int intMax (int a, int b) { if (a>b) return a; return b; }
+int intMin (int a, int b) { if (a<b) return a; return b; }
 
 
 
@@ -317,6 +318,7 @@ void DumpNode (SPLICE_NODE * Node)
   printf("   |     |\n");
   printf("   |     '\n");
   printf("   |\n");
+  fflush(stdout);
 }
 /* DEBUGGING FUNCTION: DumpGraph */
 void DumpGraph(SPLICE_GRAPH * Graph)
@@ -340,6 +342,7 @@ void DumpGraph(SPLICE_GRAPH * Graph)
   printf("   |\n");
   printf("   +=========================================================+\n");
   printf("\n\n\n");
+  fflush(stdout);
 }
 
 
@@ -560,13 +563,14 @@ void GetSpliceOptions
   if (DEBUGGING) DEBUG_OUT("Starting 'GetSpliceOptions'",1);
 
 
-  if (DEBUGGING) {
+  if (DEBUGGING && 0) {
     fprintf(stderr,"\n");
     fprintf(stderr,"  > GSO Dom1: %d / %d\n",(int)(Overlap->upstream_hit_id),(int)(Overlap->upstream_dom_id));
     fprintf(stderr,"            : %d..%d\n",(int)(Overlap->upstream_nucl_start),(int)(Overlap->upstream_nucl_end));
-    fprintf(stderr,"\n");
     fprintf(stderr,"  > GSO Dom2: %d / %d\n",(int)(Overlap->downstream_hit_id),(int)(Overlap->downstream_dom_id));
     fprintf(stderr,"            : %d..%d\n",(int)(Overlap->downstream_nucl_start),(int)(Overlap->downstream_nucl_end));
+    fprintf(stderr,"    splice\n");
+    fprintf(stderr,"    coord.s : %d , %d\n",upstream_ss,downstream_ss);
     fprintf(stderr,"\n");
     fflush(stderr);
   }
@@ -664,6 +668,7 @@ void FindSpliceIndices
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'FindSpliceIndices'",1);
+
 
   int ** DP1 = (int **) malloc((len1+1)*sizeof(int *)); //   Upstream DP table
   int ** DP2 = (int **) malloc((len1+1)*sizeof(int *)); // Downstream DP table
@@ -788,30 +793,30 @@ void FindSpliceIndices
   *score_density      = log(total_score / ali_len);
 
 
-  /* DEBUGGING *
-  printf("\n   ");
-  for (int i=1; i<=len1; i++) {
-    if (i >= *ss_A && i <= *ss_B) printf("_");
-    else                          printf(" ");
+  if (DEBUGGING && 1) {
+    printf("\n   ");
+    for (int i=1; i<=len1; i++) {
+      if (i >= *ss_A && i <= *ss_B) printf("_");
+      else                          printf(" ");
+    }
+    printf("\n   ");
+    for (int i=1; i<=len1; i++) 
+      printf("%c",AMINO_CHARS[Seq1[i]]);
+    printf("\n  (");
+    for (int j=1; j<=len2; j++) 
+      printf("%c",AMINO_CHARS[Seq2[j]]);
+    printf(")\n");
+    printf("   ");
+    for (int j=1; j<=len2; j++) {
+      if (j == *model_ss) printf("^");
+      else                printf(" ");
+    }
+    printf("\n");
+    printf("   : total   : %f\n",total_score);
+    printf("   : density : %f\n",*score_density);
+    printf("\n");
   }
-  printf("\n   ");
-  for (int i=1; i<=len1; i++) 
-    printf("%c",AMINO_CHARS[Seq1[i]]);
-  printf("\n  (");
-  for (int j=1; j<=len2; j++) 
-    printf("%c",AMINO_CHARS[Seq2[j]]);
-  printf(")\n");
-  printf("   ");
-  for (int j=1; j<=len2; j++) {
-    if (j == *model_ss) printf("^");
-    else                printf(" ");
-  }
-  printf("\n");
-  printf("   : total   : %f\n",total_score);
-  printf("   : density : %f\n",*score_density);
-  printf("\n");
-  /* */
-  
+
 
   // Cleanup
   for (i=0; i<=len1; i++) {
@@ -851,7 +856,7 @@ void SpliceOverlappingDomains
 )
 {
 
-   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceOverlappingDomains'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'SpliceOverlappingDomains'",1);
 
   // int amino = esl_gencode_GetTranslation(gcode,Codon);
   int   upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
@@ -866,11 +871,11 @@ void SpliceOverlappingDomains
   for (int i=0; i<downstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
   
 
-  // Pull the subsequence of the model consensus aminos
-  int css_len = Overlap->amino_end - Overlap->amino_start + 1;
+  // Pull a tight subsequence of the model consensus aminos.
+  int css_len   = 1 + Overlap->amino_end - Overlap->amino_start;
   int * ConsSubSeq = malloc((css_len + 1) * sizeof(int));
   for (int i=1; i<=css_len; i++)
-    ConsSubSeq[i] = Consensus[Overlap->amino_start + i];
+    ConsSubSeq[i] = Consensus[Overlap->amino_start + i - 1];
 
 
   int ss_A, ss_B, model_ss;
@@ -882,11 +887,35 @@ void SpliceOverlappingDomains
 
   // ss_A and ss_B now correspond to the amino acid indices in 'Trans'
   // that we're going to chop with the splice site.
+  //
+  // We want these to be indices for the last 'uncontested' nucleotides
+  // of each exon.
+  //
+  // The trick, and reason for a touch of math, is that Trans is a
+  // concatenation of the upstream and downstream hits' overlapping regions,
+  // but we want "downstream_ss" to be w.r.t. the downstream hit, rather
+  // than the whole dang "Trans" seq.
+  //
+  int   upstream_ss = 3 *  ss_A                        - 3;
+  int downstream_ss = 3 * (ss_B - upstream_nucl_cnt/3) + 1;
 
-  // Each index is positioned at the last 'uncontested' nucleotide
-  int   upstream_ss = 3*(ss_A - 1);
-  int downstream_ss = 3*(ss_B - upstream_nucl_cnt/3) + 1;
+
+  // I know this **looks** like I'm papering over a bug, but this only
+  // happens in rare cases where we have a truly terrible pairing,
+  // so in terms of achieving an optimal spliced alignment it's fair
+  // to throw out this coupling
+  //
+  if ((upstream_ss < 1 || downstream_ss > trans_seq_len) && 0) {
+    Overlap->score = EDGE_FAIL_SCORE;
+    free(Trans);
+    free(ConsSubSeq);
+    if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (albeit, the sad way)",-1);
+    return;
+  }
   
+
+  // What are the (translated) codons that our splice options provide?
+  // Do we achieve those amino acids with canonical splice signals?!
   int * SpliceCodons = malloc(4*sizeof(int));
   int * Canon5Prime  = malloc(4*sizeof(int)); // GT
   int * Canon3Prime  = malloc(4*sizeof(int)); // AG
@@ -908,7 +937,7 @@ void SpliceOverlappingDomains
   }
 
 
-  // I'm a dirty little freak
+  // I'm a dirty little freak!
   Overlap->score = (score_density + best_splice_score) * MIN_AMINO_OVERLAP;
 
 
@@ -927,13 +956,12 @@ void SpliceOverlappingDomains
   }
 
 
-
-  free(Trans);
-  free(ConsSubSeq);
   free(SpliceCodons);
   free(Canon5Prime);
   free(Canon3Prime);
-  // Codon
+  free(Trans);
+  free(ConsSubSeq);
+
 
   if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete",-1);
 
@@ -987,37 +1015,46 @@ void SketchSpliceEdge
     strand = -3;
 
 
-  Edge->upstream_nucl_end = upstream_nt_to;
+  // We'll need to do some "walking" to get the right
+  // upstream_start and downstream_end coordinates
+  // (in the event that we need to accommodate indels),
+  // so for now we just set these equal to one another
+  //
+  Edge->upstream_nucl_end     =   upstream_nt_to;
+  Edge->upstream_nucl_start   =   upstream_nt_to;
   Edge->downstream_nucl_start = downstream_nt_from;
+  Edge->downstream_nucl_end   = downstream_nt_from;
 
 
+  Edge->amino_start = downstream_hmm_from;
+  Edge->amino_end   =   upstream_hmm_to;
+
+
+  // Do we need to extend beyond the bounds of these
+  // hits to have the required number of overlapping
+  // amino acids?
   int amino_overlap  = 1 + upstream_hmm_to - downstream_hmm_from;
-  int codons_to_pull = MIN_AMINO_OVERLAP - amino_overlap;
-  if (codons_to_pull > 0) {
+  int num_ext_aminos = MIN_AMINO_OVERLAP - amino_overlap;
+  if (num_ext_aminos > 0) {
 
-    Edge->upstream_nucl_end     += strand * codons_to_pull;
-    Edge->downstream_nucl_start -= strand * codons_to_pull;
+    Edge->amino_start -= num_ext_aminos;
+    Edge->amino_end   += num_ext_aminos;
 
-    amino_overlap = MIN_AMINO_OVERLAP;
+      Edge->upstream_nucl_end   += strand * num_ext_aminos;
+    Edge->downstream_nucl_start -= strand * num_ext_aminos;
 
   } else {
 
-    codons_to_pull = 0;
-
+    num_ext_aminos = 0;
+  
   }
 
 
-  // Log the start and end amino acid coord.s
-  Edge->amino_start = upstream_hmm_to - ((amino_overlap-1) - codons_to_pull);
-  Edge->amino_end   = Edge->amino_start + (amino_overlap-1);
+  // Now we can do the work of finding the (indel-aware)
+  // upstream_start and downstream_end coordinates.
 
-
-  // Prime these coordinates
-  Edge->upstream_nucl_start = Edge->upstream_nucl_end     - (codons_to_pull * strand);
-  Edge->downstream_nucl_end = Edge->downstream_nucl_start + (codons_to_pull * strand);
-
-
-  // Find the upstream nucleotide start (we need to be mindful of gaps)
+  // Upstream nucleotide start coord.
+  //
   P7_ALIDISPLAY * AD = UpDom->ad;
   int ad_pos = AD->N-1;
   int overlap_aminos_covered = 0;
@@ -1043,6 +1080,8 @@ void SketchSpliceEdge
   }
 
 
+  // Downstream nucleotide end coord.
+  //
   AD = DownDom->ad;
   ad_pos = 0;
   overlap_aminos_covered = 0;
@@ -1070,11 +1109,11 @@ void SketchSpliceEdge
 
   // We'll need to trim the last nucleotide to have inclusive bounds
   if (strand < 0) {
-    Edge->upstream_nucl_start--;
-    Edge->downstream_nucl_end++;
+    Edge->upstream_nucl_start += 2;
+    Edge->downstream_nucl_end -= 2;
   } else {
-    Edge->upstream_nucl_start++;
-    Edge->downstream_nucl_end--;
+    Edge->upstream_nucl_start -= 2;
+    Edge->downstream_nucl_end += 2;
   }
 
 
@@ -1090,6 +1129,7 @@ void SketchSpliceEdge
 
 
   SpliceOverlappingDomains(Edge,Consensus,FwdEmitScores,om,gcode);
+
 
   if (DEBUGGING) DEBUG_OUT("'SketchSpliceEdge' Complete",-1);
 
@@ -1890,10 +1930,14 @@ void FillOutGraphStructure
   }
 
 
-  for (int edge_id=0; edge_id<Graph->num_edges; edge_id++)
-    ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
+  for (int edge_id=0; edge_id<Graph->num_edges; edge_id++) {
+    if (SpliceEdges[edge_id] != NULL)
+      ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
+  }
+
 
   EvaluatePaths(Graph);
+
 
   if (DEBUGGING) DEBUG_OUT("'FillOutGraphStructure' Complete",-1);
 
@@ -1920,6 +1964,7 @@ void FindBestFullPath
 {
   
   if (DEBUGGING) DEBUG_OUT("Starting 'FindBestFullPath'",1);
+
 
   // NOTE: Because NTermNodeIDs is sorted by best_path_score,
   //       we can break the first time we find a full path.
@@ -1987,6 +2032,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   Graph->num_edges  = num_edges;
   Graph->num_n_term = 0;
   Graph->num_c_term = 0;
+
 
   // Eventually, we'll need to know if we have a full
   // path through this graph.
@@ -2114,8 +2160,18 @@ void SpliceHits
 
   // Now we can run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
-  for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++)
+  for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++) {
+
     SketchSpliceEdge(TopHits,SpliceEdges[splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
+
+    // If we failed to find a reasonable splice site, then we'll
+    // just rip this edge outta consideration.
+    if (SpliceEdges[splice_edge_id]->score == EDGE_FAIL_SCORE) {
+      free(SpliceEdges[splice_edge_id]);
+      SpliceEdges[splice_edge_id] = NULL;
+    }
+
+  }
 
 
 
