@@ -691,6 +691,7 @@ void FindSpliceIndices
   *model_ss = 0;
 
 
+
   int ** DP  = (int **) malloc((len1+1)*sizeof(int *));
   int ** SPL = (int **) malloc((len1+1)*sizeof(int *));
 
@@ -706,26 +707,31 @@ void FindSpliceIndices
   }
 
 
-  int splice_bonus = 20;
 
   // Let's do some DP!
   for (j=1; j<=len2; j++) {
 
+
     // The first part -- we want a splice *donor*!    
-    for (i=1; i<=s1_split; i++) {
+    for (i=1; i<s1_split; i++) {
 
       int match = GetMatchScore(Seq1[i],Seq2[j]);
-      DP[i][j]  = intMax(intMax(DP[i-1][j],DP[i][j-1])+GAP,DP[i-1][j-1]+match);
+      DP[i][j]  = intMax(DP[i-1][j-1]+match, intMax(DP[i-1][j],DP[i][j-1])+GAP);
 
-      SPL[i][j] = intMax(DP[i-1][j-1]+splice_bonus,SPL[i-1][j]);
+      SPL[i][j] = intMax(SPL[i-1][j], DP[i-1][j-1]);
 
     }
 
-    // We'll prevent i=s1_split+1 from matching or gapping
-    // into this cell from the previous position in Seq1.
+
+    // We effectively force a splice to connect the two
+    // parts of the DP table (corresponding to the upstream
+    // and downstream exons)
     SPL[i][j] = SPL[i-1][j];
-    DP[i][j]  = intMax(DP[i][j-1]+GAP,SPL[i][j]+GetMatchScore(Seq1[i],Seq2[j]));
-    i++;
+    DP[i][j]  = -1000;
+    SPL[i+1][j] = SPL[i][j];
+    DP[i+1][j]  = -1000;
+    i += 2;
+
 
     // Now, who's up to be the splice *receiver*?!
     for (; i<=len1; i++) {
@@ -733,23 +739,28 @@ void FindSpliceIndices
       SPL[i][j] = SPL[i-1][j];
 
       int match = GetMatchScore(Seq1[i],Seq2[j]);
-      DP[i][j]  = intMax(intMax(DP[i-1][j],DP[i][j-1])+GAP,DP[i-1][j-1]+match);
-      DP[i][j]  = intMax(DP[i][j],SPL[i][j]+match);
+      DP[i][j]  = intMax(DP[i-1][j-1]+match, intMax(DP[i-1][j],DP[i][j-1])+GAP);
+      DP[i][j]  = intMax(DP[i][j], SPL[i-1][j-1]+match);
 
     }
 
+
   }
+
 
 
   int ali_len = 0;
   i=len1;
   j=len2;
-  while (*ss_B == 0) {
+  while (*ss_B == 0 && (i && j)) {
 
     int match = GetMatchScore(Seq1[i],Seq2[j]);
 
-    if (DP[i][j] == SPL[i][j]+match) {
+    if (DP[i][j] == SPL[i-1][j-1]+match) {
+      i--;
+      j--;
       *ss_B = i;
+      *model_ss = j;
     } else if (DP[i][j] == DP[i-1][j-1]+match) {
       i--;
       j--;
@@ -758,24 +769,27 @@ void FindSpliceIndices
     } else if (DP[i][j] == DP[i][j-1]+GAP) {
       j--;
     } else {
-      fprintf(stderr,"\nDP IS FUCKED (1)\n\n");
+      fprintf(stderr,"\n  DP ERROR:  I don't know where I came from! (1)\n\n");
       exit(420);
     }
 
     ali_len++;
 
   }
-  *model_ss = j;
 
 
-  while (SPL[i][j] != DP[i-1][j-1]+splice_bonus) {
+
+  while (i >= s1_split || SPL[i][j] != DP[i-1][j-1]) {
     i--;
-    ali_len++;
   }
   *ss_A = i;
+  i--;
+  j--;
+  ali_len++;
 
 
-  while (i || j) {
+
+  while (i && j) {
 
     int match = GetMatchScore(Seq1[i],Seq2[j]);
      
@@ -787,7 +801,7 @@ void FindSpliceIndices
     } else if (DP[i][j] == DP[i][j-1]+GAP) {
       j--;
     } else {
-      fprintf(stderr,"\nDP IS FUCKED (2)\n\n");
+      fprintf(stderr,"\n  DP ERROR:  I don't know where I came from! (2)\n\n");
       exit(69);
     }
 
@@ -798,22 +812,37 @@ void FindSpliceIndices
   ali_len += i + j;
 
 
+
   // As I'm thinking about how to incorporate the scores of these
   // silly splicey things into a graph where we also have *actual*
   // scores associated with hits, I'll grab ahold of a few thangs...
-  float total_score = (float)(DP[len1][len2]);
+  float total_score = (float)DP[len1][len2];
   *score_density    = log(total_score / ali_len);
+
+
+  // Cleanup
+  for (i=0; i<=len1; i++) {
+    free(DP[i]);
+    free(SPL[i]);
+  }
+  free(DP);
+  free(SPL);
+
 
 
   if (DEBUGGING && 1) {
     fprintf(stderr,"\n   ");
     for (int i=1; i<=len1; i++) {
+      if (i == s1_split)            fprintf(stderr,"_");
       if (i >= *ss_A && i <= *ss_B) fprintf(stderr,"_");
       else                          fprintf(stderr," ");
     }
     fprintf(stderr,"\n   ");
-    for (int i=1; i<=len1; i++) 
+    for (int i=1; i<=len1; i++) {
       fprintf(stderr,"%c",AMINO_CHARS[Seq1[i]]);
+      if (i == s1_split)
+        fprintf(stderr,"|");
+    }
     fprintf(stderr,"\n  (");
     for (int j=1; j<=len2; j++) 
       fprintf(stderr,"%c",AMINO_CHARS[Seq2[j]]);
@@ -828,15 +857,6 @@ void FindSpliceIndices
     fprintf(stderr,"   : density : %f\n",*score_density);
     fprintf(stderr,"\n");
   }
-
-
-  // Cleanup
-  for (i=0; i<=len1; i++) {
-    free(DP[i]);
-    free(SPL[i]);
-  }
-  free(DP);
-  free(SPL);
 
   if (DEBUGGING) DEBUG_OUT("'FindSpliceIndices' Complete",-1);
 
