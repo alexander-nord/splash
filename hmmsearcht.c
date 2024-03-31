@@ -690,116 +690,110 @@ void FindSpliceIndices
   *ss_B = 0;
   *model_ss = 0;
 
-  int splice_bonus = 20;
 
-
-  int ** DP = (int **) malloc((len1+1)*sizeof(int *)); // Upstream DP table
+  int ** DP  = (int **) malloc((len1+1)*sizeof(int *));
+  int ** SPL = (int **) malloc((len1+1)*sizeof(int *));
 
   for (i=0; i<=len1; i++) {
-    DP[i] = (int *) malloc((len2+1)*sizeof(int));
-    DP[i][0] = i * GAP;
+    DP[i]     = (int *) malloc((len2+1)*sizeof(int));
+    SPL[i]    = (int *) malloc((len2+1)*sizeof(int));
+    DP[i][0]  = i * GAP;
+    SPL[i][0] = -1000;
+  }
+  for (j=1; j<=len2; j++) {
+    DP[0][j]  = j * GAP;
+    SPL[0][j] = -1000;
   }
 
-  for (j=1; j<=len2; j++) {
-    DP[0][j] = j * GAP;
-    for (i=1; i<=len1; i++)
-      DP[i][j] = 0;
-  }
 
+  int splice_bonus = 20;
 
-  // We use the difference between the lengths of the two sequences
-  // as the 
-  int seq_len_diff = len1 - len2;
-
-
-  // PROGRAM DYNAMICALLY!
+  // Let's do some DP!
   for (j=1; j<=len2; j++) {
 
-    // Too early in the upstream exon to function as a
-    // splice donor site
-    for (i=1; i+seq_len_diff<s1_split; i++) {
+    // The first part -- we want a splice *donor*!    
+    for (i=1; i<=s1_split; i++) {
 
       int match = GetMatchScore(Seq1[i],Seq2[j]);
+      DP[i][j]  = intMax(intMax(DP[i-1][j],DP[i][j-1])+GAP,DP[i-1][j-1]+match);
 
-      DP[i][j] = intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
-                        DP[i-1][j-1] + match);
-    
-    }
-
-
-    // Could be a splice donor!
-    for (; i<=s1_split; i++) {
-    
-      int match = GetMatchScore(Seq1[i],Seq2[j]);
-
-      DP[i][j] = intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
-                        DP[i-1][j-1] + match);
-
-      if (i+seq_len_diff <= len1)
-        DP[i+seq_len_diff][j] = DP[i][j] + splice_bonus;
+      SPL[i][j] = intMax(DP[i-1][j-1]+splice_bonus,SPL[i-1][j]);
 
     }
-  
 
-    // Now, finish off the rest of the table!
+    // We'll prevent i=s1_split+1 from matching or gapping
+    // into this cell from the previous position in Seq1.
+    SPL[i][j] = SPL[i-1][j];
+    DP[i][j]  = intMax(DP[i][j-1]+GAP,SPL[i][j]+GetMatchScore(Seq1[i],Seq2[j]));
+    i++;
+
+    // Now, who's up to be the splice *receiver*?!
     for (; i<=len1; i++) {
 
+      SPL[i][j] = SPL[i-1][j];
+
       int match = GetMatchScore(Seq1[i],Seq2[j]);
-
-      DP[i][j] = intMax(DP[i][j],
-                        intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
-                               DP[i-1][j-1] + match)
-                        );
+      DP[i][j]  = intMax(intMax(DP[i-1][j],DP[i][j-1])+GAP,DP[i-1][j-1]+match);
+      DP[i][j]  = intMax(DP[i][j],SPL[i][j]+match);
 
     }
 
   }
 
 
-  // Where are we splicing today?
-  i = len1;
-  j = len2;
   int ali_len = 0;
-  while (i && j) {
-
-    ali_len++;
+  i=len1;
+  j=len2;
+  while (*ss_B == 0) {
 
     int match = GetMatchScore(Seq1[i],Seq2[j]);
 
-    if (DP[i][j] == DP[i-seq_len_diff][j] + splice_bonus) {
+    if (DP[i][j] == SPL[i][j]+match) {
       *ss_B = i;
-      i -= seq_len_diff;
-      *ss_A = i;
-      break;
-    } else if (DP[i][j] == DP[i-1][j-1] + match) {
+    } else if (DP[i][j] == DP[i-1][j-1]+match) {
       i--;
       j--;
-    } else if (DP[i][j] == DP[i-1][j] + GAP) {
+    } else if (DP[i][j] == DP[i-1][j]+GAP) {
       i--;
+    } else if (DP[i][j] == DP[i][j-1]+GAP) {
+      j--;
     } else {
-      j--;
+      fprintf(stderr,"\nDP IS FUCKED (1)\n\n");
+      exit(420);
     }
-
-  }
-
-
-  while (i && j) {
 
     ali_len++;
 
-    int match = GetMatchScore(Seq1[i],Seq2[j]);
+  }
+  *model_ss = j;
 
-    if (DP[i][j] == DP[i-1][j-1] + match) {
+
+  while (SPL[i][j] != DP[i-1][j-1]+splice_bonus) {
+    i--;
+    ali_len++;
+  }
+  *ss_A = i;
+
+
+  while (i || j) {
+
+    int match = GetMatchScore(Seq1[i],Seq2[j]);
+     
+    if (DP[i][j] == DP[i-1][j-1]+match) {
       i--;
+      j--;      
+    } else if (DP[i][j] == DP[i-1][j]+GAP) {
+      i--;
+    } else if (DP[i][j] == DP[i][j-1]+GAP) {
       j--;
-    } else if (DP[i][j] == DP[i-1][j] + GAP) {
-      i--;
     } else {
-      j--;
+      fprintf(stderr,"\nDP IS FUCKED (2)\n\n");
+      exit(69);
     }
 
-  }
+    ali_len++;
 
+  }
 
   ali_len += i + j;
 
@@ -812,33 +806,37 @@ void FindSpliceIndices
 
 
   if (DEBUGGING && 1) {
-    printf("\n   ");
+    fprintf(stderr,"\n   ");
     for (int i=1; i<=len1; i++) {
-      if (i >= *ss_A && i <= *ss_B) printf("_");
-      else                          printf(" ");
+      if (i >= *ss_A && i <= *ss_B) fprintf(stderr,"_");
+      else                          fprintf(stderr," ");
     }
-    printf("\n   ");
+    fprintf(stderr,"\n   ");
     for (int i=1; i<=len1; i++) 
-      printf("%c",AMINO_CHARS[Seq1[i]]);
-    printf("\n  (");
+      fprintf(stderr,"%c",AMINO_CHARS[Seq1[i]]);
+    fprintf(stderr,"\n  (");
     for (int j=1; j<=len2; j++) 
-      printf("%c",AMINO_CHARS[Seq2[j]]);
-    printf(")\n");
-    printf("   ");
+      fprintf(stderr,"%c",AMINO_CHARS[Seq2[j]]);
+    fprintf(stderr,")\n");
+    fprintf(stderr,"   ");
     for (int j=1; j<=len2; j++) {
-      if (j == *model_ss) printf("^");
-      else                printf(" ");
+      if (j == *model_ss) fprintf(stderr,"^");
+      else                fprintf(stderr," ");
     }
-    printf("   : total   : %f\n",total_score);
-    printf("   : density : %f\n",*score_density);
-    printf("\n");
+    fprintf(stderr,"\n");
+    fprintf(stderr,"   : total   : %f\n",total_score);
+    fprintf(stderr,"   : density : %f\n",*score_density);
+    fprintf(stderr,"\n");
   }
 
 
   // Cleanup
-  for (i=0; i<=len1; i++)
+  for (i=0; i<=len1; i++) {
     free(DP[i]);
+    free(SPL[i]);
+  }
   free(DP);
+  free(SPL);
 
   if (DEBUGGING) DEBUG_OUT("'FindSpliceIndices' Complete",-1);
 
