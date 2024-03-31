@@ -643,6 +643,19 @@ void GetSpliceOptions
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetMatchScore
+ *
+ */
+int GetMatchScore (int index1, int index2)
+{
+  if (index1 < 0 || index1 > 20 || index2 < 0 || index2 > 20)
+    return -1000;
+  return B62[21 * index1 + index2];
+}
+
+
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
@@ -656,9 +669,10 @@ void GetSpliceOptions
  */
 void FindSpliceIndices
 (
-  int   * Seq1, // NOTE: Seq1 and Seq2 are [1..len]
+  int   * Seq1, // The translated nucleotide sequences
   int     len1,
-  int   * Seq2,
+  int     s1_split,
+  int   * Seq2, // The model consensus sequence aminos
   int     len2,
   int   * ss_A,
   int   * ss_B,
@@ -670,127 +684,131 @@ void FindSpliceIndices
   if (DEBUGGING) DEBUG_OUT("Starting 'FindSpliceIndices'",1);
 
 
-  int ** DP1 = (int **) malloc((len1+1)*sizeof(int *)); //   Upstream DP table
-  int ** DP2 = (int **) malloc((len1+1)*sizeof(int *)); // Downstream DP table
-  int ** SPL = (int **) malloc((len1+1)*sizeof(int *)); // Splice Hyperjump!
+  int i,j;
 
+  *ss_A = 0;
+  *ss_B = 0;
+  *model_ss = 0;
 
-  for (int i=0; i<=len1; i++) {
-    DP1[i] = (int *) malloc((len2+1) * sizeof(int));
-    DP2[i] = (int *) malloc((len2+1) * sizeof(int));
-    SPL[i] = (int *) malloc((len2+1) * sizeof(int));
-    for (int j=0; j<=len2; j++) {
-      DP1[i][j] = 0;
-      DP2[i][j] = 0;
-      SPL[i][j] = 0;
-    }
-  }
-
-  for (int i=1; i<=len1; i++) {
-    DP1[i][0] = i * GAP;
-    DP2[i][0] = i * GAP;
-  }
-
-  for (int j=1; j<=len2; j++) {
-    DP1[0][j] = j * GAP;
-    DP1[0][j] = j * GAP;
-  }
-
-
-  // I'll just dangle this carrot to incentivize splicing at some point
   int splice_bonus = 20;
 
 
-  // Program Dynamically!
-  for (int i=1; i<=len1; i++) {
+  int ** DP = (int **) malloc((len1+1)*sizeof(int *)); // Upstream DP table
 
-    for (int j=1; j<=len2; j++) {
+  for (i=0; i<=len1; i++) {
+    DP[i] = (int *) malloc((len2+1)*sizeof(int));
+    DP[i][0] = i * GAP;
+  }
 
-      int match = B62[21 * Seq1[i] + Seq2[j]];
-
-      DP1[i][j] = intMax(intMax(DP1[i-1][j], DP1[i][j-1])+GAP, DP1[i-1][j-1]+match);
-      
-      SPL[i][j] = intMax(SPL[i-1][j],DP1[i][j]+splice_bonus);
-
-      DP2[i][j] = intMax(intMax(DP2[i-1][j], DP2[i][j-1])+GAP, DP2[i-1][j-1]+match);
-      DP2[i][j] = intMax(SPL[i][j]+match,DP2[i][j]);
-
-    }
-
+  for (j=1; j<=len2; j++) {
+    DP[0][j] = j * GAP;
+    for (i=1; i<=len1; i++)
+      DP[i][j] = 0;
   }
 
 
-  // Where did we splice?!
-  *ss_A=0;
-  *ss_B=0;
-
-  int i=len1;
-  int j=len2;
-  int ali_len = 0;
-  while (*ss_B == 0) {
-
-    int match = B62[21 * Seq1[i] + Seq2[j]];
-
-    if (DP2[i][j] == SPL[i][j]+match) {
-      *ss_B = i;
-
-    } else if (DP2[i][j] == DP2[i-1][j-1] + match) {
-      i--;
-      j--;
-    } else if (DP2[i][j] == DP2[i-1][j]+GAP) {
-      i--;
-    } else {
-      j--;
-    }
-
-    ali_len++;
-
-  }
+  // We use the difference between the lengths of the two sequences
+  // as the 
+  int seq_len_diff = len1 - len2;
 
 
-  // Grab the location (in the model) of the amino acid that
-  // will need to have its codon composition resolved.
-  *model_ss = j;
+  // PROGRAM DYNAMICALLY!
+  for (j=1; j<=len2; j++) {
 
+    // Too early in the upstream exon to function as a
+    // splice donor site
+    for (i=1; i+seq_len_diff<s1_split; i++) {
 
-  while (*ss_A == 0) {
+      int match = GetMatchScore(Seq1[i],Seq2[j]);
 
-    if (SPL[i][j] == DP1[i][j]+splice_bonus)
-      *ss_A = i;
+      DP[i][j] = intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
+                        DP[i-1][j-1] + match);
     
-    i--;
+    }
+
+
+    // Could be a splice donor!
+    for (; i<=s1_split; i++) {
+    
+      int match = GetMatchScore(Seq1[i],Seq2[j]);
+
+      DP[i][j] = intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
+                        DP[i-1][j-1] + match);
+
+      if (i+seq_len_diff <= len1)
+        DP[i+seq_len_diff][j] = DP[i][j] + splice_bonus;
+
+    }
   
+
+    // Now, finish off the rest of the table!
+    for (; i<=len1; i++) {
+
+      int match = GetMatchScore(Seq1[i],Seq2[j]);
+
+      DP[i][j] = intMax(DP[i][j],
+                        intMax(intMax(DP[i-1][j],DP[i][j-1]) + GAP,
+                               DP[i-1][j-1] + match)
+                        );
+
+    }
+
   }
 
 
-  // Finish our trace to get the full length of the alignment
-  while (i || j) {
+  // Where are we splicing today?
+  i = len1;
+  j = len2;
+  int ali_len = 0;
+  while (i && j) {
 
-    int match = B62[21 * Seq1[i] + Seq2[j]];
+    ali_len++;
 
-    if (i == 0){
-      j--;
-    } else if (j == 0) {
+    int match = GetMatchScore(Seq1[i],Seq2[j]);
+
+    if (DP[i][j] == DP[i-seq_len_diff][j] + splice_bonus) {
+      *ss_B = i;
+      i -= seq_len_diff;
+      *ss_A = i;
+      break;
+    } else if (DP[i][j] == DP[i-1][j-1] + match) {
       i--;
-    } else if (DP1[i][j] == DP1[i-1][j-1] + match) {
-      i--;
       j--;
-    } else if (DP1[i][j] == DP1[i-1][j] + GAP) {
+    } else if (DP[i][j] == DP[i-1][j] + GAP) {
       i--;
     } else {
       j--;
     }
 
+  }
+
+
+  while (i && j) {
+
     ali_len++;
 
+    int match = GetMatchScore(Seq1[i],Seq2[j]);
+
+    if (DP[i][j] == DP[i-1][j-1] + match) {
+      i--;
+      j--;
+    } else if (DP[i][j] == DP[i-1][j] + GAP) {
+      i--;
+    } else {
+      j--;
+    }
+
   }
+
+
+  ali_len += i + j;
 
 
   // As I'm thinking about how to incorporate the scores of these
   // silly splicey things into a graph where we also have *actual*
   // scores associated with hits, I'll grab ahold of a few thangs...
-  float total_score   = (float)(DP2[len1][len2] - splice_bonus);
-  *score_density      = log(total_score / ali_len);
+  float total_score = (float)(DP[len1][len2]);
+  *score_density    = log(total_score / ali_len);
 
 
   if (DEBUGGING && 1) {
@@ -811,7 +829,6 @@ void FindSpliceIndices
       if (j == *model_ss) printf("^");
       else                printf(" ");
     }
-    printf("\n");
     printf("   : total   : %f\n",total_score);
     printf("   : density : %f\n",*score_density);
     printf("\n");
@@ -819,14 +836,9 @@ void FindSpliceIndices
 
 
   // Cleanup
-  for (i=0; i<=len1; i++) {
-    free(DP1[i]);
-    free(SPL[i]);
-    free(DP2[i]);
-  }
-  free(DP1);
-  free(SPL);
-  free(DP2);
+  for (i=0; i<=len1; i++)
+    free(DP[i]);
+  free(DP);
 
   if (DEBUGGING) DEBUG_OUT("'FindSpliceIndices' Complete",-1);
 
@@ -871,16 +883,15 @@ void SpliceOverlappingDomains
   for (int i=0; i<downstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
   
 
-  // Pull a tight subsequence of the model consensus aminos.
-  int css_len   = 1 + Overlap->amino_end - Overlap->amino_start;
+  int css_len = 1 + Overlap->amino_end - Overlap->amino_start;
   int * ConsSubSeq = malloc((css_len + 1) * sizeof(int));
   for (int i=1; i<=css_len; i++)
-    ConsSubSeq[i] = Consensus[Overlap->amino_start + i - 1];
+    ConsSubSeq[i] = Consensus[Overlap->amino_start + i];
 
 
   int ss_A, ss_B, model_ss;
   float score_density;
-  FindSpliceIndices(Trans,trans_seq_len,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss,&score_density);
+  FindSpliceIndices(Trans,trans_seq_len,upstream_nucl_cnt/3,ConsSubSeq,css_len,&ss_A,&ss_B,&model_ss,&score_density);
 
   Overlap->score_density = score_density;
 
@@ -974,6 +985,92 @@ void SpliceOverlappingDomains
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: GetNuclRangesFromAminoCoords
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+void GetNuclRangesFromAminoCoords
+(
+  P7_ALIDISPLAY  * UpDisp,
+  P7_ALIDISPLAY  * DownDisp,
+  DOMAIN_OVERLAP * Edge
+)
+{
+
+
+  int strand = 1;
+  if (UpDisp->sqfrom > UpDisp->sqto)
+    strand = -1;
+
+
+  //
+  // UPSTREAM
+  //
+
+  int disp_pos   = UpDisp->N - 1;
+  int disp_amino = UpDisp->hmmto;
+
+  Edge->upstream_nucl_end   = UpDisp->sqto + (3 * strand * (Edge->amino_end - disp_amino));
+  Edge->upstream_nucl_start = UpDisp->sqto + strand;
+
+  while (disp_pos >= 0 && disp_amino >= Edge->amino_start) {
+
+    Edge->upstream_nucl_start -= 3 * strand;
+    disp_amino--;
+
+    // If we were presumptuous, undo the previous work
+    if (UpDisp->model[disp_pos] == '.') // Insertion relative to pHMM
+      disp_amino++;
+    if (UpDisp->aseq[disp_pos] == '-') // Insertion relative to genome
+      Edge->upstream_nucl_start += 3 * strand;
+
+    disp_pos--;
+
+  }
+  disp_amino++;
+  Edge->upstream_nucl_start -= 3 * strand * (disp_amino - Edge->amino_start);
+
+  
+
+  //
+  // DOWNSTREAM
+  //
+
+  disp_pos   = 0;
+  disp_amino = DownDisp->hmmfrom;
+
+  Edge->downstream_nucl_start = DownDisp->sqfrom - (3 * strand * (Edge->amino_start - disp_amino));
+  Edge->downstream_nucl_end   = DownDisp->sqfrom - strand;
+
+  while (disp_pos < DownDisp->N && disp_amino <= Edge->amino_end) {
+
+    Edge->downstream_nucl_end += 3 * strand;
+    disp_amino++;
+
+    // Presumptuous? I hardly knumptuous!
+    if (DownDisp->model[disp_pos] == '.') // Insertion relative to pHMM
+      disp_amino--;
+    if (DownDisp->aseq[disp_pos] == '-') // Insertion relative to genome
+      Edge->downstream_nucl_end -= 3 * strand;
+
+    disp_pos++;
+
+  }
+  disp_amino--;
+  Edge->downstream_nucl_end += 3 * strand * (Edge->amino_end - disp_amino);
+
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: SketchSpliceEdge
  *
  *  Inputs:  
@@ -995,125 +1092,43 @@ void SketchSpliceEdge
 
   if (DEBUGGING) DEBUG_OUT("Starting 'SketchSpliceEdge'",1);
 
+
   P7_DOMAIN *   UpDom = &(TopHits->hit[Edge->upstream_hit_id]->dcl[Edge->upstream_dom_id]);
   P7_DOMAIN * DownDom = &(TopHits->hit[Edge->downstream_hit_id]->dcl[Edge->downstream_dom_id]);
 
 
-  int   upstream_hmm_from =   UpDom->ad->hmmfrom;
-  int   upstream_hmm_to   =   UpDom->ad->hmmto;
-  int downstream_hmm_from = DownDom->ad->hmmfrom;
-  int downstream_hmm_to   = DownDom->ad->hmmto;
-  
-  int   upstream_nt_from =   UpDom->ad->sqfrom;
-  int   upstream_nt_to   =   UpDom->ad->sqto;
-  int downstream_nt_from = DownDom->ad->sqfrom;
-  int downstream_nt_to   = DownDom->ad->sqto;
-  
-
-  int strand = 3;
-  if (upstream_nt_from > upstream_nt_to) 
-    strand = -3;
-
-
-  // We'll need to do some "walking" to get the right
-  // upstream_start and downstream_end coordinates
-  // (in the event that we need to accommodate indels),
-  // so for now we just set these equal to one another
-  //
-  Edge->upstream_nucl_end     =   upstream_nt_to;
-  Edge->upstream_nucl_start   =   upstream_nt_to;
-  Edge->downstream_nucl_start = downstream_nt_from;
-  Edge->downstream_nucl_end   = downstream_nt_from;
-
-
-  Edge->amino_start = downstream_hmm_from;
-  Edge->amino_end   =   upstream_hmm_to;
+  Edge->amino_start = DownDom->ad->hmmfrom;
+  Edge->amino_end   =   UpDom->ad->hmmto;
 
 
   // Do we need to extend beyond the bounds of these
   // hits to have the required number of overlapping
   // amino acids?
-  int amino_overlap  = 1 + upstream_hmm_to - downstream_hmm_from;
-  int num_ext_aminos = MIN_AMINO_OVERLAP - amino_overlap;
+  int num_ext_aminos = MIN_AMINO_OVERLAP - (1 + Edge->amino_end - Edge->amino_start);
   if (num_ext_aminos > 0) {
+
+    // Extending the overlap region means going in
+    // both directions, so we'll extend each side by
+    // half of what's required
+    num_ext_aminos = (num_ext_aminos+1)/2;
 
     Edge->amino_start -= num_ext_aminos;
     Edge->amino_end   += num_ext_aminos;
 
-      Edge->upstream_nucl_end   += strand * num_ext_aminos;
-    Edge->downstream_nucl_start -= strand * num_ext_aminos;
-
-  } else {
-
-    num_ext_aminos = 0;
-  
   }
 
 
   // Now we can do the work of finding the (indel-aware)
   // upstream_start and downstream_end coordinates.
-
-  // Upstream nucleotide start coord.
-  //
-  P7_ALIDISPLAY * AD = UpDom->ad;
-  int ad_pos = AD->N-1;
-  int overlap_aminos_covered = 0;
-  while (overlap_aminos_covered<amino_overlap) {
-    
-    if (AD->model[ad_pos] == '.') { // // // insertion relative to hmm
-
-      Edge->upstream_nucl_start -= strand;
-
-    } else if (AD->aseq[ad_pos] == '-') { // insertion relative to genome
-
-      overlap_aminos_covered++;
-
-    } else { // // // // // // // // // // // Match state! (easy!)
-
-      Edge->upstream_nucl_start -= strand;
-      overlap_aminos_covered++;
-
-    }
-
-    ad_pos--;
-  
-  }
+  GetNuclRangesFromAminoCoords(UpDom->ad,DownDom->ad,Edge);
 
 
-  // Downstream nucleotide end coord.
-  //
-  AD = DownDom->ad;
-  ad_pos = 0;
-  overlap_aminos_covered = 0;
-  while (overlap_aminos_covered<amino_overlap) {
 
-    if (AD->model[ad_pos] == '.') { // // // insertion relative to hmm
-
-      Edge->downstream_nucl_end += strand;
-
-    } else if (AD->aseq[ad_pos] == '-') { // insertion relative to genome
-
-      overlap_aminos_covered++;
-
-    } else { // // // // // // // // // // // Match state! (easy!)
-
-      Edge->downstream_nucl_end += strand;
-      overlap_aminos_covered++;
-
-    }
-
-    ad_pos++;
-
-  }
-
-
-  // We'll need to trim the last nucleotide to have inclusive bounds
-  if (strand < 0) {
-    Edge->upstream_nucl_start += 2;
-    Edge->downstream_nucl_end -= 2;
-  } else {
-    Edge->upstream_nucl_start -= 2;
-    Edge->downstream_nucl_end += 2;
+  if (DEBUGGING && 0) {
+    fprintf(stderr,"\n");
+    fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
+    fprintf(stderr,"                      : Downstream : %d ... %d\n",Edge->downstream_nucl_start,Edge->downstream_nucl_end);
+    fprintf(stderr,"\n");
   }
 
 
