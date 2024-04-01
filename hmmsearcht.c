@@ -125,7 +125,7 @@ static char RNA_CHARS[5]    = {'A','C','G','U','-'};
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
 static int MAX_AMINO_EXT     = 4;
-static int MIN_AMINO_OVERLAP = 8;
+static int MIN_AMINO_OVERLAP = 6;
 
 
 int intMax (int a, int b) { if (a>b) return a; return b; }
