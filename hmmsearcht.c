@@ -1970,7 +1970,7 @@ void FillOutGraphStructure
   // Are your hits to the reverse complement of the query nucleotide seq?
   Graph->revcomp = 0;
   if (Graph->num_nodes) {
-    P7_DOMAIN * Dom = &(Graph->TopHits->hit[Graph->Nodes[0]->hit_id]->dcl[Graph->Nodes[0]->dom_id]);
+    P7_DOMAIN * Dom = &(Graph->TopHits->hit[Graph->Nodes[1]->hit_id]->dcl[Graph->Nodes[1]->dom_id]);
     if (Dom->ad->sqfrom > Dom->ad->sqto)
       Graph->revcomp = 1;
   }
