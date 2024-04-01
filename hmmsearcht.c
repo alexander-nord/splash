@@ -1060,7 +1060,7 @@ void GetNuclRangesFromAminoCoords
   disp_pos   = 0;
   disp_amino = DownDisp->hmmfrom;
 
-  Edge->downstream_nucl_start = DownDisp->sqfrom - (3 * strand * (Edge->amino_start - disp_amino));
+  Edge->downstream_nucl_start = DownDisp->sqfrom - (3 * strand * (disp_amino - Edge->amino_start));
   Edge->downstream_nucl_end   = DownDisp->sqfrom - strand;
 
   while (disp_pos < DownDisp->N && disp_amino <= Edge->amino_end) {
