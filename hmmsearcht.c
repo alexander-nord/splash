@@ -251,6 +251,9 @@ typedef struct _splice_graph {
   P7_OPROFILE * Model;
 
 
+  int revcomp;
+
+
   int num_hits;
   int max_doms; // Maximum number of domains in a single hit (table width)
   int ** HitDomToNodeID; // Go from a hit-domain pair to a node index
@@ -278,6 +281,7 @@ typedef struct _splice_graph {
 
 
 } SPLICE_GRAPH;
+
 
 
 
@@ -1963,6 +1967,15 @@ void FillOutGraphStructure
   }
 
 
+  // Are your hits to the reverse complement of the query nucleotide seq?
+  Graph->revcomp = 0;
+  if (Graph->num_nodes) {
+    P7_DOMAIN * Dom = &(Graph->TopHits->hit[Graph->Nodes[0]->hit_id]->dcl[Graph->Nodes[0]->dom_id]);
+    if (Dom->ad->sqfrom > Dom->ad->sqto)
+      Graph->revcomp = 1;
+  }
+
+
   for (int edge_id=0; edge_id<Graph->num_edges; edge_id++) {
     if (SpliceEdges[edge_id] != NULL)
       ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
@@ -2053,6 +2066,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   Graph->TopHits = TopHits;
   Graph->Model   = om;
 
+
   Graph->Nodes          = NULL;
   Graph->CumScoreSort   = NULL;
   Graph->NTermNodeIDs   = NULL;
@@ -2088,15 +2102,113 @@ SPLICE_GRAPH * BuildSpliceGraph
   
   }
 
+
   // Build that stinky graph!
   FillOutGraphStructure(Graph,SpliceEdges);
   FindBestFullPath(Graph);
+
 
   if (DEBUGGING) DEBUG_OUT("'BuildSpliceGraph' Complete",-1);
 
   return Graph;
 
 }
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetNodeHitData
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void GetNodeHitData 
+(
+  SPLICE_GRAPH * Graph, 
+  int   node_id, 
+  int * hmm_from, 
+  int * hmm_to, 
+  int * nucl_from, 
+  int * nucl_to
+) 
+{
+  
+  int hit_id = Graph->Nodes[node_id]->hit_id;
+  int dom_id = Graph->Nodes[node_id]->dom_id;
+
+  P7_DOMAIN * Dom = &(Graph->TopHits->hit[hit_id]->dcl[dom_id]);
+
+  *hmm_from  = Dom->ad->hmmfrom;
+  *hmm_to    = Dom->ad->hmmto;
+  *nucl_from = Dom->ad->sqfrom;
+  *nucl_to   = Dom->ad->sqto;
+
+}
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: IsViableSearchArea
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+int IsViableSearchArea
+(
+  int   upstream_hmm_to, 
+  int   upstream_nucl_to,
+  int downstream_hmm_from,
+  int downstream_nucl_from,
+  int revcomp
+)
+{
+
+  // How large of an area are we willing to consider searching?
+  int max_hmm_dist  =    50;
+  int max_nucl_dist = 10000;
+
+
+  // Is the "upstream" hit even really upstream?
+  int hmm_dist = 1 + downstream_hmm_from - upstream_hmm_to;
+  if (hmm_dist <= 0)
+    return 0;
+
+
+  int nucl_dist = downstream_nucl_from - upstream_nucl_to;
+  if (revcomp) {
+    if (nucl_dist >= 0) 
+      return 0;
+    nucl_dist *= -1;
+  } else {
+    if (nucl_dist <= 0) 
+      return 0;
+  }
+  nucl_dist++;
+
+
+  if (hmm_dist <= max_hmm_dist && nucl_dist <= max_nucl_dist)
+    return 1;
+
+  
+  return 0;
+
+}
+
 
 
 
@@ -2116,10 +2228,235 @@ SPLICE_GRAPH * BuildSpliceGraph
 void SearchForMissingExons
 (SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
 {
+
   if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
+
+
+  // Make lists containing the IDs of all nodes that 
+  // don't have outgoing / incoming edges.
+  int * NoOutEdgeNodes = (int *)malloc(Graph->num_nodes * sizeof(int));
+  int * NoInEdgeNodes  = (int *)malloc(Graph->num_nodes * sizeof(int));
+  int num_no_out_edge  = 0;
+  int num_no_in_edge   = 0;
+
+
+  for (int node_id = 0; node_id < Graph->num_nodes; node_id++) {
+
+    SPLICE_NODE * Node = Graph->Nodes[node_id];
+
+    if (Node->num_out_edges == 0 && Node->is_c_terminal == 0) {
+      NoOutEdgeNodes[num_no_out_edge] = node_id;
+      num_no_out_edge++;
+    }
+
+    if (Node->num_in_edges == 0 && Node->is_n_terminal == 0) {
+      NoInEdgeNodes[num_no_in_edge] = node_id;
+      num_no_in_edge++;
+    }
+
+  }
+
+
+
+  int * NoOutEdgePartners = (int *)malloc(num_no_out_edge * sizeof(int));
+  int * NoOutEdgeHMMTo    = (int *)malloc(num_no_out_edge * sizeof(int));
+  int * NoOutEdgeNuclTo   = (int *)malloc(num_no_out_edge * sizeof(int));
+
+  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
+  
+    int hmm_from,hmm_to,nucl_from,nucl_to;
+    GetNodeHitData(Graph,NoOutEdgeNodes[no_out_edge_id],&hmm_from,&hmm_to,&nucl_from,&nucl_to);
+
+    NoOutEdgeHMMTo[no_out_edge_id]  = hmm_to;
+    NoOutEdgeNuclTo[no_out_edge_id] = nucl_to;
+
+  }
+
+
+  int * NoInEdgePartners  = (int *)malloc(num_no_in_edge  * sizeof(int));
+  int * NoInEdgeNuclFrom  = (int *)malloc(num_no_in_edge  * sizeof(int));
+  int * NoInEdgeHMMFrom   = (int *)malloc(num_no_in_edge  * sizeof(int));
+
+  for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
+  
+    int hmm_from,hmm_to,nucl_from,nucl_to;
+    GetNodeHitData(Graph,NoOutEdgeNodes[no_in_edge_id],&hmm_from,&hmm_to,&nucl_from,&nucl_to);
+
+    NoInEdgeHMMFrom[no_in_edge_id]  = hmm_from;
+    NoInEdgeNuclFrom[no_in_edge_id] = nucl_from;
+
+  }
+
+
+
+  // Try to pair up members of 'NoOutEdgeNodes' with members of
+  // 'NoInEdgeNodes'
+  //
+  // We're going to be maximalist (within reason), with respect to
+  // the size of the nucleotide window.
+
+
+  // First, iterate over 'NoOutEdgeNodes' and find the furthest away
+  // 'NoInEdgeNodes' entry within the acceptable range
+  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
+
+    int optimal_partner   = -1;
+    int optimal_nucl_dist = -1;
+
+    int up_hmm_to  = NoOutEdgeHMMTo[no_out_edge_id];
+    int up_nucl_to = NoOutEdgeNuclTo[no_out_edge_id];
+
+    for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
+
+      int down_hmm_from  = NoInEdgeHMMFrom[no_in_edge_id];
+      int down_nucl_from = NoInEdgeNuclFrom[no_in_edge_id];
+
+      // Are these compatible, in terms of defining a search area?
+      if (!IsViableSearchArea(up_hmm_to,up_nucl_to,down_hmm_from,down_nucl_from,Graph->revcomp))
+        continue;
+
+      int nucl_dist = abs(down_nucl_from - up_nucl_to) + 1;
+      if (nucl_dist > optimal_nucl_dist) {
+        optimal_partner   = no_in_edge_id;
+        optimal_nucl_dist = nucl_dist;
+      }
+
+    }
+
+    NoOutEdgePartners[no_out_edge_id] = optimal_partner;
+
+  }
+
+
+
+
+  // Now run it in the other direction (optimal partners for
+  // downstream hits without edges in)
+  for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
+
+    int optimal_partner   = -1;
+    int optimal_nucl_dist = -1;
+
+    int down_hmm_from  = NoInEdgeHMMFrom[no_in_edge_id];
+    int down_nucl_from = NoInEdgeNuclFrom[no_in_edge_id];
+
+    for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
+
+      int up_hmm_to  = NoOutEdgeHMMTo[no_out_edge_id];
+      int up_nucl_to = NoOutEdgeNuclTo[no_out_edge_id];
+
+      if (!IsViableSearchArea(up_hmm_to,up_nucl_to,down_hmm_from,down_nucl_from,Graph->revcomp))
+        continue;
+
+      int nucl_dist = abs(up_nucl_to - down_nucl_from) + 1;
+      if (nucl_dist > optimal_nucl_dist) {
+        optimal_partner   = no_out_edge_id;
+        optimal_nucl_dist = nucl_dist;
+      }
+
+    }
+
+    NoInEdgePartners[no_in_edge_id] = optimal_partner;
+
+  }
+
+
+
+  // Swag!  Now we can define our actual intended search regions!
+  //
+  int num_search_regions = 0;
+  int * SearchHMMStarts  = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
+  int * SearchHMMEnds    = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
+  int * SearchNuclStarts = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
+  int * SearchNuclEnds   = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
+
+
+  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
+
+
+    // Who's our optimal partner? Have they already been considered?
+    int no_in_edge_id = NoOutEdgePartners[no_out_edge_id];
+    NoOutEdgePartners[no_out_edge_id] = -1;
+
+    if (no_in_edge_id == -1)
+      continue;
+
+
+    // Who's *their* optimal partner? Has that bound already been used?
+    int no_in_edge_partner_id = NoInEdgePartners[no_in_edge_id];
+    NoInEdgePartners[no_in_edge_id] = -1;
+
+    if (no_in_edge_partner_id == -1)
+      continue;
+
+
+    // Final check: Has that (preferred "no out edge" node) already been considered?
+    if (NoOutEdgePartners[no_in_edge_partner_id] == -1)
+      continue;
+    NoOutEdgePartners[no_in_edge_partner_id] = -1;
+
+
+    int search_hmm_from  = NoOutEdgeHMMTo[no_in_edge_partner_id];
+    int search_nucl_from = NoOutEdgeNuclTo[no_in_edge_partner_id];
+    int search_hmm_to    = NoInEdgeHMMFrom[no_in_edge_id];
+    int search_nucl_to   = NoInEdgeNuclFrom[no_in_edge_id];
+
+
+    SearchHMMStarts[num_search_regions]  = search_hmm_from;
+    SearchHMMEnds[num_search_regions]    = search_hmm_to;
+    SearchNuclStarts[num_search_regions] = search_nucl_from;
+    SearchNuclEnds[num_search_regions]   = search_nucl_to;
+    num_search_regions++;
+
+  }
+
+
+  // Cleanup - batch 1
+  free(NoOutEdgePartners);
+  free(NoOutEdgeNodes);
+  free(NoOutEdgeNuclTo);
+  free(NoInEdgePartners);
+  free(NoInEdgeNodes);
+  free(NoInEdgeNuclFrom);
+
+
+
+  // Now we can iterate over our list of search regions and,
+  // for each:
+  //
+  //   1. Extract the appropriate sub-region of the model
+  //   2. Pull the appropriate portion of the target sequence
+  //   3. Search the sub-model against the sub-target,
+  //        using the forward algorithm with minimal quality
+  //        restrictions (yikes!)
+  //
+  //   and...
+  //
+  //   4. Integrate any new hits into the graph!
+  //
+  for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
+
+    int hmm_from  = SearchHMMStarts[search_region_id];
+    int hmm_to    = SearchHMMEnds[search_region_id];
+    int nucl_from = SearchNuclStarts[search_region_id];
+    int nucl_to   = SearchNuclEnds[search_region_id];
+
+
+
+  }
+
+
+  // Cleanup - batch 2
+  free(SearchHMMStarts);
+  free(SearchHMMEnds);
+  free(SearchNuclStarts);
+  free(SearchNuclEnds);
+
  
   if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
+
 }
+
 
 
 
