@@ -662,6 +662,8 @@ int GetMatchScore (int index1, int index2)
 
 
 
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindSpliceIndices
@@ -2159,6 +2161,130 @@ void GetNodeHitData
 
 
 
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ExtractSubProfile
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+P7_OPROFILE * ExtractSubProfile
+(
+  P7_OPROFILE * FullModel, 
+  float * EmitScores, 
+  float * TransScores, 
+  int start_pos, 
+  int end_pos
+)
+{
+
+  int fullM = FullModel->M;
+  int  subM = 1 + end_pos - start_pos;
+  P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
+
+  // This is basically just ripped straight outta the
+  // code for p7_profile_Copy, but with low-IQ methods
+  // for copying arrays
+
+
+  int model_alpha_size = FullModel->abc->Kp;
+
+
+  // 1. FORWARD EMISSION SCORES
+  for (int residue_id = 0; residue_id < model_alpha_size; residue_id++) {
+
+    // I think we want to handle 'position 0' specially...
+    SubModel->rsc[residue_id][0] = EmitScores[residue_id * model_alpha_size];
+
+    for (int sub_model_pos=1; sub_model_pos<=subM; sub_model_pos++)
+      SubModel->rsc[residue_id][sub_model_pos] = EmitScores[(residue_id * model_alpha_size) + sub_model_pos + start_pos - 1];
+
+  }
+
+
+  // 2. FORWARD TRANSITION SCORES
+  /*
+   *
+   * Much to my chagrin, we're going to have to pull specific type of transition
+   * probabilities (e.g., II,DD,MM,IM,MI,DM,MD) and then be conscious of ordering
+   * as we integrate them into the sub-model.
+   *
+   *
+  for (int trans_type_id = 0; trans_type_id < p7P_NTRANS; trans_type_id++) {
+
+    int base_write_pos = trans_type_id *  subM * p7P_NTRANS;
+    int base_read_pos  = trans_type_id * fullM * p7P_NTRANS;
+
+    // Again, special treatment of position 0
+    SubModel->tsc[base_write_pos] = TransScores[base_read_pos];
+
+    for (int sub_model_pos=0; sub_model_pos < subM; sub_model_pos++)
+      SubModel->tsc[base_write_pos + sub_model_pos] = TransScores[base_read_pos + sub_model_pos + start_pos];
+
+  }
+  */
+
+
+  // 3. CONSENSUS SEQUENCE
+  for (int write_pos=1; write_pos<=subM; write_pos++)
+    SubModel->consensus[write_pos] = FullModel->consensus[write_pos + start_pos - 1];
+
+
+
+  // Optimize the profile (and burn the un-optimized template)
+  P7_OPROFILE * OptimizedSubModel = p7_oprofile_Create(subM,FullModel->abc);
+  int submodel_create_err = p7_oprofile_Convert(SubModel,OptimizedSubModel);
+  p7_profile_Destroy(SubModel);
+
+  return OptimizedSubModel;
+
+}
+
+
+
+
+
+/////////////////////////////////////////////////////////////////////
+//
+//
+//                         DEBUGGING
+//
+//
+P7_OPROFILE * DUPLICATE_MODEL
+(P7_OPROFILE * Template)
+{
+
+  int  emit_scores_arr_size = ( Template->abc->Kp * ( Template->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
+  int trans_scores_arr_size = ( p7P_NTRANS        *   Template->M       ); // I'm pretty sure this is the right size...
+
+  float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
+  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
+
+  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(Template,FwdEmitScores);
+  //int get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(Template,<TYPE>,FwdTransScores); * 6...
+
+  ExtractSubProfile(Template,FwdEmitScores,FwdTransScores,1,Template->M);
+
+  free(FwdEmitScores);
+  free(FwdTransScores);
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: IsViableSearchArea
@@ -2214,23 +2340,18 @@ int IsViableSearchArea
 
 
 
-
-
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: SearchForMissingExons
+ *  Function: GetBoundedSearchRegions
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-void SearchForMissingExons
-(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+int * GetBoundedSearchRegions
+(SPLICE_GRAPH * Graph, int * num_search_regions_ref)
 {
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
-
 
   // Make lists containing the IDs of all nodes that 
   // don't have outgoing / incoming edges.
@@ -2411,14 +2532,89 @@ void SearchForMissingExons
   }
 
 
-  // Cleanup - batch 1
+  // Now we just need to jam all our starts / ends into a
+  // single 'aggregator' array, and we're done, baby!
+  int * SearchRegionAggregate = NULL;
+  if (num_search_regions > 0) {
+
+    SearchRegionAggregate = (int *)malloc(4 * num_search_regions * sizeof(int));
+    
+    for (int i=0; i<num_search_regions; i++) {
+      SearchRegionAggregate[4*i    ] = SearchHMMStarts[i];
+      SearchRegionAggregate[4*i + 1] = SearchHMMEnds[i];
+      SearchRegionAggregate[4*i + 2] = SearchNuclStarts[i];
+      SearchRegionAggregate[4*i + 3] = SearchNuclEnds[i];
+    }
+
+  }
+
+
+  // Cleanup
   free(NoOutEdgePartners);
   free(NoOutEdgeNodes);
   free(NoOutEdgeNuclTo);
   free(NoInEdgePartners);
   free(NoInEdgeNodes);
   free(NoInEdgeNuclFrom);
+  free(SearchHMMStarts);
+  free(SearchHMMEnds);
+  free(SearchNuclStarts);
+  free(SearchNuclEnds);
 
+
+  *num_search_regions_ref = num_search_regions;
+  return SearchRegionAggregate;
+
+
+}
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SearchForMissingExons
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void SearchForMissingExons
+(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
+
+
+  // Grab the sub-regions of our conceptual DP zone that we want
+  // to search for missing exons.
+  //
+  // This 'SearchRegionAggregate' is indexed in groups consisting
+  // of: the starting position in the model, the ending position in
+  // the model, the starting coordinate on the genome, and the ending
+  // coordinate on the genome.
+  //
+  int num_search_regions;
+  int * SearchRegionAggregate = GetBoundedSearchRegions(Graph,&num_search_regions);
+
+  if (num_search_regions == 0)
+    return;
+
+
+  // We'll want to have the forward transition and emission scores
+  // on-hand for ease of sub-model generation.
+  P7_OPROFILE * FullModel = Graph->Model;
+
+  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
+  int trans_scores_arr_size = ( p7P_NTRANS         *   FullModel->M       ); // I'm pretty sure this is the right size...
+
+  float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
+  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
+
+  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(FullModel,FwdEmitScores);
+  // int get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,<TYPE>,FwdTransScores); * 6
 
 
   // Now we can iterate over our list of search regions and,
@@ -2436,21 +2632,23 @@ void SearchForMissingExons
   //
   for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
 
-    int hmm_from  = SearchHMMStarts[search_region_id];
-    int hmm_to    = SearchHMMEnds[search_region_id];
-    int nucl_from = SearchNuclStarts[search_region_id];
-    int nucl_to   = SearchNuclEnds[search_region_id];
 
+    int hmm_start  = SearchRegionAggregate[4*search_region_id    ];
+    int hmm_end    = SearchRegionAggregate[4*search_region_id + 1];
+    int nucl_start = SearchRegionAggregate[4*search_region_id + 2];
+    int nucl_end   = SearchRegionAggregate[4*search_region_id + 3];
+
+
+    P7_OPROFILE * SubProfile = ExtractSubProfile(FullModel,FwdEmitScores,FwdTransScores,hmm_start,hmm_end);
 
 
   }
 
 
-  // Cleanup - batch 2
-  free(SearchHMMStarts);
-  free(SearchHMMEnds);
-  free(SearchNuclStarts);
-  free(SearchNuclEnds);
+  // Cleanup
+  free(FwdEmitScores);
+  free(FwdTransScores);
+  free(SearchRegionAggregate);
 
  
   if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
