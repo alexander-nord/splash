@@ -2383,7 +2383,7 @@ int * GetBoundedSearchRegions
   int num_no_in_edge   = 0;
 
 
-  for (int node_id = 0; node_id < Graph->num_nodes; node_id++) {
+  for (int node_id = 1; node_id < Graph->num_nodes; node_id++) {
 
     SPLICE_NODE * Node = Graph->Nodes[node_id];
 
@@ -2621,8 +2621,24 @@ void SearchForMissingExons
   int num_search_regions;
   int * SearchRegionAggregate = GetBoundedSearchRegions(Graph,&num_search_regions);
 
-  if (num_search_regions == 0)
+  if (num_search_regions == 0) {
+    if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete (none found)",-1);
     return;
+  }
+
+
+  if (DEBUGGING) {
+    fprintf(stderr,"\n  Num Search Regions: %d\n",num_search_regions);
+    for (int i=0; i<num_search_regions; i++) {
+      fprintf(stderr,"    - Search Region : %d\n",i+1);
+      fprintf(stderr,"      HMM Positions : %d..%d\n",SearchRegionAggregate[i*4    ],SearchRegionAggregate[i*4 + 1]);
+      fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 2],SearchRegionAggregate[i*4 + 3]);
+    }
+    fprintf(stderr,"\n");
+    DEBUG_OUT("'SearchForMissingExons' Complete (early kill)",-1);
+    free(SearchRegionAggregate);
+    return;
+  }
 
 
   // We'll want to have the forward transition and emission scores
@@ -2686,10 +2702,11 @@ void SearchForMissingExons
   }
 
 
+
   // Cleanup
+  free(SearchRegionAggregate);
   free(FwdEmitScores);
   free(FwdTransScores);
-  free(SearchRegionAggregate);
 
  
   if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
