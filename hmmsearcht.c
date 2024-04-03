@@ -2186,12 +2186,9 @@ P7_OPROFILE * ExtractSubProfile
   int  subM = 1 + end_pos - start_pos;
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
 
-  // This is basically just ripped straight outta the
-  // code for p7_profile_Copy, but with low-IQ methods
-  // for copying arrays
-
 
   int model_alpha_size = FullModel->abc->Kp;
+
 
 
   // 1. FORWARD EMISSION SCORES
@@ -2206,27 +2203,40 @@ P7_OPROFILE * ExtractSubProfile
   }
 
 
+
   // 2. FORWARD TRANSITION SCORES
   /*
    *
-   * Much to my chagrin, we're going to have to pull specific type of transition
-   * probabilities (e.g., II,DD,MM,IM,MI,DM,MD) and then be conscious of ordering
-   * as we integrate them into the sub-model.
+   * Much to my chagrin, we have to pull specific type of transition
+   * probabilities and then be conscious of the fact that the profile
+   * and the optimized profile aren't necessarily using the same indices...
    *
-   *
-  for (int trans_type_id = 0; trans_type_id < p7P_NTRANS; trans_type_id++) {
+   */
+  // Always giving special treatment to position 0...
+  SubModel->tsc[subM * p7P_BM] = TransScores[fullM * p7O_BM];
+  SubModel->tsc[subM * p7P_MM] = TransScores[fullM * p7O_MM];
+  SubModel->tsc[subM * p7P_IM] = TransScores[fullM * p7O_IM];
+  SubModel->tsc[subM * p7P_DM] = TransScores[fullM * p7O_DM];
+  SubModel->tsc[subM * p7P_MD] = TransScores[fullM * p7O_MD];
+  SubModel->tsc[subM * p7P_MI] = TransScores[fullM * p7O_MI];
+  SubModel->tsc[subM * p7P_II] = TransScores[fullM * p7O_II];
+  SubModel->tsc[subM * p7P_DD] = TransScores[fullM * p7O_DD];
 
-    int base_write_pos = trans_type_id *  subM * p7P_NTRANS;
-    int base_read_pos  = trans_type_id * fullM * p7P_NTRANS;
+  for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++) {
 
-    // Again, special treatment of position 0
-    SubModel->tsc[base_write_pos] = TransScores[base_read_pos];
+    int opt_model_pos = sub_model_pos + start_pos - 1;
 
-    for (int sub_model_pos=0; sub_model_pos < subM; sub_model_pos++)
-      SubModel->tsc[base_write_pos + sub_model_pos] = TransScores[base_read_pos + sub_model_pos + start_pos];
+    SubModel->tsc[(subM * p7P_BM) + sub_model_pos] = TransScores[(fullM * p7O_BM) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_MM) + sub_model_pos] = TransScores[(fullM * p7O_MM) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_IM) + sub_model_pos] = TransScores[(fullM * p7O_IM) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_DM) + sub_model_pos] = TransScores[(fullM * p7O_DM) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_MD) + sub_model_pos] = TransScores[(fullM * p7O_MD) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_MI) + sub_model_pos] = TransScores[(fullM * p7O_MI) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_II) + sub_model_pos] = TransScores[(fullM * p7O_II) + opt_model_pos];
+    SubModel->tsc[(subM * p7P_DD) + sub_model_pos] = TransScores[(fullM * p7O_DD) + opt_model_pos];
 
   }
-  */
+
 
 
   // 3. CONSENSUS SEQUENCE
@@ -2255,27 +2265,39 @@ P7_OPROFILE * ExtractSubProfile
 //
 //
 P7_OPROFILE * DUPLICATE_MODEL
-(P7_OPROFILE * Template)
+(P7_OPROFILE * FullModel)
 {
 
-  int  emit_scores_arr_size = ( Template->abc->Kp * ( Template->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
-  int trans_scores_arr_size = ( p7P_NTRANS        *   Template->M       ); // I'm pretty sure this is the right size...
-
+  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
   float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
+  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(FullModel,FwdEmitScores);
+
+  int trans_scores_arr_size = ( 8 * FullModel->M );
   float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
+  int get_fwd_trans_err;
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_BM,&FwdTransScores[FullModel->M * 0]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MM,&FwdTransScores[FullModel->M * 1]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_IM,&FwdTransScores[FullModel->M * 2]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DM,&FwdTransScores[FullModel->M * 3]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MD,&FwdTransScores[FullModel->M * 4]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MI,&FwdTransScores[FullModel->M * 5]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_II,&FwdTransScores[FullModel->M * 6]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DD,&FwdTransScores[FullModel->M * 7]);
 
-  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(Template,FwdEmitScores);
-  //int get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(Template,<TYPE>,FwdTransScores); * 6...
-
-  ExtractSubProfile(Template,FwdEmitScores,FwdTransScores,1,Template->M);
+  P7_OPROFILE * Duplicate = ExtractSubProfile(FullModel,FwdEmitScores,FwdTransScores,1,FullModel->M);
 
   free(FwdEmitScores);
   free(FwdTransScores);
 
+  return Duplicate;
+
 }
-
-
-
+//
+//
+//
+//
+//
+/////////////////////////////////////////////////////////////////////
 
 
 
@@ -2607,14 +2629,33 @@ void SearchForMissingExons
   // on-hand for ease of sub-model generation.
   P7_OPROFILE * FullModel = Graph->Model;
 
-  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
-  int trans_scores_arr_size = ( p7P_NTRANS         *   FullModel->M       ); // I'm pretty sure this is the right size...
-
+  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
   float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
-  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
-
   int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(FullModel,FwdEmitScores);
-  // int get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,<TYPE>,FwdTransScores); * 6
+
+
+  // NOTE: The TRANSITION TYPES are organized as follows:
+  //          
+  //            1. p7O_BM ? <- I'm not sure what 'BM' is, but I'm not going to fight 'em about it...
+  //            2. p7O_MM
+  //            3. p7O_IM
+  //            4. p7O_DM
+  //            5. p7O_MD
+  //            6. p7O_MI
+  //            7. p7O_II
+  //            8. p7O_DD
+  // 
+  int trans_scores_arr_size = ( 8 * FullModel->M );
+  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
+  int get_fwd_trans_err;
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_BM,&FwdTransScores[FullModel->M * 0]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MM,&FwdTransScores[FullModel->M * 1]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_IM,&FwdTransScores[FullModel->M * 2]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DM,&FwdTransScores[FullModel->M * 3]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MD,&FwdTransScores[FullModel->M * 4]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MI,&FwdTransScores[FullModel->M * 5]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_II,&FwdTransScores[FullModel->M * 6]);
+  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DD,&FwdTransScores[FullModel->M * 7]);
 
 
   // Now we can iterate over our list of search regions and,
