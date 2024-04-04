@@ -897,11 +897,11 @@ void SpliceOverlappingDomains
   int   upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
   int downstream_nucl_cnt = abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end) + 1;
 
+
   int trans_seq_len = (upstream_nucl_cnt + downstream_nucl_cnt) / 3;
-
-  int * Trans = malloc((trans_seq_len + 1) * sizeof(int));
-
-  trans_seq_len = 0; // Just re-using this as a write index  
+  int * Trans       = malloc((trans_seq_len + 1) * sizeof(int));
+  
+  trans_seq_len = 0; // Just re-using this as a write index
   for (int i=0; i<  upstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,  &(Overlap->UpstreamNucls[3*i+1]));
   for (int i=0; i<downstream_nucl_cnt/3; i++) Trans[++trans_seq_len] = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*i+1]));
   
@@ -2231,6 +2231,7 @@ P7_PROFILE * ExtractSubProfile
 
   // 4. CONSENSUS SEQUENCE
   //
+  SubModel->consensus[0] = FullModel->consensus[0];
   for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
     SubModel->consensus[sub_model_pos] = FullModel->consensus[(sub_model_pos-1)+hmm_start_pos];
 
@@ -2258,12 +2259,6 @@ P7_PROFILE * ExtractSubProfile
     fflush(stderr);
   }
 
-
-  // Optimize the profile (and burn the un-optimized template)
-  /*
-  p7_profile_Destroy(SubModel);
-  return OptimizedSubModel;
-  */
 
   return SubModel;
 
@@ -3349,8 +3344,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      if (tophits_accumulator->N)
-        SpliceHits(tophits_accumulator,dbfp,gm,gcode);
+      SpliceHits(tophits_accumulator,dbfp,gm,gcode);
       // NORD - END
 
 
