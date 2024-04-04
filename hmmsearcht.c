@@ -248,7 +248,7 @@ typedef struct _splice_graph {
 
 
   P7_TOPHITS  * TopHits;
-  P7_OPROFILE * Model;
+  P7_PROFILE  * Model;
 
 
   int revcomp;
@@ -886,8 +886,7 @@ void SpliceOverlappingDomains
 (
   DOMAIN_OVERLAP * Overlap, 
   ESL_DSQ        * Consensus,
-  float          * FwdEmitScores, 
-  P7_OPROFILE    * om, 
+  P7_PROFILE     * gm, 
   ESL_GENCODE    * gcode
 )
 {
@@ -963,8 +962,8 @@ void SpliceOverlappingDomains
   // the "model_ss," while also factoring in splice site signals.
   int   best_splice_opt   = 0;
   float best_splice_score = -5.0;
-  for (int i=0; i<4; i++) { 
-    float splice_score = FwdEmitScores[om->abc->Kp * model_ss + SpliceCodons[i]] + SSSCORE[Canon5Prime[i]] + SSSCORE[Canon3Prime[i]];
+  for (int i=0; i<4; i++) {
+    float splice_score = gm->rsc[SpliceCodons[i]][model_ss] + SSSCORE[Canon5Prime[i]] + SSSCORE[Canon3Prime[i]];
     if (splice_score > best_splice_score) {
       best_splice_score = splice_score;
       best_splice_opt   = i;
@@ -1108,8 +1107,7 @@ void SketchSpliceEdge
   DOMAIN_OVERLAP * Edge,
   TARGET_SEQ     * TargetNuclSeq,
   ESL_DSQ        * Consensus,
-  float          * FwdEmitScores,
-  P7_OPROFILE    * om,
+  P7_PROFILE     * gm,
   ESL_GENCODE    * gcode
 )
 {
@@ -1167,7 +1165,7 @@ void SketchSpliceEdge
   Edge->DownstreamDomain = DownDom;
 
 
-  SpliceOverlappingDomains(Edge,Consensus,FwdEmitScores,om,gcode);
+  SpliceOverlappingDomains(Edge,Consensus,gm,gcode);
 
 
   if (DEBUGGING) DEBUG_OUT("'SketchSpliceEdge' Complete",-1);
@@ -2057,7 +2055,12 @@ void FindBestFullPath
  *
  */
 SPLICE_GRAPH * BuildSpliceGraph
-(P7_TOPHITS * TopHits, P7_OPROFILE * om, DOMAIN_OVERLAP ** SpliceEdges, int num_edges)
+(
+  P7_TOPHITS * TopHits, 
+  P7_PROFILE * gm,
+  DOMAIN_OVERLAP ** SpliceEdges, 
+  int num_edges
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'BuildSpliceGraph'",1);
@@ -2066,7 +2069,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   SPLICE_GRAPH * Graph = (SPLICE_GRAPH *)malloc(sizeof(SPLICE_GRAPH));
 
   Graph->TopHits = TopHits;
-  Graph->Model   = om;
+  Graph->Model   = gm;
 
 
   Graph->Nodes          = NULL;
@@ -2172,11 +2175,9 @@ void GetNodeHitData
  *  Output:
  *
  */
-P7_OPROFILE * ExtractSubProfile
+P7_OPROFILE * ExtractSubOProfile
 (
-  P7_OPROFILE * FullModel, 
-  float * EmitScores, 
-  float * TransScores, 
+  P7_PROFILE * FullModel, 
   int start_pos, 
   int end_pos
 )
@@ -2187,61 +2188,7 @@ P7_OPROFILE * ExtractSubProfile
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
 
 
-  int model_alpha_size = FullModel->abc->Kp;
 
-
-
-  // 1. FORWARD EMISSION SCORES
-  for (int residue_id = 0; residue_id < model_alpha_size; residue_id++) {
-
-    // I think we want to handle 'position 0' specially...
-    SubModel->rsc[residue_id][0] = EmitScores[residue_id * model_alpha_size];
-
-    for (int sub_model_pos=1; sub_model_pos<=subM; sub_model_pos++)
-      SubModel->rsc[residue_id][sub_model_pos] = EmitScores[(residue_id * model_alpha_size) + sub_model_pos + start_pos - 1];
-
-  }
-
-
-
-  // 2. FORWARD TRANSITION SCORES
-  /*
-   *
-   * Much to my chagrin, we have to pull specific type of transition
-   * probabilities and then be conscious of the fact that the profile
-   * and the optimized profile aren't necessarily using the same indices...
-   *
-   */
-  // Always giving special treatment to position 0...
-  SubModel->tsc[subM * p7P_BM] = TransScores[fullM * p7O_BM];
-  SubModel->tsc[subM * p7P_MM] = TransScores[fullM * p7O_MM];
-  SubModel->tsc[subM * p7P_IM] = TransScores[fullM * p7O_IM];
-  SubModel->tsc[subM * p7P_DM] = TransScores[fullM * p7O_DM];
-  SubModel->tsc[subM * p7P_MD] = TransScores[fullM * p7O_MD];
-  SubModel->tsc[subM * p7P_MI] = TransScores[fullM * p7O_MI];
-  SubModel->tsc[subM * p7P_II] = TransScores[fullM * p7O_II];
-  SubModel->tsc[subM * p7P_DD] = TransScores[fullM * p7O_DD];
-
-  for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++) {
-
-    int opt_model_pos = sub_model_pos + start_pos - 1;
-
-    SubModel->tsc[(subM * p7P_BM) + sub_model_pos] = TransScores[(fullM * p7O_BM) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_MM) + sub_model_pos] = TransScores[(fullM * p7O_MM) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_IM) + sub_model_pos] = TransScores[(fullM * p7O_IM) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_DM) + sub_model_pos] = TransScores[(fullM * p7O_DM) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_MD) + sub_model_pos] = TransScores[(fullM * p7O_MD) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_MI) + sub_model_pos] = TransScores[(fullM * p7O_MI) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_II) + sub_model_pos] = TransScores[(fullM * p7O_II) + opt_model_pos];
-    SubModel->tsc[(subM * p7P_DD) + sub_model_pos] = TransScores[(fullM * p7O_DD) + opt_model_pos];
-
-  }
-
-
-
-  // 3. CONSENSUS SEQUENCE
-  for (int write_pos=1; write_pos<=subM; write_pos++)
-    SubModel->consensus[write_pos] = FullModel->consensus[write_pos + start_pos - 1];
 
 
 
@@ -2252,52 +2199,9 @@ P7_OPROFILE * ExtractSubProfile
 
   return OptimizedSubModel;
 
-}
-
-
-
-
-
-/////////////////////////////////////////////////////////////////////
-//
-//
-//                         DEBUGGING
-//
-//
-P7_OPROFILE * DUPLICATE_MODEL
-(P7_OPROFILE * FullModel)
-{
-
-  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M  + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
-  float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
-  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(FullModel,FwdEmitScores);
-
-  int trans_scores_arr_size = ( 8 * FullModel->M );
-  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
-  int get_fwd_trans_err;
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_BM,&FwdTransScores[FullModel->M * 0]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MM,&FwdTransScores[FullModel->M * 1]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_IM,&FwdTransScores[FullModel->M * 2]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DM,&FwdTransScores[FullModel->M * 3]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MD,&FwdTransScores[FullModel->M * 4]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MI,&FwdTransScores[FullModel->M * 5]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_II,&FwdTransScores[FullModel->M * 6]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DD,&FwdTransScores[FullModel->M * 7]);
-
-  P7_OPROFILE * Duplicate = ExtractSubProfile(FullModel,FwdEmitScores,FwdTransScores,1,FullModel->M);
-
-  free(FwdEmitScores);
-  free(FwdTransScores);
-
-  return Duplicate;
 
 }
-//
-//
-//
-//
-//
-/////////////////////////////////////////////////////////////////////
+
 
 
 
@@ -2641,39 +2545,6 @@ void SearchForMissingExons
   }
 
 
-  // We'll want to have the forward transition and emission scores
-  // on-hand for ease of sub-model generation.
-  P7_OPROFILE * FullModel = Graph->Model;
-
-  int  emit_scores_arr_size = ( FullModel->abc->Kp * ( FullModel->M + 1 )); // from p7_oprofile_GetFwdEmissionScoreArray definition
-  float * FwdEmitScores  = (float *)malloc( emit_scores_arr_size * sizeof(float));
-  int get_fwd_emit_err  = p7_oprofile_GetFwdEmissionScoreArray(FullModel,FwdEmitScores);
-
-
-  // NOTE: The TRANSITION TYPES are organized as follows:
-  //          
-  //            1. p7O_BM ? <- I'm not sure what 'BM' is, but I'm not going to fight 'em about it...
-  //            2. p7O_MM
-  //            3. p7O_IM
-  //            4. p7O_DM
-  //            5. p7O_MD
-  //            6. p7O_MI
-  //            7. p7O_II
-  //            8. p7O_DD
-  // 
-  int trans_scores_arr_size = ( 8 * FullModel->M );
-  float * FwdTransScores = (float *)malloc(trans_scores_arr_size * sizeof(float));
-  int get_fwd_trans_err;
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_BM,&FwdTransScores[FullModel->M * 0]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MM,&FwdTransScores[FullModel->M * 1]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_IM,&FwdTransScores[FullModel->M * 2]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DM,&FwdTransScores[FullModel->M * 3]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MD,&FwdTransScores[FullModel->M * 4]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_MI,&FwdTransScores[FullModel->M * 5]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_II,&FwdTransScores[FullModel->M * 6]);
-  get_fwd_trans_err = p7_oprofile_GetFwdTransitionArray(FullModel,p7O_DD,&FwdTransScores[FullModel->M * 7]);
-
-
   // Now we can iterate over our list of search regions and,
   // for each:
   //
@@ -2696,7 +2567,7 @@ void SearchForMissingExons
     int nucl_end   = SearchRegionAggregate[4*search_region_id + 3];
 
 
-    P7_OPROFILE * SubProfile = ExtractSubProfile(FullModel,FwdEmitScores,FwdTransScores,hmm_start,hmm_end);
+    P7_OPROFILE * SubOProfile = ExtractSubOProfile(Graph->Model,hmm_start,hmm_end);
 
 
   }
@@ -2705,8 +2576,6 @@ void SearchForMissingExons
 
   // Cleanup
   free(SearchRegionAggregate);
-  free(FwdEmitScores);
-  free(FwdTransScores);
 
  
   if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
@@ -2729,7 +2598,12 @@ void SearchForMissingExons
  *
  */
 void SpliceHits
-(P7_TOPHITS * TopHits, ESL_SQFILE * GenomicSeqFile, P7_OPROFILE * om, ESL_GENCODE * gcode)
+(
+  P7_TOPHITS  * TopHits,
+  ESL_SQFILE  * GenomicSeqFile,
+  P7_PROFILE  * gm,
+  ESL_GENCODE * gcode
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceHits'",1);
@@ -2763,24 +2637,9 @@ void SpliceHits
 
 
 
-  // DEBUGGING
-  if (DEBUGGING) DEBUG_OUT("TNS Acquired",0);
-
-
-
-  // We'll want to have the emission scores on-hand
-  float * FwdEmitScores = malloc(om->abc->Kp * (om->M + 2) * sizeof(float));
-  p7_oprofile_GetFwdEmissionScoreArray(om,FwdEmitScores);
-
-
-  // Grab the consensus sequence, too! (for our quick 'n' dirty dp alignment)
+  // Grab the consensus sequence (for our quick 'n' dirty dp alignment)
   ESL_DSQ * Consensus;
-  esl_abc_CreateDsq(om->abc,om->consensus,&Consensus);
-
-
-
-  // DEBUGGING
-  if (DEBUGGING) DEBUG_OUT("Prepped to sketch splice edges",0);
+  esl_abc_CreateDsq(gm->abc,gm->consensus,&Consensus);
 
 
 
@@ -2788,7 +2647,7 @@ void SpliceHits
   // splice 'em up (or at least try our best to)!
   for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++) {
 
-    SketchSpliceEdge(TopHits,SpliceEdges[splice_edge_id],TargetNuclSeq,Consensus,FwdEmitScores,om,gcode);
+    SketchSpliceEdge(TopHits,SpliceEdges[splice_edge_id],TargetNuclSeq,Consensus,gm,gcode);
 
     // If we failed to find a reasonable splice site, then we'll
     // just rip this edge outta consideration.
@@ -2809,7 +2668,7 @@ void SpliceHits
   // Them's some lil' splice edges, alrighty!
   // Now we can do some simple graph-ery and find our best path(s?)
   // through the full HMM (hopefully)
-  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,om,SpliceEdges,num_edges);
+  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,gm,SpliceEdges,num_edges);
 
 
   // DEBUGGING
@@ -2820,7 +2679,6 @@ void SpliceHits
     SearchForMissingExons(Graph,TargetNuclSeq);
 
 
-  free(FwdEmitScores);
   // TargetNuclSeq
   // Consensus
 
@@ -3410,10 +3268,15 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
 
+
+
+
       // NORD - START
       if (tophits_accumulator->N)
-        SpliceHits(tophits_accumulator,dbfp,om,gcode);
+        SpliceHits(tophits_accumulator,dbfp,gm,gcode);
       // NORD - END
+
+
 
 
 
