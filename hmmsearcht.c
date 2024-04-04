@@ -2178,22 +2178,80 @@ void GetNodeHitData
 P7_OPROFILE * ExtractSubOProfile
 (
   P7_PROFILE * FullModel, 
-  int start_pos, 
-  int end_pos
+  int hmm_start_pos, 
+  int hmm_end_pos,
+  int nucl_start_pos,
+  int nucl_end_pos
 )
 {
 
   int fullM = FullModel->M;
-  int  subM = 1 + end_pos - start_pos;
+  int  subM = 1 + hmm_end_pos - hmm_start_pos;
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
 
 
 
+  // 1. TRANSITION SCORES
+  //
+  for (int trans_type_id = 0; trans_type_id < p7P_NTRANS; trans_type_id++) {
 
+    int  sub_trans_base =  subM * trans_type_id;
+    int full_trans_base = fullM * trans_type_id;
+
+    // Position 0, always playing pranks
+    SubModel->tsc[sub_trans_base] = FullModel->tsc[full_trans_base];
+
+    full_trans_base += hmm_start_pos-1; // Minus 1 because we're doing 1-indexing in the loop
+
+    for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+      SubModel->tsc[sub_trans_base+sub_model_pos] = FullModel->tsc[full_trans_base+sub_model_pos];
+
+  }
+
+
+  // 2. EMISSION SCORES
+  //
+  for (int residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
+
+    // Position 0 is a special little baby
+    SubModel->rsc[residue_id][0] = FullModel->rsc[residue_id][0];
+    
+    for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+      SubModel->rsc[residue_id][sub_model_pos] = FullModel->rsc[residue_id][(sub_model_pos-1)+hmm_start_pos];
+    
+  }
+
+
+  // 3. SPECIAL STATES
+  //
+  for (int i=0; i<p7P_NXSTATES; i++) {
+    for (int j=0; j<p7P_NXTRANS; j++)
+      SubModel->xsc[i][j] = FullModel->xsc[i][j];
+  }
+
+
+  // 4. CONSENSUS SEQUENCE
+  //
+  for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+    SubModel->consensus[sub_model_pos] = FullModel->consensus[(sub_model_pos-1)+hmm_start_pos];
+
+
+  // 5. The REST!
+  //
+  SubModel->mode       = FullModel->mode;
+  SubModel->L          = abs(nucl_end_pos - nucl_start_pos)+1;
+  SubModel->max_length = FullModel->max_length;
+  SubModel->nj         = FullModel->nj;
+  SubModel->roff       = FullModel->roff;
+  SubModel->eoff       = FullModel->eoff;
+  for (int i=0; i< p7_NOFFSETS; i++) SubModel->offs[i]    = FullModel->offs[i];
+  for (int i=0; i< p7_NEVPARAM; i++) SubModel->evparam[i] = FullModel->evparam[i];
+  for (int i=0; i< p7_NCUTOFFS; i++) SubModel->cutoff[i]  = FullModel->cutoff[i];
+  for (int i=0; i< p7_MAXABET;  i++) SubModel->compo[i]   = FullModel->compo[i];
 
 
   // Optimize the profile (and burn the un-optimized template)
-  P7_OPROFILE * OptimizedSubModel = p7_oprofile_Create(subM,FullModel->abc);
+  P7_OPROFILE * OptimizedSubModel = p7_oprofile_Create(subM,SubModel->abc);
   int submodel_create_err = p7_oprofile_Convert(SubModel,OptimizedSubModel);
   p7_profile_Destroy(SubModel);
 
@@ -2567,7 +2625,7 @@ void SearchForMissingExons
     int nucl_end   = SearchRegionAggregate[4*search_region_id + 3];
 
 
-    P7_OPROFILE * SubOProfile = ExtractSubOProfile(Graph->Model,hmm_start,hmm_end);
+    P7_OPROFILE * SubOProfile = ExtractSubOProfile(Graph->Model,hmm_start,hmm_end,nucl_start,nucl_end);
 
 
   }
@@ -3181,10 +3239,23 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
       /* Convert to an optimized model */
       gm = p7_profile_Create (hmm->M, abc);
-      om = p7_oprofile_Create(hmm->M, abc);
+      // NORD DEBUGGING //om = p7_oprofile_Create(hmm->M, abc);
       p7_ProfileConfig(hmm, info->bg, gm, 100, p7_LOCAL); /* 100 is a dummy length for now; and MSVFilter requires local mode */
-      p7_oprofile_Convert(gm, om);                        /* <om> is now p7_LOCAL, multihit */
+      // NORD DEBUGGING //p7_oprofile_Convert(gm, om);                        /* <om> is now p7_LOCAL, multihit */
 
+
+
+
+
+
+      // NORD DEBUGGING
+      om = ExtractSubOProfile(gm,1,gm->M,1,gm->L);
+
+
+
+
+
+        
       /* Create processing pipeline and hit list accumulators */
       tophits_accumulator      = p7_tophits_Create(); 
       pipelinehits_accumulator = p7_pipeline_Create(go, 100, 100, FALSE, p7_SEARCH_SEQS);
@@ -3272,8 +3343,8 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      if (tophits_accumulator->N)
-        SpliceHits(tophits_accumulator,dbfp,gm,gcode);
+      //if (tophits_accumulator->N)
+      //SpliceHits(tophits_accumulator,dbfp,gm,gcode);
       // NORD - END
 
 
