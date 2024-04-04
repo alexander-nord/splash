@@ -2573,7 +2573,12 @@ int * GetBoundedSearchRegions
  *
  */
 void SearchForMissingExons
-(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+(
+  SPLICE_GRAPH * Graph, 
+  TARGET_SEQ   * TargetNuclSeq, 
+  ESL_GENCODE  * gcode,
+  ESL_GETOPTS  * go
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
@@ -2638,6 +2643,12 @@ void SearchForMissingExons
     int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
 
 
+    // TO DO: Create a function that (generally) emulates the
+    //        'serial_loop' but (hopefully) doesn't require so
+    //        much stinkin' data because we've already pared down
+    //        to a fairly restricted search.
+    
+
     // DESTROY
     // SubModel
     // OSubModel
@@ -2674,7 +2685,8 @@ void SpliceHits
   P7_TOPHITS  * TopHits,
   ESL_SQFILE  * GenomicSeqFile,
   P7_PROFILE  * gm,
-  ESL_GENCODE * gcode
+  ESL_GENCODE * gcode,
+  ESL_GETOPTS * go
 )
 {
 
@@ -2748,7 +2760,7 @@ void SpliceHits
 
 
   if (!Graph->has_full_path) 
-    SearchForMissingExons(Graph,TargetNuclSeq);
+    SearchForMissingExons(Graph,TargetNuclSeq,gcode,go);
 
 
   // TargetNuclSeq
@@ -3344,7 +3356,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      SpliceHits(tophits_accumulator,dbfp,gm,gcode);
+      SpliceHits(tophits_accumulator,dbfp,gm,gcode,go);
       // NORD - END
 
 
