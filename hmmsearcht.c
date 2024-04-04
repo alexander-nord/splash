@@ -2175,20 +2175,17 @@ void GetNodeHitData
  *  Output:
  *
  */
-P7_OPROFILE * ExtractSubOProfile
+P7_PROFILE * ExtractSubProfile
 (
   P7_PROFILE * FullModel, 
   int hmm_start_pos, 
-  int hmm_end_pos,
-  int nucl_start_pos,
-  int nucl_end_pos
+  int hmm_end_pos
 )
 {
 
   int fullM = FullModel->M;
   int  subM = 1 + hmm_end_pos - hmm_start_pos;
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
-
 
 
   // 1. TRANSITION SCORES
@@ -2211,14 +2208,16 @@ P7_OPROFILE * ExtractSubOProfile
 
   // 2. EMISSION SCORES
   //
-  for (int residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
+  for (int nr = 0; nr < p7P_NR; nr++) {
+    for (int residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
 
-    // Position 0 is a special little baby
-    SubModel->rsc[residue_id][0] = FullModel->rsc[residue_id][0];
+      // Position 0 is a special little baby
+      SubModel->rsc[residue_id][0+nr] = FullModel->rsc[residue_id][0+nr];
     
-    for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
-      SubModel->rsc[residue_id][sub_model_pos] = FullModel->rsc[residue_id][(sub_model_pos-1)+hmm_start_pos];
+      for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+        SubModel->rsc[residue_id][p7P_NR * sub_model_pos + nr] = FullModel->rsc[residue_id][p7P_NR * (sub_model_pos + hmm_start_pos-1) + nr];
     
+    }
   }
 
 
@@ -2239,7 +2238,8 @@ P7_OPROFILE * ExtractSubOProfile
   // 5. The REST!
   //
   SubModel->mode       = FullModel->mode;
-  SubModel->L          = abs(nucl_end_pos - nucl_start_pos)+1;
+  SubModel->M          = subM;
+  SubModel->L          = FullModel->L;
   SubModel->max_length = FullModel->max_length;
   SubModel->nj         = FullModel->nj;
   SubModel->roff       = FullModel->roff;
@@ -2250,13 +2250,22 @@ P7_OPROFILE * ExtractSubOProfile
   for (int i=0; i< p7_MAXABET;  i++) SubModel->compo[i]   = FullModel->compo[i];
 
 
+
+  if (DEBUGGING && hmm_start_pos == 1 && hmm_end_pos == FullModel->M) {
+    fprintf(stderr,"\n  Full Model Copy Validation:  ");
+    if (p7_profile_Compare(SubModel,FullModel,0.0) != eslOK) { fprintf(stderr,"Failed\n\n");   }
+    else                                                     { fprintf(stderr,"Success!\n\n"); }
+    fflush(stderr);
+  }
+
+
   // Optimize the profile (and burn the un-optimized template)
-  P7_OPROFILE * OptimizedSubModel = p7_oprofile_Create(subM,SubModel->abc);
-  int submodel_create_err = p7_oprofile_Convert(SubModel,OptimizedSubModel);
+  /*
   p7_profile_Destroy(SubModel);
-
   return OptimizedSubModel;
+  */
 
+  return SubModel;
 
 }
 
@@ -2289,13 +2298,16 @@ int IsViableSearchArea
 {
 
   // How large of an area are we willing to consider searching?
+  int min_hmm_dist  =     3;
   int max_hmm_dist  =    50;
   int max_nucl_dist = 10000;
 
 
   // Is the "upstream" hit even really upstream?
+  // Is there enough space that there could conceivably
+  // be a missed exon?
   int hmm_dist = 1 + downstream_hmm_from - upstream_hmm_to;
-  if (hmm_dist <= 0)
+  if (hmm_dist <= min_hmm_dist)
     return 0;
 
 
@@ -2625,8 +2637,15 @@ void SearchForMissingExons
     int nucl_end   = SearchRegionAggregate[4*search_region_id + 3];
 
 
-    P7_OPROFILE * SubOProfile = ExtractSubOProfile(Graph->Model,hmm_start,hmm_end,nucl_start,nucl_end);
+    P7_PROFILE * SubModel = ExtractSubProfile(Graph->Model,hmm_start,hmm_end);
 
+    P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
+    int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
+
+
+    // DESTROY
+    // SubModel
+    // OSubModel
 
   }
 
@@ -3239,23 +3258,10 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
       /* Convert to an optimized model */
       gm = p7_profile_Create (hmm->M, abc);
-      // NORD DEBUGGING //om = p7_oprofile_Create(hmm->M, abc);
+      om = p7_oprofile_Create(hmm->M, abc);
       p7_ProfileConfig(hmm, info->bg, gm, 100, p7_LOCAL); /* 100 is a dummy length for now; and MSVFilter requires local mode */
-      // NORD DEBUGGING //p7_oprofile_Convert(gm, om);                        /* <om> is now p7_LOCAL, multihit */
+      p7_oprofile_Convert(gm, om);                        /* <om> is now p7_LOCAL, multihit */
 
-
-
-
-
-
-      // NORD DEBUGGING
-      om = ExtractSubOProfile(gm,1,gm->M,1,gm->L);
-
-
-
-
-
-        
       /* Create processing pipeline and hit list accumulators */
       tophits_accumulator      = p7_tophits_Create(); 
       pipelinehits_accumulator = p7_pipeline_Create(go, 100, 100, FALSE, p7_SEARCH_SEQS);
@@ -3343,8 +3349,8 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      //if (tophits_accumulator->N)
-      //SpliceHits(tophits_accumulator,dbfp,gm,gcode);
+      if (tophits_accumulator->N)
+        SpliceHits(tophits_accumulator,dbfp,gm,gcode);
       // NORD - END
 
 
