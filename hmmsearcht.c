@@ -248,7 +248,8 @@ typedef struct _splice_graph {
 
 
   P7_TOPHITS  * TopHits;
-  P7_PROFILE  * Model;
+  P7_PROFILE  *  Model;
+  P7_OPROFILE * OModel;
 
 
   int revcomp;
@@ -512,6 +513,9 @@ ESL_DSQ * GrabNuclRange
   return NuclSubseq;
 
 }
+
+
+
 
 
 
@@ -1502,6 +1506,8 @@ TARGET_SEQ * GetTargetNuclSeq
   TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
   int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
 
+  esl_sqfile_Close(TmpSeqFile);
+
   if (fetch_err_code != eslOK) {
     fprintf(stderr,"\n  ERROR fetching subsequence\n\n");
     exit(1);
@@ -1512,8 +1518,6 @@ TARGET_SEQ * GetTargetNuclSeq
   if (DEBUGGING) DEBUG_OUT("'GetTargetNuclSeq' Complete",-1);
 
   return TargetNuclSeq;
-
-  // DESTROY TmpSeqFile
 
 }
 
@@ -2056,8 +2060,9 @@ void FindBestFullPath
  */
 SPLICE_GRAPH * BuildSpliceGraph
 (
-  P7_TOPHITS * TopHits, 
-  P7_PROFILE * gm,
+  P7_TOPHITS      * TopHits, 
+  P7_PROFILE      * gm,
+  P7_OPROFILE     * om,
   DOMAIN_OVERLAP ** SpliceEdges, 
   int num_edges
 )
@@ -2070,6 +2075,7 @@ SPLICE_GRAPH * BuildSpliceGraph
 
   Graph->TopHits = TopHits;
   Graph->Model   = gm;
+  Graph->OModel  = om;
 
 
   Graph->Nodes          = NULL;
@@ -2563,6 +2569,179 @@ int * GetBoundedSearchRegions
 
 
 
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FindSubHits
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ *  NOTE: This could very easily be optimized, but I doubt this
+ *        is going to be a bottleneck, since we've (hopefully)
+ *        reduced any input to this function to a pretty small area...
+ *
+ */
+int FindSubHits
+(
+  SPLICE_GRAPH * Graph,
+  TARGET_SEQ   * TargetNuclSeq,
+  int          * SearchRegion,
+  ESL_GENCODE  * gcode
+)
+{
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindSubHits'",1);
+
+
+  int hmm_start  = SearchRegion[0];
+  int hmm_end    = SearchRegion[1];
+  int nucl_start = SearchRegion[2];
+  int nucl_end   = SearchRegion[3];
+
+
+  // Generate a sub-model and an optimized sub-model
+  // for the part of the pHMM we need to fill in
+  P7_PROFILE  *  SubModel = ExtractSubProfile(Graph->Model,hmm_start,hmm_end);
+  P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
+  int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
+
+
+  // Grab the nucleotides we're searching our sub-model against
+  ESL_DSQ * SubNucls = GrabNuclRange(TargetNuclSeq,nucl_start,nucl_end);
+  int nucl_seq_len   = abs(nucl_end-nucl_start)+1;
+
+
+  // Create a whole mess of objects that we'll need to get our
+  // our sub-model alignments...
+  ESL_SQ   * ORFAminos       = esl_sq_Create();
+  ESL_SQ   * ORFNucls        = esl_sq_Create();
+  ESL_SQ   * ORFDigitalNucls = esl_sq_Create();
+  P7_GMX   * ViterbiMatrix   = p7_gmx_Create(SubModel->M,1024);
+  P7_TRACE * Trace           = p7_trace_Create();
+  float viterbi_score;
+
+
+  // Do I need these? I'd assume not...
+  /*
+  esl_sq_SetName(ORFAminos      ,"ORF Aminos"                 );
+  esl_sq_SetName(ORFNucls       ,"ORF Nucleotides"            );
+  esl_sq_SetName(ORFDigitalNucls,"ORF Nucleotides (digitized)");
+  */
+
+
+  // Loop over each full reading frame
+  for (int frame=0; frame<3; frame++) {
+
+    int orf_len = 0;
+    int frame_start = 1 + frame;
+
+
+    // As we walk through the reading frame,
+    // we'll build up ORFs and search them
+    // against our sub-model
+    for (int frame_end = frame_start; frame_end < nucl_seq_len-2; frame_end += 3) {
+
+
+      // Translate and add to the current frame
+      int next_amino_index = esl_gencode_GetTranslation(gcode,&(SubNucls[frame_end]));
+      esl_sq_CAddResidue(ORFAminos,AMINO_CHARS[next_amino_index]);
+
+      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end  ]]);
+      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end+1]]);
+      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end+2]]);
+
+      orf_len++;
+
+
+      // Have we hit a stop codon? Are we at the end of the road?
+      if (next_amino_index > 21 || frame_end+5 >= nucl_seq_len) {
+
+        
+        // No point throwing a stop codon into the mix...
+        if (next_amino_index > 21) 
+          orf_len--;
+
+
+        // Is this ORF long enough to be worth considering as an exon?
+        if (orf_len > 4) {
+
+          fprintf(stderr,"\n   DNA: %s\n",ORFNucls->seq);
+          fprintf(stderr,"Aminos: %s\n\n",ORFAminos->seq);
+
+
+          int dsq_err_code  = esl_sq_Digitize(SubModel->abc,ORFAminos);
+          if (dsq_err_code != eslOK)
+            fprintf(stderr,"\n  ERROR (FindSubHits): Failed while digitizing ORF amino sequence\n\n");
+
+
+
+          int vit_err_code  = p7_GViterbi(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,&viterbi_score);
+          if (vit_err_code != eslOK)
+            fprintf(stderr,"\n  ERROR (FindSubHits): Failed while running Viterbi\n\n");
+          
+
+
+          p7_trace_Reuse(Trace);
+          int gtrace_err_code  = p7_GTrace(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
+          if (gtrace_err_code != eslOK) 
+            fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
+          p7_trace_Index(Trace);
+
+
+          esl_sq_Copy(ORFNucls,ORFDigitalNucls);
+          esl_sq_Digitize(TargetNuclSeq->abc,ORFDigitalNucls);
+
+          fprintf(stderr,"\n  DANG! (Num Trace Domains: %d)\n\n",Trace->ndom);
+
+          P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFNucls,ORFDigitalNucls);
+
+
+        }
+
+
+        // Reset and advance!
+        esl_sq_Reuse(ORFAminos);
+        esl_sq_Reuse(ORFNucls);
+        frame_start = frame_end + 3;
+        orf_len = 0;
+
+
+      }
+
+
+    }
+
+  }
+
+
+  esl_sq_Destroy(ORFAminos);
+  esl_sq_Destroy(ORFNucls);
+  esl_sq_Destroy(ORFDigitalNucls);
+  free(SubNucls);
+  p7_profile_Destroy(SubModel);
+  p7_oprofile_Destroy(OSubModel);
+  p7_gmx_Destroy(ViterbiMatrix);
+  p7_trace_Destroy(Trace);
+
+
+  if (DEBUGGING) DEBUG_OUT("'FindSubHits' Complete",-1);
+
+
+  return 0; // Temporary, until I decide what this really returns!
+
+}
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SearchForMissingExons
@@ -2630,28 +2809,7 @@ void SearchForMissingExons
   //
   for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
 
-
-    int hmm_start  = SearchRegionAggregate[4*search_region_id    ];
-    int hmm_end    = SearchRegionAggregate[4*search_region_id + 1];
-    int nucl_start = SearchRegionAggregate[4*search_region_id + 2];
-    int nucl_end   = SearchRegionAggregate[4*search_region_id + 3];
-
-
-    P7_PROFILE * SubModel = ExtractSubProfile(Graph->Model,hmm_start,hmm_end);
-
-    P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
-    int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
-
-
-    // TO DO: Create a function that (generally) emulates the
-    //        'serial_loop' but (hopefully) doesn't require so
-    //        much stinkin' data because we've already pared down
-    //        to a fairly restricted search.
-    
-
-    // DESTROY
-    // SubModel
-    // OSubModel
+    FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[4*search_region_id],gcode);
 
   }
 
@@ -2685,12 +2843,15 @@ void SpliceHits
   P7_TOPHITS  * TopHits,
   ESL_SQFILE  * GenomicSeqFile,
   P7_PROFILE  * gm,
+  P7_OPROFILE * om,
   ESL_GENCODE * gcode,
   ESL_GETOPTS * go
 )
 {
 
+
   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceHits'",1);
+
 
   // Very first thing we want to do is make sure that our hits are
   // organized by the 'Seqidx' (the target genomic sequence) and position
@@ -2752,19 +2913,47 @@ void SpliceHits
   // Them's some lil' splice edges, alrighty!
   // Now we can do some simple graph-ery and find our best path(s?)
   // through the full HMM (hopefully)
-  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,gm,SpliceEdges,num_edges);
+  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,gm,om,SpliceEdges,num_edges);
 
 
   // DEBUGGING
   DumpGraph(Graph);
 
 
+
+
+
+
+
+  /* FindSubHits DEBUGGING START */
+  //
+  // NOTE that this is aimed at the OTOS' middle exon
+  //   (at least with current 'SearchRegion')
+  //
+  if (1) {
+    /*
+    int   hmm_from = 14;
+    int   hmm_to   = 30;
+    int nucls_from = 4217;
+    int nucls_to   = 4297;
+    */
+    int SearchRegion[4] = {14,30,4217,4297};
+    FindSubHits(Graph,TargetNuclSeq,&SearchRegion[0],gcode);
+  }
+  /* FindSubHits DEBUGGING END   */
+
+
+
+
+
+
   if (!Graph->has_full_path) 
     SearchForMissingExons(Graph,TargetNuclSeq,gcode,go);
 
 
+
   // TargetNuclSeq
-  // Consensus
+  free(Consensus);
 
 
   if (DEBUGGING) DEBUG_OUT("'SpliceHits' Complete",-1);
@@ -3356,7 +3545,8 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      SpliceHits(tophits_accumulator,dbfp,gm,gcode,go);
+      if (tophits_accumulator->N)
+        SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go);
       // NORD - END
 
 
