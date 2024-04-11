@@ -2626,14 +2626,6 @@ int FindSubHits
   float viterbi_score;
 
 
-  esl_sq_SetName(     ORFAminos,"NAME");
-  esl_sq_SetAccession(ORFAminos,"ACCESSION");
-  esl_sq_SetDesc(     ORFAminos,"DESCRIPTION");
-  esl_sq_SetSource(   ORFAminos,"SOURCE");
-  esl_sq_SetORFid(    ORFAminos,"ORF_ID");
-
-
-
   // Loop over each full reading frame
   for (int frame=0; frame<3; frame++) {
 
@@ -2670,9 +2662,6 @@ int FindSubHits
         // Is this ORF long enough to be worth considering as an exon?
         if (orf_len > 4) {
 
-          fprintf(stderr,"\n   DNA: %s\n",ORFNucls->seq);
-          fprintf(stderr,"Aminos: %s\n\n",ORFAminos->seq);
-
 
           int dsq_err_code  = esl_sq_Digitize(SubModel->abc,ORFAminos);
           if (dsq_err_code != eslOK)
@@ -2696,10 +2685,13 @@ int FindSubHits
           for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
 
             fprintf(stderr,"\nAttempting p7_alidisplay_Create on trace %d...",trace_dom);
-            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL);
+            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL); // Currently the translated version isn't playing nicely...
             fprintf(stderr," complete\n\n");
 
-            p7_alidisplay_nontranslated_Print(stdout,AD,0,80,0);
+            if (DEBUGGING) {
+              p7_alidisplay_nontranslated_Print(stderr,AD,0,80,0);
+              fprintf(stderr,"  SCORE: %f\n\n",viterbi_score);
+            }
 
           }
 
