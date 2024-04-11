@@ -2608,6 +2608,9 @@ int FindSubHits
   P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
   int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
 
+  OSubModel->name = malloc(9*sizeof(char));
+  strcpy(OSubModel->name,"SubModel");
+
 
   // Grab the nucleotides we're searching our sub-model against
   ESL_DSQ * SubNucls = GrabNuclRange(TargetNuclSeq,nucl_start,nucl_end);
@@ -2616,20 +2619,19 @@ int FindSubHits
 
   // Create a whole mess of objects that we'll need to get our
   // our sub-model alignments...
-  ESL_SQ   * ORFAminos       = esl_sq_Create();
-  ESL_SQ   * ORFNucls        = esl_sq_Create();
-  ESL_SQ   * ORFDigitalNucls = esl_sq_Create();
-  P7_GMX   * ViterbiMatrix   = p7_gmx_Create(SubModel->M,1024);
-  P7_TRACE * Trace           = p7_trace_Create();
+  ESL_SQ   * ORFAminos      = esl_sq_Create();
+  ESL_SQ   * ORFNucls       = esl_sq_Create();
+  P7_GMX   * ViterbiMatrix  = p7_gmx_Create(SubModel->M,1024);
+  P7_TRACE * Trace          = p7_trace_Create();
   float viterbi_score;
 
 
-  // Do I need these? I'd assume not...
-  /*
-  esl_sq_SetName(ORFAminos      ,"ORF Aminos"                 );
-  esl_sq_SetName(ORFNucls       ,"ORF Nucleotides"            );
-  esl_sq_SetName(ORFDigitalNucls,"ORF Nucleotides (digitized)");
-  */
+  esl_sq_SetName(     ORFAminos,"NAME");
+  esl_sq_SetAccession(ORFAminos,"ACCESSION");
+  esl_sq_SetDesc(     ORFAminos,"DESCRIPTION");
+  esl_sq_SetSource(   ORFAminos,"SOURCE");
+  esl_sq_SetORFid(    ORFAminos,"ORF_ID");
+
 
 
   // Loop over each full reading frame
@@ -2642,7 +2644,7 @@ int FindSubHits
     // As we walk through the reading frame,
     // we'll build up ORFs and search them
     // against our sub-model
-    for (int frame_end = frame_start; frame_end < nucl_seq_len-2; frame_end += 3) {
+    for (int frame_end = frame_start; frame_end+2 <= nucl_seq_len; frame_end += 3) {
 
 
       // Translate and add to the current frame
@@ -2688,22 +2690,25 @@ int FindSubHits
           int gtrace_err_code  = p7_GTrace(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
           if (gtrace_err_code != eslOK) 
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
+
+
           p7_trace_Index(Trace);
+          for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
 
+            fprintf(stderr,"\nAttempting p7_alidisplay_Create on trace %d...",trace_dom);
+            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL);
+            fprintf(stderr," complete\n\n");
 
-          esl_sq_Copy(ORFNucls,ORFDigitalNucls);
-          esl_sq_Digitize(TargetNuclSeq->abc,ORFDigitalNucls);
+            p7_alidisplay_nontranslated_Print(stdout,AD,0,80,0);
 
-          fprintf(stderr,"\n  DANG! (Num Trace Domains: %d)\n\n",Trace->ndom);
-
-          P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFNucls,ORFDigitalNucls);
-
+          }
 
         }
 
 
         // Reset and advance!
         esl_sq_Reuse(ORFAminos);
+        esl_sq_Textize(ORFAminos);
         esl_sq_Reuse(ORFNucls);
         frame_start = frame_end + 3;
         orf_len = 0;
@@ -2716,10 +2721,8 @@ int FindSubHits
 
   }
 
-
   esl_sq_Destroy(ORFAminos);
   esl_sq_Destroy(ORFNucls);
-  esl_sq_Destroy(ORFDigitalNucls);
   free(SubNucls);
   p7_profile_Destroy(SubModel);
   p7_oprofile_Destroy(OSubModel);
@@ -2952,6 +2955,7 @@ void SpliceHits
 
 
 
+  // Graph
   // TargetNuclSeq
   free(Consensus);
 
