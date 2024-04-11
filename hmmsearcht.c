@@ -2572,6 +2572,119 @@ int * GetBoundedSearchRegions
 
 
 
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SelectFinalSubHits
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+P7_DOMAIN ** SelectFinalSubHits
+(
+  P7_ALIDISPLAY ** SubHitADs,
+  float * SubHitScores,
+  int     num_sub_hits,
+  int     sub_hmm_len,
+  int     hmm_start,
+  int   * final_num_sub_hits
+)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SelectFinalSubHits'",1);
+
+
+  // Get a sorting of the hits by their scores
+  // NOTE that these are the uncorrected scores
+  //  so they aren't useful for external purposes,
+  //  but can still rank our hits *internally*
+  int * ADSort = FloatHighLowSortIndex(SubHitScores,num_sub_hits);
+
+
+  // Now that we have all of our hits, let's find which
+  // one(s) will give us coverage of the part of the pHMM
+  // we need covered.
+  int * Coverage = malloc(sub_hmm_len*sizeof(int));
+  for (int i=0; i<sub_hmm_len; i++) 
+    Coverage[i] = 0;
+
+
+  *final_num_sub_hits = 0;
+  for (int sort_id=0; sort_id<num_sub_hits; sort_id++) {
+
+        
+    int sub_hit_id = ADSort[sort_id];
+    P7_ALIDISPLAY * AD = SubHitADs[sub_hit_id];
+
+
+    // Do we get any fresh coverage out of this hit?
+    int added_coverage = 0;
+    for (int i = AD->hmmfrom - hmm_start; i <= AD->hmmto - hmm_start; i++) {
+      if (Coverage[i] == 0) {
+        Coverage[i] = 1;
+        added_coverage++;
+      }
+    }
+
+
+    // No coverage?! Away with you, filth!
+    if (!added_coverage) {
+      p7_alidisplay_Destroy(AD);
+      SubHitADs[sub_hit_id] = NULL;
+      continue;
+    }
+
+
+    // THERE WE GO!
+    *final_num_sub_hits += 1;
+
+
+  }
+  free(Coverage);
+  free(ADSort);
+
+
+
+  P7_DOMAIN ** FinalSubHits = malloc(*final_num_sub_hits * sizeof(P7_DOMAIN *));
+  *final_num_sub_hits = 0;
+  for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++) {
+
+    if (SubHitADs[sub_hit_id] == NULL)
+      continue;
+
+    FinalSubHits[*final_num_sub_hits]        = p7_domain_Create_empty();
+    FinalSubHits[*final_num_sub_hits]->ad    = SubHitADs[sub_hit_id];
+    FinalSubHits[*final_num_sub_hits]->envsc = SubHitScores[sub_hit_id];
+
+    *final_num_sub_hits += 1;
+
+  }
+
+
+
+  if (DEBUGGING) DEBUG_OUT("'SelectFinalSubHits' Complete",-1);
+
+
+  return FinalSubHits;
+
+}
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindSubHits
@@ -2580,17 +2693,19 @@ int * GetBoundedSearchRegions
  *
  *  Output:
  *
- *  NOTE: This could very easily be optimized, but I doubt this
- *        is going to be a bottleneck, since we've (hopefully)
- *        reduced any input to this function to a pretty small area...
+ *  NOTE: This could easily be improved by someone with a keener
+ *        understanding of the HMMER internals, but for the purposes
+ *        of plugging holes in a splice graph I think this is
+ *        adequate... maybe...
  *
  */
-int FindSubHits
+P7_DOMAIN ** FindSubHits
 (
   SPLICE_GRAPH * Graph,
   TARGET_SEQ   * TargetNuclSeq,
   int          * SearchRegion,
-  ESL_GENCODE  * gcode
+  ESL_GENCODE  * gcode,
+  int          * final_num_sub_hits
 )
 {
   if (DEBUGGING) DEBUG_OUT("Starting 'FindSubHits'",1);
@@ -2602,12 +2717,17 @@ int FindSubHits
   int nucl_end   = SearchRegion[3];
 
 
+  int sub_hmm_len  = 1 + hmm_end - hmm_start;
+  int min_exon_len = 5;
+
+
   // Generate a sub-model and an optimized sub-model
   // for the part of the pHMM we need to fill in
   P7_PROFILE  *  SubModel = ExtractSubProfile(Graph->Model,hmm_start,hmm_end);
   P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
   int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
 
+  // Required for alidisplay generation
   OSubModel->name = malloc(9*sizeof(char));
   strcpy(OSubModel->name,"SubModel");
 
@@ -2618,12 +2738,19 @@ int FindSubHits
 
 
   // Create a whole mess of objects that we'll need to get our
-  // our sub-model alignments...
+  // our sub-model alignments to fit into an alidisplay...
   ESL_SQ   * ORFAminos      = esl_sq_Create();
   ESL_SQ   * ORFNucls       = esl_sq_Create();
   P7_GMX   * ViterbiMatrix  = p7_gmx_Create(SubModel->M,1024);
   P7_TRACE * Trace          = p7_trace_Create();
   float viterbi_score;
+
+
+  // Finally, the array where we'll record all of our incredible triumphs!
+  int num_sub_hits =  0;
+  int max_sub_hits = 10;
+  P7_ALIDISPLAY ** SubHitADs = malloc(max_sub_hits * sizeof(P7_ALIDISPLAY *));
+  float * SubHitScores = malloc(max_sub_hits * sizeof(float));
 
 
   // Loop over each full reading frame
@@ -2659,39 +2786,102 @@ int FindSubHits
           orf_len--;
 
 
+
         // Is this ORF long enough to be worth considering as an exon?
-        if (orf_len > 4) {
+        if (orf_len >= min_exon_len) {
 
 
           int dsq_err_code  = esl_sq_Digitize(SubModel->abc,ORFAminos);
-          if (dsq_err_code != eslOK)
+          if (dsq_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while digitizing ORF amino sequence\n\n");
+          }
 
 
 
           int vit_err_code  = p7_GViterbi(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,&viterbi_score);
-          if (vit_err_code != eslOK)
+          if (vit_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while running Viterbi\n\n");
+          }
           
 
 
           p7_trace_Reuse(Trace);
           int gtrace_err_code  = p7_GTrace(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
-          if (gtrace_err_code != eslOK) 
+          if (gtrace_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
+          }
 
 
           p7_trace_Index(Trace);
           for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
 
-            fprintf(stderr,"\nAttempting p7_alidisplay_Create on trace %d...",trace_dom);
-            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL); // Currently the translated version isn't playing nicely...
-            fprintf(stderr," complete\n\n");
 
-            if (DEBUGGING) {
-              p7_alidisplay_nontranslated_Print(stderr,AD,0,80,0);
-              fprintf(stderr,"  SCORE: %f\n\n",viterbi_score);
+            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL); // Currently the translated version isn't playing nicely...
+            if (AD == NULL) {
+              fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating P7_ALIDISPLAY\n\n");
             }
+
+
+            if (AD->hmmto - AD->hmmfrom < min_exon_len)
+              continue;
+
+
+            // Oh, boy! Let's add this alidisplay to our array!
+
+
+            // (but first... resize?)
+            if (num_sub_hits == max_sub_hits) {
+              max_sub_hits *= 2;
+              P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY));
+              float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
+              for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+                NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
+                NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
+              }
+              free(SubHitADs);
+              free(SubHitScores);
+              SubHitADs = NewSubHitADs;
+              SubHitScores = NewSubHitScores;
+            }
+
+
+            AD->hmmfrom += hmm_start - 1;
+            AD->hmmto   += hmm_start - 1;
+
+
+            // Before we adjust the 'sqfrom' and 'sqto' values to
+            // represent genomic coordinates, let's make sure we
+            // have the nucleotide sequence on-hand
+            int ntseq_len = 3 * (1 + AD->sqto - AD->sqfrom);
+            AD->ntseq  = malloc(ntseq_len * sizeof(char));
+            for (int i=0; i<ntseq_len; i++)
+              AD->ntseq[i] = ORFNucls->seq[3 * (AD->sqfrom - 1) + i];
+
+
+            // We'll need to do some quick math to figure out exactly
+            // where this hit is in terms of nucleotide coordinates
+            if (Graph->revcomp) {
+              AD->sqfrom = (nucl_start + 1) - frame_start - 3*(AD->sqfrom - 1);
+              AD->sqto   = (nucl_start + 1) - frame_start - 3*(AD->sqto   - 1) - 2;
+            } else {
+              AD->sqfrom = (nucl_start - 1) + frame_start + 3*(AD->sqfrom - 1);
+              AD->sqto   = (nucl_start - 1) + frame_start + 3*(AD->sqto   - 1) + 2;
+            }
+
+
+            // As one last thing, we'll set the score to more closely
+            // correspond to other scores.  NOTE that this is not the
+            // true score (we'd need to have a null model score)!
+            // Instead (like I've done elsewhere...) we're approximating
+            // to get the methods fully sketched, after which we can refine.
+            viterbi_score = (1 + AD->hmmto - AD->hmmfrom) * (float)exp(viterbi_score);
+
+
+            // Welcome to the list, fella!
+            SubHitADs[num_sub_hits]    = AD;
+            SubHitScores[num_sub_hits] = viterbi_score;
+            num_sub_hits++;
+
 
           }
 
@@ -2713,6 +2903,8 @@ int FindSubHits
 
   }
 
+
+  // It takes a lot of fun to need this much cleanup ;)
   esl_sq_Destroy(ORFAminos);
   esl_sq_Destroy(ORFNucls);
   free(SubNucls);
@@ -2722,10 +2914,28 @@ int FindSubHits
   p7_trace_Destroy(Trace);
 
 
+  // Quick check: Did we find *anything* worth considering?
+  if (num_sub_hits == 0) {
+    free(SubHitADs);
+    free(SubHitScores);
+    if (DEBUGGING) DEBUG_OUT("'FindSubHits' Complete (albeit, no hits)",-1);
+    return NULL;
+  }
+
+
+  // Reduce down to just the hits we're really excited about
+  P7_DOMAIN ** FinalSubHits = SelectFinalSubHits(SubHitADs,SubHitScores,num_sub_hits,sub_hmm_len,hmm_start,final_num_sub_hits);
+
+
+  free(SubHitADs);
+  free(SubHitScores);
+
+
   if (DEBUGGING) DEBUG_OUT("'FindSubHits' Complete",-1);
 
 
-  return 0; // Temporary, until I decide what this really returns!
+  // Happy days!
+  return FinalSubHits;
 
 }
 
@@ -2739,14 +2949,14 @@ int FindSubHits
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: SearchForMissingExons
+ *  Function: GetMissingExons
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-void SearchForMissingExons
+P7_TOPHITS * GetMissingExons
 (
   SPLICE_GRAPH * Graph, 
   TARGET_SEQ   * TargetNuclSeq, 
@@ -2755,7 +2965,7 @@ void SearchForMissingExons
 )
 {
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'SearchForMissingExons'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetMissingExons'",1);
 
 
   // Grab the sub-regions of our conceptual DP zone that we want
@@ -2770,8 +2980,8 @@ void SearchForMissingExons
   int * SearchRegionAggregate = GetBoundedSearchRegions(Graph,&num_search_regions);
 
   if (num_search_regions == 0) {
-    if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete (none found)",-1);
-    return;
+    if (DEBUGGING) DEBUG_OUT("'GetMissingExons' Complete (none found)",-1);
+    return NULL;
   }
 
 
@@ -2783,9 +2993,9 @@ void SearchForMissingExons
       fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 2],SearchRegionAggregate[i*4 + 3]);
     }
     fprintf(stderr,"\n");
-    DEBUG_OUT("'SearchForMissingExons' Complete (early kill)",-1);
+    DEBUG_OUT("'GetMissingExons' Complete (early kill)",-1);
     free(SearchRegionAggregate);
-    return;
+    return NULL;
   }
 
 
@@ -2802,19 +3012,82 @@ void SearchForMissingExons
   //
   //   4. Integrate any new hits into the graph!
   //
+  int num_sub_hits = 0;
+  int sub_hits_capacity = 20;
+  P7_DOMAIN ** SubHits = malloc(sub_hits_capacity*sizeof(P7_DOMAIN *));
   for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
 
-    FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[4*search_region_id],gcode);
 
+    int num_new_sub_hits;
+    P7_DOMAIN ** NewSubHits = FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[4*search_region_id],gcode,&num_new_sub_hits);
+
+
+    if (num_new_sub_hits == 0)
+      continue;
+
+
+    // New sub-hit(s) alert!
+
+
+    // Resize?
+    if (num_sub_hits + num_new_sub_hits > sub_hits_capacity) {
+      sub_hits_capacity = intMax(sub_hits_capacity*2,num_sub_hits+num_new_sub_hits);
+      P7_DOMAIN ** MoreSubHits = malloc(sub_hits_capacity * sizeof(P7_DOMAIN *));
+      for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++)
+        MoreSubHits[sub_hit_id] = SubHits[sub_hit_id];
+      free(SubHits);
+      SubHits = MoreSubHits;
+    }
+
+
+    // Pop those shrimps on the barbie, as they say up there in Argentina
+    for (int new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
+      SubHits[num_sub_hits++] = NewSubHits[new_sub_hit_id];
+
+
+    free(NewSubHits); // clear the pointer
+
+  }
+  free(SearchRegionAggregate);
+
+
+  if (num_sub_hits == 0) {
+    free(SubHits);
+    return NULL;
   }
 
 
+  ////////////////////////////////////////////////////////////////////////////
+  //
+  //  NOTE:  From here, what we do is aggregate our new 'SubHits' into
+  //         a 'P7_TOPHITS' datastructure.
+  //
+  //         IMPORTANTLY, we're faking these in order to take advantage
+  //         of some of the functions that are already available.
+  //         DO NOT ASSUME HMMER FUNCTIONS WILL WORK WITH THIS DATASTRUCTURE!
+  //
+  P7_TOPHITS * MissingHits = p7_tophits_Create();
 
-  // Cleanup
-  free(SearchRegionAggregate);
+  for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+
+    P7_HIT * NewHit;
+    int hit_create_err  = p7_tophits_CreateNextHit(MissingHits,&NewHit);
+    if (hit_create_err != eslOK) {
+      fprintf(stderr,"\n  ERROR (GetMissingExons): Failed while attempting P7_HIT allocation\n\n");
+    }
+
+    NewHit->ndom  = 1;
+    NewHit->dcl   = SubHits[sub_hit_id];
+    NewHit->score = SubHits[sub_hit_id]->envsc;
+
+  }
+  free(SubHits);
 
  
-  if (DEBUGGING) DEBUG_OUT("'SearchForMissingExons' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'GetMissingExons' Complete",-1);
+
+
+  return MissingHits;
 
 }
 
@@ -2912,7 +3185,7 @@ void SpliceHits
 
 
   // DEBUGGING
-  DumpGraph(Graph);
+  if (DEBUGGING) DumpGraph(Graph);
 
 
 
@@ -2925,25 +3198,33 @@ void SpliceHits
   // NOTE that this is aimed at the OTOS' middle exon
   //   (at least with current 'SearchRegion')
   //
+  /*
   if (1) {
-    /*
-    int   hmm_from = 14;
-    int   hmm_to   = 30;
-    int nucls_from = 4217;
-    int nucls_to   = 4297;
-    */
+    int num_sub_hits = 0;
     int SearchRegion[4] = {14,30,4217,4297};
-    FindSubHits(Graph,TargetNuclSeq,&SearchRegion[0],gcode);
+    FindSubHits(Graph,TargetNuclSeq,&SearchRegion[0],gcode,&num_sub_hits);
   }
   /* FindSubHits DEBUGGING END   */
 
 
 
+  // If the graph doesn't currently have a complete path,
+  // we'll see if we can find some holes to plug with small
+  // (or otherwise missed) exons
+  P7_TOPHITS * MissingHits = NULL;
+  if (Graph->has_full_path == 0) {
 
+    // As I note in 'GetMissingExons' (but is worth emphasizing),
+    // this datastructure is basically a cheap way to pass around
+    // the new hits that we find.
+    //
+    // MUCH OF THE STANDARD P7_HIT, P7_DOMAIN, and P7_ALIDISPLAY DATA
+    // IS NOT CONTAINED IN THESE!  BE CAREFUL BEFORE USING HMMER INTERNAL
+    // FUNCTIONS TO INTERROGATE THEM!
+    //
+    MissingHits = GetMissingExons(Graph,TargetNuclSeq,gcode,go);
 
-
-  if (!Graph->has_full_path) 
-    SearchForMissingExons(Graph,TargetNuclSeq,gcode,go);
+  }
 
 
 
