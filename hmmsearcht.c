@@ -208,17 +208,22 @@ typedef struct _domain_overlap {
 typedef struct _splice_node {
 
 
-  int hit_id;
-  int dom_id;
   int node_id;
 
 
+  int was_missed;
+  int hit_id;
+  int dom_id;
+
+
+  int in_edge_cap;
   int num_in_edges;
   int best_in_edge; // Relative to the following arrays
   DOMAIN_OVERLAP ** InEdges;
   struct _splice_node ** UpstreamNodes;
 
 
+  int out_edge_cap;
   int num_out_edges;
   int best_out_edge; // Relative to the following arrays
   DOMAIN_OVERLAP ** OutEdges;
@@ -249,28 +254,27 @@ typedef struct _splice_node {
 typedef struct _splice_graph {
 
 
-  P7_TOPHITS  * TopHits;
-  P7_TOPHITS  * MissedHits;
+  P7_TOPHITS  *    TopHits;
+  P7_TOPHITS  * MissedHits; // This is a fake P7_TOPHITS!  Don't be fooled!
 
   P7_PROFILE  *  Model;
   P7_OPROFILE * OModel;
 
-
   int revcomp;
 
 
-  int num_hits;
-  int max_doms; // Maximum number of domains in a single hit (table width)
-  int ** HitDomToNodeID; // Go from a hit-domain pair to a node index
+  // Because we build based on the DOMAIN_OVERLAP datastructure,
+  // it's helpful to be able to find each node ID by way of
+  // these lookups.
+  int ** TH_HitDomToNodeID; //    TopHits
+  int  * MH_HitToNodeID;    // MissedHits
 
 
   int num_nodes;
   int num_edges;
   SPLICE_NODE ** Nodes; // NOTE: these go from [1..num_nodes]
 
-
   int * CumScoreSort; // Yes, it says cum.  FOR CUMULATIVE!
-
 
   int   num_n_term;
   int * NTermNodeIDs; // Sorted by cumulative score
@@ -1586,42 +1590,72 @@ TARGET_SEQ * GetTargetNuclSeq
  *
  */
 SPLICE_NODE * InitSpliceNode
-(SPLICE_GRAPH * Graph, int hit_id, int dom_id, int node_id)
+(
+  SPLICE_GRAPH * Graph,
+  int node_id, 
+  int hit_id, 
+  int dom_id,
+  int was_missed
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'InitSpliceNode'",1);
   
+
   SPLICE_NODE * NewNode = (SPLICE_NODE *)malloc(sizeof(SPLICE_NODE));
 
-
+  NewNode->node_id = node_id;
   NewNode->hit_id  = hit_id;
   NewNode->dom_id  = dom_id;
-  NewNode->node_id = node_id;
 
 
+  NewNode->out_edge_cap    = 10;
   NewNode->num_out_edges   =  0;
   NewNode->best_out_edge   = -1;
-  NewNode->OutEdges        = (DOMAIN_OVERLAP **)malloc(Graph->num_edges*sizeof(DOMAIN_OVERLAP *));
-  NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(Graph->num_edges*sizeof(SPLICE_NODE    *));
+  NewNode->OutEdges        = (DOMAIN_OVERLAP **)malloc(NewNode->out_edge_cap*sizeof(DOMAIN_OVERLAP *));
+  NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(NewNode->out_edge_cap*sizeof(SPLICE_NODE    *));
 
+
+  NewNode->in_edge_cap    = 10;
   NewNode->num_in_edges   =  0;
   NewNode->best_in_edge   = -1;
-  NewNode->InEdges        = (DOMAIN_OVERLAP **)malloc(Graph->num_edges*sizeof(DOMAIN_OVERLAP *));
-  NewNode->UpstreamNodes  = (SPLICE_NODE    **)malloc(Graph->num_edges*sizeof(SPLICE_NODE    *));
+  NewNode->InEdges        = (DOMAIN_OVERLAP **)malloc(NewNode->in_edge_cap*sizeof(DOMAIN_OVERLAP *));
+  NewNode->UpstreamNodes  = (SPLICE_NODE    **)malloc(NewNode->in_edge_cap*sizeof(SPLICE_NODE    *));
 
 
-  NewNode->is_n_terminal = 0;
-  if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmfrom == 1)
-    NewNode->is_n_terminal = 1;
-
-  NewNode->is_c_terminal = 0;
-  if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmto == Graph->Model->M)
-    NewNode->is_c_terminal = 1;
+  NewNode->was_missed = was_missed;
 
 
-  NewNode->hit_score        = Graph->TopHits->hit[hit_id]->dcl[dom_id].bitscore;
+  if (was_missed) {
+  
+    NewNode->is_n_terminal = 0;
+    if (Graph->MissedHits->hit[hit_id]->dcl->ad->hmmfrom == 1)
+      NewNode->is_n_terminal = 1;
+
+    NewNode->is_c_terminal = 0;
+    if (Graph->MissedHits->hit[hit_id]->dcl->ad->hmmto == Graph->Model->M)
+      NewNode->is_c_terminal = 1;
+
+    NewNode->hit_score = Graph->MissedHits->hit[hit_id]->dcl->bitscore;
+  
+  } else {
+  
+    NewNode->is_n_terminal = 0;
+    if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmfrom == 1)
+      NewNode->is_n_terminal = 1;
+
+    NewNode->is_c_terminal = 0;
+    if ((&(Graph->TopHits->hit[hit_id]->dcl[dom_id]))->ad->hmmto == Graph->Model->M)
+      NewNode->is_c_terminal = 1;
+
+    NewNode->hit_score = Graph->TopHits->hit[hit_id]->dcl[dom_id].bitscore;
+
+  }
+
+
   NewNode->cumulative_score = 0.0; // Best score up to and including this node
   NewNode->best_path_score  = 0.0; // Best full path score using this node
+
 
   if (DEBUGGING) DEBUG_OUT("'InitSpliceNode' Complete",-1);
 
@@ -1651,19 +1685,82 @@ void ConnectNodesByEdge
 
   if (DEBUGGING) DEBUG_OUT("Starting 'ConnectNodesByEdge'",1);
 
-  int upstream_node_id = Graph->HitDomToNodeID[Edge->upstream_hit_id][Edge->upstream_dom_id];
+
+  int upstream_node_id;
+  if (Edge->UpstreamTopHits == Graph->TopHits) {
+    upstream_node_id = Graph->TH_HitDomToNodeID[Edge->upstream_hit_id][Edge->upstream_dom_id];
+  } else {
+    upstream_node_id = Graph->MH_HitToNodeID[Edge->upstream_hit_id];
+  }
   SPLICE_NODE * UpstreamNode = Graph->Nodes[upstream_node_id];
 
-  int downstream_node_id = Graph->HitDomToNodeID[Edge->downstream_hit_id][Edge->downstream_dom_id];
+
+  int downstream_node_id;
+  if (Edge->DownstreamTopHits == Graph->TopHits) {
+    downstream_node_id = Graph->TH_HitDomToNodeID[Edge->downstream_hit_id][Edge->downstream_dom_id];
+  } else {
+    downstream_node_id = Graph->MH_HitToNodeID[Edge->downstream_hit_id];
+  }
   SPLICE_NODE * DownstreamNode = Graph->Nodes[downstream_node_id];
+
+
 
   UpstreamNode->OutEdges[UpstreamNode->num_out_edges] = Edge;
   UpstreamNode->DownstreamNodes[UpstreamNode->num_out_edges] = DownstreamNode;
   UpstreamNode->num_out_edges += 1;
-    
+
+
   DownstreamNode->InEdges[DownstreamNode->num_in_edges] = Edge;
   DownstreamNode->UpstreamNodes[DownstreamNode->num_in_edges]  = UpstreamNode;
   DownstreamNode->num_in_edges += 1;
+
+
+
+  // Resize?
+  if (UpstreamNode->num_out_edges == UpstreamNode->out_edge_cap) {
+
+    UpstreamNode->out_edge_cap *= 2;
+
+    DOMAIN_OVERLAP ** NewOutEdges = (DOMAIN_OVERLAP **)malloc(UpstreamNode->out_edge_cap*sizeof(DOMAIN_OVERLAP *)); 
+    SPLICE_NODE    ** NewDSNodes  = (SPLICE_NODE    **)malloc(UpstreamNode->out_edge_cap*sizeof(SPLICE_NODE    *));
+
+    for (int i = 0; i < UpstreamNode->num_out_edges; i++) {
+      NewOutEdges[i] = UpstreamNode->OutEdges[i];
+      NewDSNodes[i]  = UpstreamNode->DownstreamNodes[i];
+    }
+
+    free(UpstreamNode->OutEdges);
+    free(UpstreamNode->DownstreamNodes);
+
+    UpstreamNode->OutEdges = NewOutEdges;
+    UpstreamNode->DownstreamNodes = NewDSNodes;
+
+  }
+  // Resize?
+  if (DownstreamNode->num_in_edges == DownstreamNode->in_edge_cap) {
+
+    DownstreamNode->in_edge_cap *= 2;
+
+    DOMAIN_OVERLAP ** NewInEdges = (DOMAIN_OVERLAP **)malloc(DownstreamNode->in_edge_cap*sizeof(DOMAIN_OVERLAP *)); 
+    SPLICE_NODE    ** NewUSNodes = (SPLICE_NODE    **)malloc(DownstreamNode->in_edge_cap*sizeof(SPLICE_NODE    *));
+
+    for (int i = 0; i < DownstreamNode->num_in_edges; i++) {
+      NewInEdges[i] = DownstreamNode->InEdges[i];
+      NewUSNodes[i] = DownstreamNode->UpstreamNodes[i];
+    }
+
+    free(DownstreamNode->InEdges);
+    free(DownstreamNode->UpstreamNodes);
+
+    DownstreamNode->InEdges = NewInEdges;
+    DownstreamNode->UpstreamNodes = NewUSNodes;
+
+  }
+
+
+
+  Graph->num_edges += 1;
+
 
   if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
 
@@ -1693,7 +1790,7 @@ void FindBestPathToNode
 
   // Have we already examined this node?
   if (Node->cumulative_score != 0.0) {
-    if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
+    if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
     return;
   }
 
@@ -1715,7 +1812,7 @@ void FindBestPathToNode
 
   Node->cumulative_score += Node->hit_score;
 
-  if (DEBUGGING) DEBUG_OUT("'ConnectNodesByEdge' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
 
 }
 
@@ -1986,7 +2083,7 @@ void EvaluatePaths
  *
  */
 void FillOutGraphStructure
-(SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** SpliceEdges)
+(SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** SpliceEdges, int num_splice_edges)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'FillOutGraphStructure'",1);
@@ -2000,50 +2097,59 @@ void FillOutGraphStructure
         free(Graph->Nodes[i]);
     free(Graph->Nodes);
   }
-  Graph->Nodes = (SPLICE_NODE **)malloc((Graph->num_nodes + 1)*sizeof(SPLICE_NODE *));
 
 
-  if (Graph->HitDomToNodeID != NULL) {
-    for (int i=0; i<Graph->num_hits; i++)
-      if (Graph->HitDomToNodeID[i])
-        free(Graph->HitDomToNodeID[i]);
-    free(Graph->HitDomToNodeID);
+  // We'll want this lookup table to be able to go from
+  // DOMAIN_OVERLAP content
+  int num_hits = (int)(Graph->TopHits->N);
+  int max_doms = 0;
+  int sum_doms = 0;
+  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+    int hit_doms = Graph->TopHits->hit[hit_id]->ndom;
+    if (hit_doms > max_doms)
+      max_doms = hit_doms;
+    sum_doms += hit_doms;
   }
-  Graph->HitDomToNodeID = malloc(Graph->num_hits * sizeof(int *));
-  
+
+  // Allocate space for the maximum number of domains
+  Graph->Nodes = (SPLICE_NODE **)malloc((sum_doms+1)*sizeof(SPLICE_NODE *));
+
+
+  Graph->TH_HitDomToNodeID = malloc(num_hits * sizeof(int *));
 
   int node_id = 0;
-  for (int hit_id=0; hit_id<Graph->num_hits; hit_id++) {
+  for (int hit_id=0; hit_id<num_hits; hit_id++) {
 
-    Graph->HitDomToNodeID[hit_id] = malloc(Graph->max_doms * sizeof(int));
+    Graph->TH_HitDomToNodeID[hit_id] = malloc(max_doms * sizeof(int));
     
-    for (int dom_id=0; dom_id<Graph->max_doms; dom_id++) {
+    for (int dom_id=0; dom_id<max_doms; dom_id++) {
 
-      Graph->HitDomToNodeID[hit_id][dom_id] = 0;
+      Graph->TH_HitDomToNodeID[hit_id][dom_id] = 0;
 
       if (dom_id < Graph->TopHits->hit[hit_id]->ndom) {
 
-        Graph->HitDomToNodeID[hit_id][dom_id] = ++node_id;
+        Graph->TH_HitDomToNodeID[hit_id][dom_id] = ++node_id;
         
-        Graph->Nodes[node_id] = InitSpliceNode(Graph,hit_id,dom_id,node_id);
+        Graph->Nodes[node_id] = InitSpliceNode(Graph,node_id,hit_id,dom_id,0);
 
       }
 
     }
 
   }
+  Graph->num_nodes = node_id;
 
 
   // Are your hits to the reverse complement of the query nucleotide seq?
   Graph->revcomp = 0;
-  if (Graph->num_nodes) {
+  if (Graph->TopHits->N) {
     P7_DOMAIN * Dom = &(Graph->TopHits->hit[Graph->Nodes[1]->hit_id]->dcl[Graph->Nodes[1]->dom_id]);
     if (Dom->ad->sqfrom > Dom->ad->sqto)
       Graph->revcomp = 1;
   }
 
 
-  for (int edge_id=0; edge_id<Graph->num_edges; edge_id++) {
+  for (int edge_id=0; edge_id<num_splice_edges; edge_id++) {
     if (SpliceEdges[edge_id] != NULL)
       ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
   }
@@ -2140,21 +2246,26 @@ SPLICE_GRAPH * BuildSpliceGraph
 
   SPLICE_GRAPH * Graph = (SPLICE_GRAPH *)malloc(sizeof(SPLICE_GRAPH));
 
-  Graph->TopHits = TopHits;
-  Graph->Model   = gm;
-  Graph->OModel  = om;
+
+  Graph->TopHits    = TopHits;
+  Graph->MissedHits = NULL;
+  
+  Graph->Model  = gm;
+  Graph->OModel = om;
+
+  Graph->TH_HitDomToNodeID = NULL;
+  Graph->MH_HitToNodeID    = NULL;
 
 
-  Graph->Nodes          = NULL;
-  Graph->CumScoreSort   = NULL;
-  Graph->NTermNodeIDs   = NULL;
-  Graph->CTermNodeIDs   = NULL;
-  Graph->HitDomToNodeID = NULL;
+  Graph->Nodes        = NULL;
+  Graph->CumScoreSort = NULL;
+  Graph->NTermNodeIDs = NULL;
+  Graph->CTermNodeIDs = NULL;
 
 
-  // Obtain our basic metadata
+  // Initialize our basic metadata
   Graph->num_nodes  = 0;
-  Graph->num_edges  = num_splice_edges;
+  Graph->num_edges  = 0;
   Graph->num_n_term = 0;
   Graph->num_c_term = 0;
 
@@ -2167,22 +2278,8 @@ SPLICE_GRAPH * BuildSpliceGraph
   Graph->best_full_path_score = 0.0;
 
 
-  Graph->num_hits = (int)(TopHits->N);
-  Graph->max_doms = 0;
-  for (int hit_id = 0; hit_id<Graph->num_hits; hit_id++) {
-    
-    int hit_doms = TopHits->hit[hit_id]->ndom;
-    
-    if (hit_doms > Graph->max_doms)
-      Graph->max_doms = hit_doms;
-    
-    Graph->num_nodes += hit_doms;
-  
-  }
-
-
   // Build that stinky graph!
-  FillOutGraphStructure(Graph,SpliceEdges);
+  FillOutGraphStructure(Graph,SpliceEdges,num_splice_edges);
   FindBestFullPath(Graph);
 
 
@@ -2730,9 +2827,9 @@ P7_DOMAIN ** SelectFinalSubHits
     if (SubHitADs[sub_hit_id] == NULL)
       continue;
 
-    FinalSubHits[*final_num_sub_hits]        = p7_domain_Create_empty();
-    FinalSubHits[*final_num_sub_hits]->ad    = SubHitADs[sub_hit_id];
-    FinalSubHits[*final_num_sub_hits]->envsc = SubHitScores[sub_hit_id];
+    FinalSubHits[*final_num_sub_hits]           = p7_domain_Create_empty();
+    FinalSubHits[*final_num_sub_hits]->ad       = SubHitADs[sub_hit_id];
+    FinalSubHits[*final_num_sub_hits]->bitscore = SubHitScores[sub_hit_id];
 
     *final_num_sub_hits += 1;
 
@@ -3145,7 +3242,7 @@ P7_TOPHITS * FindMissingExons
 
     NewHit->ndom  = 1;
     NewHit->dcl   = SubHits[sub_hit_id];
-    NewHit->score = SubHits[sub_hit_id]->envsc;
+    NewHit->score = SubHits[sub_hit_id]->bitscore;
 
   }
   free(SubHits);
@@ -3162,6 +3259,61 @@ P7_TOPHITS * FindMissingExons
 
 
 
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: IntegrateMissedHits
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void IntegrateMissedHits
+(SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** NewSpliceEdges, int num_new_edges)
+{
+  if (DEBUGGING) DEBUG_OUT("Starting 'IntegrateMissedHits'",1);
+
+
+  // First off, we need to copy over all of the existing nodes
+  int new_num_nodes = Graph->num_nodes + Graph->MissedHits->N;
+
+  SPLICE_NODE ** NewNodeArray = (SPLICE_NODE **)malloc((new_num_nodes+1)*sizeof(SPLICE_NODE *));
+
+  int node_id;  
+  for (node_id = 1; node_id <= Graph->num_nodes; node_id++)
+    NewNodeArray[node_id] = Graph->Nodes[node_id];
+  for (node_id = Graph->num_nodes+1; node_id <= new_num_nodes; node_id++)
+    NewNodeArray[node_id] = NULL;
+
+  free(Graph->Nodes);
+  Graph->Nodes = NewNodeArray;
+
+
+  // Now we can actually integrate the new hits!
+  node_id = Graph->num_nodes;
+  Graph->num_nodes = new_num_nodes;
+
+  Graph->MH_HitToNodeID = malloc(Graph->MissedHits->N * sizeof(int));
+  for (int missed_hit_id = 0; missed_hit_id < Graph->MissedHits->N; missed_hit_id++) {
+
+    Graph->MH_HitToNodeID[missed_hit_id] = ++node_id;
+
+    Graph->Nodes[node_id] = InitSpliceNode(Graph,node_id,missed_hit_id,0,1);
+
+  }
+
+
+  for (int new_edge_id=0; new_edge_id<num_new_edges; new_edge_id++) {
+    if (NewSpliceEdges[new_edge_id] != NULL)
+      ConnectNodesByEdge(NewSpliceEdges[new_edge_id],Graph);
+  }
+
+
+  if (DEBUGGING) DEBUG_OUT("'IntegrateMissedHits' Complete",-1);
+
+}
 
 
 
@@ -3200,6 +3352,12 @@ void AddMissingExonsToGraph
   //
   Graph->MissedHits = FindMissingExons(Graph,TargetNuclSeq,gcode);
 
+  
+  if (Graph->MissedHits == NULL) {
+    if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete",-1);
+    return;
+  }
+
 
   // This is basically the same code from 'GatherViableSpliceEdges,'
   // but reworked to integrate new exons into the splice graph.
@@ -3226,7 +3384,7 @@ void AddMissingExonsToGraph
       int node_hit_id = Graph->Nodes[node_id]->hit_id;
       int node_dom_id = Graph->Nodes[node_id]->dom_id;
 
-      P7_ALIDISPLAY * NodeAD = &(Graph->TopHits->hit[node_hit_id]->dcl[node_dom_id])->ad;
+      P7_ALIDISPLAY * NodeAD = (&Graph->TopHits->hit[node_hit_id]->dcl[node_dom_id])->ad;
 
 
       // Because order matters for 'HitsAreSpliceCompatible' we
@@ -3309,6 +3467,8 @@ void AddMissingExonsToGraph
   //
   //  If I'm not mistaken.... IT'S PARTY TIME!!!!
   //
+  IntegrateMissedHits(Graph,NewSpliceEdges,num_new_edges);
+
 
   if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete",-1);
 
