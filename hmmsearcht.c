@@ -3507,67 +3507,301 @@ void AddMissingExonsToGraph
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: PullBestFullPathNuclCoords
+ *  Function: GetNuclMapFromStartNode
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-int * PullBestFullPathNuclCoords
-(SPLICE_GRAPH * Graph)
+int * GetNuclMapFromStartNode
+(SPLICE_GRAPH * Graph, int start_node_id)
 {
   
-  if (DEBUGGING) DEBUG_OUT("Starting 'PullBestFullPathNuclCoords'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetNuclMapFromStartNode'",1);
 
 
-  int * BestPathCoords = malloc(2*Graph->best_full_path_length*sizeof(int));
+  // In case we use *every* node
+  // BestPathCoords[0] is the number of nodes along the
+  //  path (Min:1,Max:num_nodes)
+  int * BestPathCoords  = malloc((2*Graph->num_nodes + 1)*sizeof(int));
 
 
   // N-Terminal is special
-  SPLICE_NODE * Node = Graph->Nodes[Graph->best_full_path_start];
+  SPLICE_NODE * Node = Graph->Nodes[start_node_id];
   if (Node->was_missed) {
-    BestPathCoords[0] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqfrom;
+    BestPathCoords[1] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqfrom;
   } else {
-    BestPathCoords[0] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqfrom;
-  }
-  BestPathCoords[1] = Node->OutEdges[Node->best_out_edge]->upstream_spliced_nucl_end;
-
-
-  // Special case: One exon
-  if (Graph->best_full_path_length == 1) {
-    if (DEBUGGING) DEBUG_OUT("'PullBestFullPathNuclCoords' Complete",-1);
-    return BestPathCoords;
+    BestPathCoords[1] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqfrom;
   }
 
 
-  Node = Node->DownstreamNodes[Node->best_out_edge];
-  int writer = 2;
-  while (writer<2*(Graph->best_full_path_length-1)) {
+  int num_path_coords = 1;
+  while (Node->num_out_edges) {
 
-    BestPathCoords[writer++] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
-    BestPathCoords[writer++] = Node->OutEdges[Node->best_out_edge]->upstream_spliced_nucl_end;
+    BestPathCoords[++num_path_coords] = Node->OutEdges[Node->best_out_edge]->upstream_spliced_nucl_end;
 
     Node = Node->DownstreamNodes[Node->best_out_edge];
+
+    BestPathCoords[++num_path_coords] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
 
   }
 
 
   // C-Terminal is also special
-  BestPathCoords[writer++] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
   if (Node->was_missed) {
-    BestPathCoords[writer] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqto;
+    BestPathCoords[++num_path_coords] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqto;
   } else {
-    BestPathCoords[writer] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqto;
+    BestPathCoords[++num_path_coords] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqto;
   }
 
 
-  if (DEBUGGING) DEBUG_OUT("'PullBestFullPathNuclCoords' Complete",-1);
+  BestPathCoords[0] = num_path_coords/2;
+
+
+  if (DEBUGGING) DEBUG_OUT("'GetNuclMapFromStartNode' Complete",-1);
 
   return BestPathCoords;
 
 }
 
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: FindComponentBestStart
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void FindComponentBestStart
+(
+  SPLICE_NODE * Node,
+  int   * ComponentIDs,
+  int     component_id,
+  int   * best_comp_start,
+  float * best_comp_score
+)
+{
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
+
+
+  if (ComponentIDs[Node->node_id]) {
+    if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+    return;
+  }
+
+  ComponentIDs[Node->node_id] = component_id;
+
+  if (Node->num_in_edges == 0 && Node->best_path_score > *best_comp_score) {
+    *best_comp_start = Node->node_id;
+    *best_comp_score = Node->best_path_score;
+  }
+
+  for (int i=0; i<Node->num_in_edges; i++)
+    FindComponentBestStart(Node->UpstreamNodes[i],ComponentIDs,component_id,best_comp_start,best_comp_score);
+
+  for (int i=0; i<Node->num_out_edges; i++)
+    FindComponentBestStart(Node->DownstreamNodes[i],ComponentIDs,component_id,best_comp_start,best_comp_score);
+
+
+  if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+
+}
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetSplicedExonCoordSets
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+int ** GetSplicedExonCoordSets
+(SPLICE_GRAPH * Graph, int * num_exon_sets)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
+
+
+  // How many connected components do we have?
+  // (In the case that we have a full path through
+  //  the graph, we just report that one component.)
+  int num_conn_comps = 0;
+  int * StartNodes = malloc(Graph->num_nodes*sizeof(int));
+
+  if (Graph->has_full_path) {
+
+    StartNodes[0]  = Graph->best_full_path_start;
+    num_conn_comps = 1;
+
+  } else {
+
+    int * ComponentIDs = malloc((Graph->num_nodes+1)*sizeof(int));
+    for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
+      ComponentIDs[node_id] = 0;
+    
+    for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
+
+      if (!ComponentIDs[node_id]) {
+
+        int   best_comp_start = 0;
+        float best_comp_score = 0.0;
+        FindComponentBestStart(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&best_comp_start,&best_comp_score);
+
+        StartNodes[num_conn_comps++] = best_comp_start;
+
+      }
+
+    }
+
+    free(ComponentIDs);
+
+  }
+
+
+  // Cool!  Now let's grab the spliced coordinates
+  int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
+  for (int conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
+    ExonCoordSets[conn_comp_id] = GetNuclMapFromStartNode(Graph,StartNodes[conn_comp_id]);
+  free(StartNodes);
+
+
+  if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+
+
+  // Easy!
+  *num_exon_sets = num_conn_comps;
+  return ExonCoordSets;
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  DEBUGGING Function: DumpExonSetSequence
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void DumpExonSets
+(int ** ExonCoordSets, int num_exon_sets, TARGET_SEQ * TargetNuclSeq)
+{
+  
+  fprintf(stderr,"\n\n+");
+  for (int i=0; i<60; i++)
+    fprintf(stderr,"=");
+  fprintf(stderr,"+\n");
+
+  
+  for (int exon_set_id=0; exon_set_id<num_exon_sets; exon_set_id++) {
+
+    int * ExonCoords = ExonCoordSets[exon_set_id];
+ 
+    int num_ranges = ExonCoords[0];
+    fprintf(stderr,"\n>ExonSet:%d/%d:(",exon_set_id+1,num_exon_sets);
+    for (int i=1; i<num_ranges*2; i+=2) {
+      if (i>1) fprintf(stderr,",");
+      fprintf(stderr,"%d..%d",ExonCoords[i],ExonCoords[i+1]);
+    }
+    fprintf(stderr,")");
+
+    
+    int line_length  = 60;
+    int line_counter = -1;
+    for (int i=1; i<num_ranges*2; i+=2) {
+
+      int range_start = ExonCoords[i  ];
+      int range_end   = ExonCoords[i+1];
+
+      ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
+
+      for (int j=1; j<=abs(range_end-range_start)+1; j++) {
+        line_counter++;
+        if (line_counter % 60 == 0)
+          fprintf(stderr,"\n");
+        fprintf(stderr,"%c",DNA_CHARS[ExonNucls[j]]);
+      }
+
+      free(ExonNucls);
+
+    }
+    fprintf(stderr,"\n");
+
+  }
+
+  fprintf(stderr,"\n+");
+  for (int i=0; i<60; i++)
+    fprintf(stderr,"=");
+  fprintf(stderr,"+\n\n\n");
+
+}
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ApplySpliceModel
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void ApplySpliceModel
+(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq, ESL_GENCODE * gcode)
+{
+
+  DEBUG_OUT("Starting 'ApplySpliceModel'",1);
+
+
+  int num_exon_sets;
+  int ** ExonCoordSets = GetSplicedExonCoordSets(Graph,&num_exon_sets);
+
+
+  if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq);
+
+
+  for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
+
+    int * ExonCoords = ExonCoordSets[exon_set_id];
+    int num_exons = ExonCoords[0]; // We'll have coords at indices 1..num_exons*2
+
+    free(ExonCoords);
+
+  }
+  free(ExonCoordSets);
+
+
+  DEBUG_OUT("'ApplySpliceModel' Complete",-1);
+
+}
 
 
 
@@ -3641,38 +3875,11 @@ void SpliceHits
     AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
 
 
-  if (Graph->has_full_path) {
 
-    int * MappingNuclCoords = PullBestFullPathNuclCoords(Graph);
+  // Run the SplHMM!
+  ApplySpliceModel(Graph,TargetNuclSeq,gcode);
 
-    // DEBUGGING
-    if (DEBUGGING && 1) {
-      fprintf(stderr,"\n\n");
-      for (int i=0; i<62; i++) fprintf(stderr,"=");
-      fprintf(stderr,"\n\n");
-      fprintf(stderr,">MappingNucls(");
-      for (int i=0; i<Graph->best_full_path_length; i++) {
-        if (i) fprintf(stderr,",");
-        fprintf(stderr,"%d..%d",MappingNuclCoords[i*2],MappingNuclCoords[i*2+1]);
-      }
-      fprintf(stderr,")\n");
-      int char_count = 0;
-      for (int i=0; i<Graph->best_full_path_length; i++) {
-        ESL_DSQ * NextExonNucls = GrabNuclRange(TargetNuclSeq,MappingNuclCoords[i*2],MappingNuclCoords[i*2+1]);
-        for (int j=1; j<=abs(MappingNuclCoords[i*2+1]-MappingNuclCoords[i*2])+1; j++) {
-          fprintf(stderr,"%c",DNA_CHARS[NextExonNucls[j]]);
-          if ((char_count+1) % 60 == 0) fprintf(stderr,"\n");
-          char_count++;
-        }
-        free(NextExonNucls);
-      }
-      if (char_count % 60 != 0) fprintf(stderr,"\n");
-      fprintf(stderr,"\n");
-      for (int i=0; i<62; i++) fprintf(stderr,"=");
-      fprintf(stderr,"\n\n\n");
-    }
 
-  }
 
   // CLEANUP NEEDED:
   // Graph
