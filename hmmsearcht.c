@@ -998,8 +998,14 @@ void SpliceOverlappingDomains
   //        variables used the above.  I copy-pasted it in, but might be
   //        worth refreshing myself on the math...
   //
-  Overlap->upstream_exon_terminus   = Overlap->amino_start + model_ss;
-  Overlap->downstream_exon_terminus = Overlap->amino_start + model_ss + 1;
+  //        To clarify the above: The above computations don't give the termini,
+  //        but they're right for getting the spliced start and end coordinates.
+  //        The fact that I was turned around (and that the below was set because
+  //        it works more than on the basis of really working through it) makes
+  //        me think this could be cleaned up in some way...
+  //
+  Overlap->upstream_exon_terminus   = Overlap->amino_start + model_ss - 2;
+  Overlap->downstream_exon_terminus = Overlap->amino_start + model_ss - 1;
   
   if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
     Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_ss + (3 - best_splice_opt) - 1);
@@ -3737,12 +3743,12 @@ void DumpExonSets
     int   num_exons  = ExonCoords[0];
 
 
-    fprintf(stderr,">ExonSet:%d/%d__Nucls:",exon_set_id+1,num_exon_sets);
+    fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
     for (int i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 1],ExonCoords[i*4 + 3]);
     }
-    fprintf(stderr,"__Aminos:");
+    fprintf(stderr,":Aminos__");
     for (int i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 2],ExonCoords[i*4 + 4]);
