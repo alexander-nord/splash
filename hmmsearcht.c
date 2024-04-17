@@ -669,9 +669,6 @@ float FindOptimalSpliceSite
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",1);
 
 
-  fprintf(stderr,"  FOSS 1\n"); // DEBUGGING
-
-
   //
   //  UPSTREAM 
   //
@@ -704,9 +701,6 @@ float FindOptimalSpliceSite
   }
 
 
-  fprintf(stderr,"  FOSS 2\n"); // DEBUGGING
-
-
   // Incorporate the extension
   for (int i=1; i<=Overlap->upstream_ext_len; i++) {
 
@@ -721,11 +715,6 @@ float FindOptimalSpliceSite
     array_write_pos++;
 
   }
- 
-
-
-
-  fprintf(stderr,"  FOSS 3\n"); // DEBUGGING
 
 
 
@@ -757,7 +746,6 @@ float FindOptimalSpliceSite
 
   }
 
-  fprintf(stderr,"  FOSS 4\n"); // DEBUGGING
 
   display_pos = 1;
   while (display_pos <= Overlap->downstream_disp_end) {
@@ -775,9 +763,6 @@ float FindOptimalSpliceSite
     array_write_pos++;
 
   }
-
-
-  fprintf(stderr,"  FOSS 5\n"); // DEBUGGING
 
 
 
@@ -918,39 +903,31 @@ void SpliceOverlappingDomains
       best_split_opt   = i;
     }
   }
-  //free(SpliceCodons);
-  //free(Canon5Prime);
-  //free(Canon3Prime);
+  free(SpliceCodons);
+  free(Canon5Prime);
+  free(Canon3Prime);
   
 
-  upstream_splice_index   += 3 - best_split_opt;
-  downstream_splice_index -=     best_split_opt;
-
-
-  fprintf(stderr,"\n  -> %d..%d\n\n",upstream_splice_index,downstream_splice_index);
-  fflush(stderr);
-
-  // DEBUGGING
-  fprintf(stderr,"\n");
-  for (int i=0; i<4; i++) {
-    fprintf(stderr,"  SC[%d]: %c",i,AMINO_CHARS[SpliceCodons[i]]);
-    if (i == best_split_opt) 
-      fprintf(stderr," *");
-    fprintf(stderr,"\n");
+  if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - best_split_opt) - 1);
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - best_split_opt - 1);
+  } else {
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - best_split_opt) - 1);
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - best_split_opt - 1);
   }
-  fflush(stderr);
 
 
-  fprintf(stderr,"\n  ");
-  for (int i=1; i<=upstream_splice_index; i++)
-    fprintf(stderr,"%c",DNA_CHARS[Overlap->UpstreamNucls[i]]);
-  fflush(stderr);
-  fprintf(stderr,"|");
-  for (int i=downstream_splice_index; i<=abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end)+1; i++)
-    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[i]]);
+  if (best_split_opt < 2) {
+    Overlap->upstream_exon_terminus   = split_amino_model_index;
+    Overlap->downstream_exon_terminus = split_amino_model_index + 1;
+  } else {
+    Overlap->upstream_exon_terminus   = split_amino_model_index - 1;
+    Overlap->downstream_exon_terminus = split_amino_model_index;    
+  }
 
-  // DEBUGGING
-  exit(452);
+
+  Overlap->score = splice_score + best_split_score;
+  Overlap->score_density = Overlap->score / (1 + Overlap->amino_end - Overlap->amino_start);
 
 
   if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete",-1);
