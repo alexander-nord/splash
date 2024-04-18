@@ -669,11 +669,17 @@ float FindOptimalSpliceSite
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",1);
 
 
+  // DEBUGGING
+  fprintf(stderr,"FOSS BREAK A\n");
+  fflush(stderr);
+
+
+
   //
   //  UPSTREAM 
   //
 
-  int   upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
+  int upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
 
   int     us_trans_len = upstream_nucl_cnt / 3;
   int   * USTrans      = malloc(us_trans_len*sizeof(int));
@@ -681,12 +687,17 @@ float FindOptimalSpliceSite
   float * USScores     = malloc(us_trans_len*sizeof(float));
 
 
+  int nucl_read_pos   = 1;
   int array_write_pos = 0;
   int model_pos       = Overlap->amino_start;
   int display_pos     = Overlap->upstream_disp_start;
   while (model_pos <= Overlap->UpstreamDisplay->hmmto) {
 
-    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[3*array_write_pos+1]));
+    int amino_index = 27;
+    if (Overlap->UpstreamDisplay->aseq[display_pos] != '-') {
+      amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
+      nucl_read_pos += 3;
+    }
 
     USTrans[array_write_pos]    = amino_index;
     USModelPos[array_write_pos] = model_pos;
@@ -701,10 +712,17 @@ float FindOptimalSpliceSite
   }
 
 
+  // DEBUGGING
+  fprintf(stderr,"FOSS BREAK B\n");
+  fflush(stderr);
+
+
+
   // Incorporate the extension
   for (int i=1; i<=Overlap->upstream_ext_len; i++) {
 
-    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[3*array_write_pos+1]));
+    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
+    nucl_read_pos += 3;
 
     USTrans[array_write_pos]    = amino_index;
     USModelPos[array_write_pos] = model_pos;
@@ -715,6 +733,12 @@ float FindOptimalSpliceSite
     array_write_pos++;
 
   }
+
+
+
+  // DEBUGGING
+  fprintf(stderr,"FOSS BREAK C\n");
+  fflush(stderr);
 
 
 
@@ -729,12 +753,13 @@ float FindOptimalSpliceSite
   int   * DSModelPos   = malloc(ds_trans_len*sizeof(int));
   float * DSScores     = malloc(ds_trans_len*sizeof(float));
 
-
+  nucl_read_pos   = 1;
   array_write_pos = 0;
   model_pos       = Overlap->amino_start;
   while (array_write_pos < Overlap->downstream_ext_len) {
 
-    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*array_write_pos+1]));
+    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
+    nucl_read_pos += 3;
 
     DSTrans[array_write_pos]    = amino_index;
     DSModelPos[array_write_pos] = model_pos;
@@ -747,10 +772,36 @@ float FindOptimalSpliceSite
   }
 
 
-  display_pos = 1;
-  while (display_pos <= Overlap->downstream_disp_end) {
+  // DEBUGGING
+  fprintf(stderr,"FOSS BREAK D\n");
+  fflush(stderr);
 
-    int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[3*array_write_pos+1]));
+
+
+  display_pos = 0;
+  while (model_pos <= Overlap->amino_end) {
+
+    int amino_index = 27;
+    if (Overlap->UpstreamDisplay->aseq[display_pos] != '-') {
+      amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
+      nucl_read_pos += 3;
+    }
+
+
+
+    // DEBUGGING
+    fprintf(stderr,"\n");
+    fprintf(stderr,"%d/%d\n",model_pos,Overlap->amino_end);
+    fprintf(stderr,": %c\n",Overlap->DownstreamDisplay->aseq[display_pos]);
+    fprintf(stderr,":(%d/%d)\n",nucl_read_pos,downstream_nucl_cnt);
+    fprintf(stderr,":");
+    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-3]]);
+    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-2]]);
+    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-1]]);
+    fprintf(stderr,"-->%d  (%d/%d)\n",amino_index,array_write_pos,ds_trans_len);
+    fflush(stderr);
+
+
 
     DSTrans[array_write_pos]    = amino_index;
     DSModelPos[array_write_pos] = model_pos;
@@ -771,6 +822,10 @@ float FindOptimalSpliceSite
   for (int i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
   for (int i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
 
+
+  // DEBUGGING
+  fprintf(stderr,"FOSS BREAK E\n");
+  fflush(stderr);
 
 
   // What position in the model are we splitting on?
@@ -4408,7 +4463,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
       // NORD - START
-      if (tophits_accumulator->N)
+      if (tophits_accumulator->N > 1)
         SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go);
       // NORD - END
 
