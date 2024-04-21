@@ -94,8 +94,8 @@ static float SSSCORE[2] = {-0.05,0.05}; // Non-canon vs canon splice site
 static float EDGE_FAIL_SCORE = -1000.0;
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
-static char DNA_CHARS[5]    = {'A','C','G','T','-'};
-static char RNA_CHARS[5]    = {'A','C','G','U','-'};
+static char   DNA_CHARS[ 5] = {'A','C','G','T','-'};
+static char   RNA_CHARS[ 5] = {'A','C','G','U','-'};
 
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
@@ -669,26 +669,22 @@ float FindOptimalSpliceSite
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",1);
 
 
-  // DEBUGGING
-  fprintf(stderr,"FOSS BREAK A\n");
-  fflush(stderr);
-
-
 
   //
   //  UPSTREAM 
   //
 
+
   int upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
 
-  int     us_trans_len = upstream_nucl_cnt / 3;
-  int   * USTrans      = malloc(us_trans_len*sizeof(int));
-  int   * USModelPos   = malloc(us_trans_len*sizeof(int));
-  float * USScores     = malloc(us_trans_len*sizeof(float));
+  // Oversize -- Deal with it!
+  int   * USTrans    = malloc(upstream_nucl_cnt*sizeof(int));
+  int   * USModelPos = malloc(upstream_nucl_cnt*sizeof(int));
+  float * USScores   = malloc(upstream_nucl_cnt*sizeof(float));
 
 
+  int us_trans_len    = 0; // Without messy indels, comes out to upstream_nucl_cnt/3
   int nucl_read_pos   = 1;
-  int array_write_pos = 0;
   int model_pos       = Overlap->amino_start;
   int display_pos     = Overlap->upstream_disp_start;
   while (model_pos <= Overlap->UpstreamDisplay->hmmto) {
@@ -699,22 +695,16 @@ float FindOptimalSpliceSite
       nucl_read_pos += 3;
     }
 
-    USTrans[array_write_pos]    = amino_index;
-    USModelPos[array_write_pos] = model_pos;
-    USScores[array_write_pos]   = gm->rsc[amino_index][2*model_pos];
+    USTrans[us_trans_len]    = amino_index;
+    USModelPos[us_trans_len] = model_pos;
+    USScores[us_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
     if (Overlap->UpstreamDisplay->aseq[display_pos] != '.')
       model_pos++;
     display_pos++;
-
-    array_write_pos++;
+    us_trans_len++;
 
   }
-
-
-  // DEBUGGING
-  fprintf(stderr,"FOSS BREAK B\n");
-  fflush(stderr);
 
 
 
@@ -724,21 +714,15 @@ float FindOptimalSpliceSite
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
 
-    USTrans[array_write_pos]    = amino_index;
-    USModelPos[array_write_pos] = model_pos;
-    USScores[array_write_pos]   = gm->rsc[amino_index][2*model_pos];
+    USTrans[us_trans_len]    = amino_index;
+    USModelPos[us_trans_len] = model_pos;
+    USScores[us_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
-    model_pos++;  
-
-    array_write_pos++;
+    model_pos++;
+    us_trans_len++;
 
   }
 
-
-
-  // DEBUGGING
-  fprintf(stderr,"FOSS BREAK C\n");
-  fflush(stderr);
 
 
 
@@ -746,35 +730,30 @@ float FindOptimalSpliceSite
   //  DOWNSTREAM
   //
 
+
   int downstream_nucl_cnt = abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end) + 1;
 
-  int     ds_trans_len = downstream_nucl_cnt / 3;
-  int   * DSTrans      = malloc(ds_trans_len*sizeof(int));
-  int   * DSModelPos   = malloc(ds_trans_len*sizeof(int));
-  float * DSScores     = malloc(ds_trans_len*sizeof(float));
+  // Oversize -- deal with it!
+  int   * DSTrans    = malloc(downstream_nucl_cnt*sizeof(int));
+  int   * DSModelPos = malloc(downstream_nucl_cnt*sizeof(int));
+  float * DSScores   = malloc(downstream_nucl_cnt*sizeof(float));
 
-  nucl_read_pos   = 1;
-  array_write_pos = 0;
-  model_pos       = Overlap->amino_start;
-  while (array_write_pos < Overlap->downstream_ext_len) {
+  int ds_trans_len = 0;
+  nucl_read_pos    = 1;
+  model_pos        = Overlap->amino_start;
+  while (ds_trans_len < Overlap->downstream_ext_len) {
 
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
 
-    DSTrans[array_write_pos]    = amino_index;
-    DSModelPos[array_write_pos] = model_pos;
-    DSScores[array_write_pos]   = gm->rsc[amino_index][2*model_pos];
+    DSTrans[ds_trans_len]    = amino_index;
+    DSModelPos[ds_trans_len] = model_pos;
+    DSScores[ds_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
     model_pos++;
-
-    array_write_pos++;
+    ds_trans_len++;
 
   }
-
-
-  // DEBUGGING
-  fprintf(stderr,"FOSS BREAK D\n");
-  fflush(stderr);
 
 
 
@@ -782,36 +761,19 @@ float FindOptimalSpliceSite
   while (model_pos <= Overlap->amino_end) {
 
     int amino_index = 27;
-    if (Overlap->UpstreamDisplay->aseq[display_pos] != '-') {
+    if (Overlap->DownstreamDisplay->aseq[display_pos] != '-') {
       amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
       nucl_read_pos += 3;
     }
 
-
-
-    // DEBUGGING
-    fprintf(stderr,"\n");
-    fprintf(stderr,"%d/%d\n",model_pos,Overlap->amino_end);
-    fprintf(stderr,": %c\n",Overlap->DownstreamDisplay->aseq[display_pos]);
-    fprintf(stderr,":(%d/%d)\n",nucl_read_pos,downstream_nucl_cnt);
-    fprintf(stderr,":");
-    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-3]]);
-    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-2]]);
-    fprintf(stderr,"%c",DNA_CHARS[Overlap->DownstreamNucls[nucl_read_pos-1]]);
-    fprintf(stderr,"-->%d  (%d/%d)\n",amino_index,array_write_pos,ds_trans_len);
-    fflush(stderr);
-
-
-
-    DSTrans[array_write_pos]    = amino_index;
-    DSModelPos[array_write_pos] = model_pos;
-    DSScores[array_write_pos]   = gm->rsc[amino_index][2*model_pos];
+    DSTrans[ds_trans_len]    = amino_index;
+    DSModelPos[ds_trans_len] = model_pos;
+    DSScores[ds_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
     if (Overlap->DownstreamDisplay->aseq[display_pos] != '.')
       model_pos++;
     display_pos++;
-
-    array_write_pos++;
+    ds_trans_len++;
 
   }
 
@@ -822,10 +784,6 @@ float FindOptimalSpliceSite
   for (int i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
   for (int i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
 
-
-  // DEBUGGING
-  fprintf(stderr,"FOSS BREAK E\n");
-  fflush(stderr);
 
 
   // What position in the model are we splitting on?
@@ -1138,15 +1096,6 @@ void SketchSpliceEdge
   GetNuclRangesFromAminoCoords(Edge);
 
 
-
-  if (DEBUGGING && 0) {
-    fprintf(stderr,"\n");
-    fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
-    fprintf(stderr,"                      : Downstream : %d ... %d\n",Edge->downstream_nucl_start,Edge->downstream_nucl_end);
-    fprintf(stderr,"\n");
-  }
-
-
   // Grab them nucleotides!
   Edge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,Edge->upstream_nucl_start,Edge->upstream_nucl_end);
   Edge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,Edge->downstream_nucl_start,Edge->downstream_nucl_end);
@@ -1154,6 +1103,22 @@ void SketchSpliceEdge
 
   // Finish off by adding this friendly little pointer
   Edge->ntalpha = TargetNuclSeq->abc;
+
+
+  if (DEBUGGING && 0) {
+    fprintf(stderr,"\n");
+    fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
+    fprintf(stderr,"                                   : ");
+    for (int i=1; i<=abs(Edge->upstream_nucl_start-Edge->upstream_nucl_end)+1; i++)
+      fprintf(stderr,"%c",DNA_CHARS[Edge->UpstreamNucls[i]]);
+    fprintf(stderr,"\n");
+    fprintf(stderr,"                      : Downstream : %d ... %d\n",Edge->downstream_nucl_start,Edge->downstream_nucl_end);
+    fprintf(stderr,"                                   : ");
+    for (int i=1; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+1; i++)
+      fprintf(stderr,"%c",DNA_CHARS[Edge->DownstreamNucls[i]]);
+    fprintf(stderr,"\n\n");
+  }
+
 
 
   SpliceOverlappingDomains(Edge,gm,gcode);
@@ -3686,7 +3651,7 @@ int ** GetSplicedExonCoordSets
  *
  */
 void DumpExonSets
-(int ** ExonCoordSets, int num_exon_sets, TARGET_SEQ * TargetNuclSeq)
+(int ** ExonCoordSets, int num_exon_sets, TARGET_SEQ * TargetNuclSeq, ESL_GENCODE * gcode)
 {
   
   fprintf(stderr,"\n\n+");
@@ -3700,18 +3665,32 @@ void DumpExonSets
 
     int * ExonCoords = ExonCoordSets[exon_set_id];
     int   num_exons  = ExonCoords[0];
-
+    int   num_nucls  = 0;
 
     fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
     for (int i=0; i<num_exons; i++) {
+    
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 1],ExonCoords[i*4 + 3]);
+    
+      num_nucls += abs(ExonCoords[i*4 + 1] - ExonCoords[i*4 + 3]) + 1;
+
     }
+
+
     fprintf(stderr,":Aminos__");
     for (int i=0; i<num_exons; i++) {
+
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 2],ExonCoords[i*4 + 4]);
+    
     }
+
+
+    char * TransSeq  = malloc(num_nucls / 3 * sizeof(char));
+    ESL_DSQ * Codon  = malloc(3*sizeof(ESL_DSQ));
+    int codon_placer = 0;
+    int amino_index  = 0;
 
     
     int line_length  = 60;
@@ -3724,17 +3703,38 @@ void DumpExonSets
       ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
 
       for (int j=1; j<=abs(range_end-range_start)+1; j++) {
+
         line_counter++;
         if (line_counter % 60 == 0)
           fprintf(stderr,"\n");
         fprintf(stderr,"%c",DNA_CHARS[ExonNucls[j]]);
+
+        Codon[codon_placer++] = ExonNucls[j];
+        if (codon_placer == 3) {
+          TransSeq[amino_index++] = esl_gencode_GetTranslation(gcode,&(Codon[0]));
+          codon_placer = 0;
+        }
+      
       }
 
       free(ExonNucls);
 
     }
-    fprintf(stderr,"\n\n");
+    fprintf(stderr,"\n");
 
+
+    fprintf(stderr,">Translation");
+    for (int i=0; i<amino_index; i++) {
+      if (i % 60 == 0)
+        fprintf(stderr,"\n");
+      fprintf(stderr,"%c",AMINO_CHARS[TransSeq[i]]);
+    }
+    fprintf(stderr,"\n");
+
+    free(TransSeq);
+    free(Codon);
+
+    fprintf(stderr,"\n");
 
   }
 
@@ -3770,7 +3770,7 @@ void ApplySpliceModel
   int ** ExonCoordSets = GetSplicedExonCoordSets(Graph,&num_exon_sets);
 
 
-  if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq);
+  if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
   for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
