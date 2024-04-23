@@ -3641,6 +3641,104 @@ int ** GetSplicedExonCoordSets
 
 
 
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: TranslateExonSetNucls
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+ESL_DSQ * TranslateExonSetNucls
+(ESL_DSQ * ExonSetNucls, int coding_region_len, ESL_GENCODE * gcode)
+{
+
+  ESL_DSQ * ExonSetTrans = malloc((1 + coding_region_len/3) * sizeof(ESL_DSQ));
+
+  ESL_DSQ * Codon = malloc(3*sizeof(ESL_DSQ));
+  int trans_index = 1;
+
+  for (int nucl_index=1; nucl_index<coding_region_len; nucl_index += 3) {
+    Codon[0] = ExonSetNucls[nucl_index    ];
+    Codon[1] = ExonSetNucls[nucl_index + 1];
+    Codon[2] = ExonSetNucls[nucl_index + 2];
+    ExonSetTrans[trans_index++] = esl_gencode_GetTranslation(gcode,&(Codon[0]));
+  }
+
+  free(Codon);
+
+  return ExonSetTrans;
+
+}
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GrabExonCoordSetNucls
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+ESL_DSQ * GrabExonCoordSetNucls
+(int * ExonCoordSet, TARGET_SEQ * TargetNuclSeq, int * coding_region_len)
+{
+
+  int num_exons = ExonCoordSet[0];
+  int num_nucls = 0;
+
+
+  for (int exon_id = 0; exon_id < num_exons; exon_id++)
+    num_nucls += abs(ExonCoordSet[exon_id*4 + 1] - ExonCoordSet[exon_id*4 + 3]) + 1;
+
+  ESL_DSQ * ExonSetNucls = malloc(num_nucls * sizeof(ESL_DSQ));
+  *coding_region_len = num_nucls;
+
+  int nucl_placer = 1;
+  for (int exon_id = 0; exon_id < num_exons; exon_id++) {
+
+    int range_start = ExonCoordSet[exon_id*4 + 1];
+    int range_end   = ExonCoordSet[exon_id*4 + 3];
+    ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
+
+
+    for (int nucl_id = 1; nucl_id <= abs(range_end-range_start)+1; nucl_id++)
+      ExonSetNucls[nucl_placer++] = ExonNucls[nucl_id];
+
+
+    free(ExonNucls);
+
+  }
+
+
+  return ExonSetNucls;
+
+}
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  DEBUGGING Function: DumpExonSetSequence
@@ -3654,10 +3752,12 @@ void DumpExonSets
 (int ** ExonCoordSets, int num_exon_sets, TARGET_SEQ * TargetNuclSeq, ESL_GENCODE * gcode)
 {
   
+
   fprintf(stderr,"\n\n+");
   for (int i=0; i<60; i++)
     fprintf(stderr,"=");
   fprintf(stderr,"+\n\n");
+
 
   
   for (int exon_set_id=0; exon_set_id<num_exon_sets; exon_set_id++) {
@@ -3665,80 +3765,55 @@ void DumpExonSets
 
     int * ExonCoords = ExonCoordSets[exon_set_id];
     int   num_exons  = ExonCoords[0];
-    int   num_nucls  = 0;
 
     fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
     for (int i=0; i<num_exons; i++) {
-    
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 1],ExonCoords[i*4 + 3]);
-    
-      num_nucls += abs(ExonCoords[i*4 + 1] - ExonCoords[i*4 + 3]) + 1;
-
     }
 
 
     fprintf(stderr,":Aminos__");
     for (int i=0; i<num_exons; i++) {
-
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*4 + 2],ExonCoords[i*4 + 4]);
-    
     }
 
 
-    char * TransSeq  = malloc(num_nucls / 3 * sizeof(char));
-    ESL_DSQ * Codon  = malloc(3*sizeof(ESL_DSQ));
-    int codon_placer = 0;
-    int amino_index  = 0;
-
+    int num_nucls;
+    ESL_DSQ * NuclSeq  = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&num_nucls);
+    ESL_DSQ * TransSeq = TranslateExonSetNucls(NuclSeq,num_nucls,gcode);
     
-    int line_length  = 60;
-    int line_counter = -1;
-    for (int i=0; i<num_exons; i++) {
 
-      int range_start = ExonCoords[i*4 + 1];
-      int range_end   = ExonCoords[i*4 + 3];
-
-      ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
-
-      for (int j=1; j<=abs(range_end-range_start)+1; j++) {
-
-        line_counter++;
-        if (line_counter % 60 == 0)
-          fprintf(stderr,"\n");
-        fprintf(stderr,"%c",DNA_CHARS[ExonNucls[j]]);
-
-        Codon[codon_placer++] = ExonNucls[j];
-        if (codon_placer == 3) {
-          TransSeq[amino_index++] = esl_gencode_GetTranslation(gcode,&(Codon[0]));
-          codon_placer = 0;
-        }
-      
-      }
-
-      free(ExonNucls);
-
+    int line_length = 60;
+    for (int i=1; i<=num_nucls; i++) {
+      if (i % line_length == 1)
+        fprintf(stderr,"\n");
+      fprintf(stderr,"%c",DNA_CHARS[NuclSeq[i]]);
     }
     fprintf(stderr,"\n");
 
 
     fprintf(stderr,">Translation");
-    for (int i=0; i<amino_index; i++) {
-      if (i % 60 == 0)
+    for (int i=1; i<=num_nucls/3; i++) {
+      if (i % line_length == 1)
         fprintf(stderr,"\n");
       fprintf(stderr,"%c",AMINO_CHARS[TransSeq[i]]);
     }
     fprintf(stderr,"\n");
 
+
+    free(NuclSeq);
     free(TransSeq);
-    free(Codon);
 
     fprintf(stderr,"\n");
 
   }
+  fprintf(stderr,"\n");
 
-  fprintf(stderr,"\n+");
+
+
+  fprintf(stderr,"+");
   for (int i=0; i<60; i++)
     fprintf(stderr,"=");
   fprintf(stderr,"+\n\n\n");
@@ -3773,14 +3848,52 @@ void ApplySpliceModel
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
+  // Start off with dummy matrices that we'll resize later
+  ESL_SQ * TraceNuclSeq  = esl_sq_Create();
+  ESL_SQ * TraceAminoSeq = esl_sq_Create();
+
+
   for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
-    int * ExonCoords = ExonCoordSets[exon_set_id];
-    int   num_exons  = ExonCoords[0];
 
-    free(ExonCoords);
+    int coding_region_len;
+    ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&coding_region_len);
+    ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
+    int trans_len = coding_region_len / 3;
+    
+
+    char * NuclStr = malloc(coding_region_len * sizeof(char));
+    for (int i=0; i<coding_region_len; i++)
+      NuclStr[i] = DNA_CHARS[ExonSetNucls[i+1]];
+    
+    esl_sq_Reuse(TraceNuclSeq);
+    TraceNuclSeq = esl_sq_CreateFrom("Coding Nucls\0",NuclStr,NULL,NULL,NULL);
+
+
+    char * TransStr = malloc(trans_len * sizeof(char));
+    for (int i=0; i<trans_len; i++)
+      TransStr[i] = AMINO_CHARS[ExonSetTrans[i+1]];
+    
+    esl_sq_Reuse(TraceAminoSeq);
+    TraceAminoSeq = esl_sq_CreateFrom("Translation\0",TransStr,NULL,NULL,NULL);
+    esl_sq_Digitize(Graph->Model->abc,TraceAminoSeq);
+
+
+    // Now some pipeline shit, or whatever
+
+
+    free(NuclStr);
+    free(TransStr);
+    free(ExonSetNucls);
+    free(ExonSetTrans);
+    free(ExonCoordSets[exon_set_id]);
+
 
   }
+
+
+  esl_sq_Destroy(TraceNuclSeq);
+  esl_sq_Destroy(TraceAminoSeq);
   free(ExonCoordSets);
 
 
