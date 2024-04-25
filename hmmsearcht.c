@@ -3835,7 +3835,12 @@ void DumpExonSets
  *
  */
 void ApplySpliceModel
-(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq, ESL_GENCODE * gcode)
+(
+  SPLICE_GRAPH * Graph, 
+  TARGET_SEQ  * TargetNuclSeq, 
+  ESL_GENCODE * gcode, 
+  ESL_GETOPTS * go
+)
 {
 
   DEBUG_OUT("Starting 'ApplySpliceModel'",1);
@@ -3848,17 +3853,12 @@ void ApplySpliceModel
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
-  // Start off with dummy matrices that we'll resize later
-  ESL_SQ * TraceNuclSeq  = esl_sq_Create();
-  ESL_SQ * TraceAminoSeq = esl_sq_Create();
-
-
   for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
 
     int coding_region_len;
     ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&coding_region_len);
-    ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
+    //ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
     int trans_len = coding_region_len / 3;
     
 
@@ -3866,34 +3866,100 @@ void ApplySpliceModel
     for (int i=0; i<coding_region_len; i++)
       NuclStr[i] = DNA_CHARS[ExonSetNucls[i+1]];
     
-    esl_sq_Reuse(TraceNuclSeq);
-    TraceNuclSeq = esl_sq_CreateFrom("Coding Nucls\0",NuclStr,NULL,NULL,NULL);
+
+    fprintf(stderr,"==A==\n"); fflush(stderr); // DEBUGGING
 
 
-    char * TransStr = malloc(trans_len * sizeof(char));
-    for (int i=0; i<trans_len; i++)
-      TransStr[i] = AMINO_CHARS[ExonSetTrans[i+1]];
+    // Sadly, I don't think there's really any way around
+    // having to deal with all of this cruft without
+    // massively re-writing a bunch of preexisting
+    // functions and stuff...
     
-    esl_sq_Reuse(TraceAminoSeq);
-    TraceAminoSeq = esl_sq_CreateFrom("Translation\0",TransStr,NULL,NULL,NULL);
-    esl_sq_Digitize(Graph->Model->abc,TraceAminoSeq);
+    
+    WORKER_INFO * SplicedWorker       = malloc(sizeof(WORKER_INFO));
+    SplicedWorker->bg                 = p7_bg_Create(Graph->Model->abc);
+    SplicedWorker->gcode              = gcode;
+    SplicedWorker->wrk                = esl_gencode_WorkstateCreate(go,gcode);
+    SplicedWorker->om                 = p7_oprofile_Clone(Graph->OModel);
+    SplicedWorker->pli                = p7_pipeline_Create(go,Graph->OModel->M,100,FALSE,p7_SEARCH_SEQS);
+    SplicedWorker->pli->is_translated = TRUE;
+    SplicedWorker->ntqsq              = esl_sq_CreateFrom("Exons\0",NuclStr,NULL,NULL,NULL);
+
+    int pipeline_create_err = p7_pli_NewModel(SplicedWorker->pli,SplicedWorker->om,SplicedWorker->bg);
 
 
-    // Now some pipeline shit, or whatever
+
+    fprintf(stderr,"==B==\n"); fflush(stderr); // DEBUGGING
+
+
+
+    // Because we've determined the strand, we only want to do
+    // the (relative to the nucleotides we've pulled) forward strand
+    SplicedWorker->pli->strands      = p7_STRAND_TOPONLY;
+    SplicedWorker->pli->block_length = 1024 * 256;// HMMSEARCHT_MAX_RESIDUE_COUNT
+
+
+
+    //
+    // Copying largely from 'serial_loop'
+    //
+
+
+    SplicedWorker->wrk->orf_block = esl_sq_CreateDigitalBlock(1000,SplicedWorker->om->abc); // BLOCK_SIZE
+    esl_sq_ReuseBlock(SplicedWorker->wrk->orf_block);
+
+    esl_sq_Digitize(TargetNuclSeq->abc,SplicedWorker->ntqsq);
+    esl_gencode_ProcessStart(gcode,SplicedWorker->wrk,SplicedWorker->ntqsq);
+    esl_gencode_ProcessPiece(gcode,SplicedWorker->wrk,SplicedWorker->ntqsq);
+    esl_gencode_ProcessEnd  (      SplicedWorker->wrk,SplicedWorker->ntqsq);
+
+
+
+    fprintf(stderr,"==C==\n"); fflush(stderr); // DEBUGGING
+
+
+
+    // We already know that the first reading frame is the chosen one
+    ESL_SQ * AminoSeq = &(SplicedWorker->wrk->orf_block->list[0]);
+    p7_pli_NewSeq(SplicedWorker->pli,AminoSeq);
+
+    esl_sq_SetName(AminoSeq,"Translation\0");
+    AminoSeq->idx = exon_set_id+1;
+
+    p7_bg_SetLength(SplicedWorker->bg,AminoSeq->n);
+    p7_oprofile_ReconfigLength(SplicedWorker->om,AminoSeq->n);
+
+
+
+    fprintf(stderr,"==D==\n"); fflush(stderr); // DEBUGGING
+
+
+
+    p7_Pipeline(SplicedWorker->pli,SplicedWorker->om,SplicedWorker->bg,AminoSeq,SplicedWorker->ntqsq,SplicedWorker->th,NULL);
+
+
+
+    fprintf(stderr,"==E==\n"); fflush(stderr); // DEBUGGING
+
+
+    fprintf(stderr,"\n==TH: %d\n\n",(int)(SplicedWorker->th->N));
+
+    /*
+    p7_tophits_SortBySortkey(SplicedWorker->th);
+    p7_tophits_Threshold(SplicedWorker->th,SplicedWorker->pli);
+    p7_tophits_Targets(stdout,SplicedWorker->th,SplicedWorker->pli,0);
+    p7_tophits_Domains(stdout,SplicedWorker->th,SplicedWorker->pli,0);
+    */
 
 
     free(NuclStr);
-    free(TransStr);
     free(ExonSetNucls);
-    free(ExonSetTrans);
     free(ExonCoordSets[exon_set_id]);
 
 
   }
 
 
-  esl_sq_Destroy(TraceNuclSeq);
-  esl_sq_Destroy(TraceAminoSeq);
   free(ExonCoordSets);
 
 
@@ -3975,7 +4041,7 @@ void SpliceHits
 
 
   // Run the SplHMM!
-  ApplySpliceModel(Graph,TargetNuclSeq,gcode);
+  ApplySpliceModel(Graph,TargetNuclSeq,gcode,go);
 
 
 
