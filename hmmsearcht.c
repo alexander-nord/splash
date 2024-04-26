@@ -3902,6 +3902,10 @@ void RunModelOnExonSets
   for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
 
+
+    // Grab the nucleotides for this set of exons and
+    // convert them to a textized ESL_SQ
+    //
     int coding_region_len;
     ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&coding_region_len);
     ESL_SQ  * NuclSeq      = esl_sq_CreateDigitalFrom(TargetNuclSeq->abc,"Exon Set",ExonSetNucls,(int64_t)coding_region_len,NULL,NULL,NULL);
@@ -3909,6 +3913,9 @@ void RunModelOnExonSets
     esl_sq_Textize(NuclSeq);
 
 
+    // Translate the nucleotide sequence and convert to
+    // a digitized ESL_SQ
+    //
     int trans_len = coding_region_len / 3;
     ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
     ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,"Trans",ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
@@ -3917,6 +3924,10 @@ void RunModelOnExonSets
 
 
 
+    // Prep a P7_PIPELINE datastructure and all of the other
+    // friends that we need in order to produce our full evaluation
+    // of the set of exons as a coding region for this protein model
+    //
     P7_PIPELINE * ExonSetPipeline  = p7_pipeline_Create(go,Graph->OModel->M,coding_region_len,FALSE,p7_SEARCH_SEQS);
     ExonSetPipeline->is_translated = TRUE;
     ExonSetPipeline->strands       = p7_STRAND_TOPONLY;
@@ -3935,8 +3946,10 @@ void RunModelOnExonSets
 
 
 
+    // Create a P7_TOPHITS datastructure to capture the results
+    // for this set of exons and run that rowdy ol' p7_Pipeline!
+    //
     P7_TOPHITS * ExonSetTopHits = p7_tophits_Create();
-
     int pipeline_execute_err  = p7_Pipeline(ExonSetPipeline,ExonSetOProfile,ExonSetBackground,AminoSeq,NuclSeq,ExonSetTopHits,NULL);
     if (pipeline_execute_err != eslOK) {
       fprintf(stderr,"\n  * PIPELINE FAILURE DURING EXON SET RE-ALIGNMENT *\n\n");
@@ -3945,10 +3958,18 @@ void RunModelOnExonSets
 
 
 
+    // If we were successful in our search, report the hit(s)
+    // that were produced!
+    // This *should* always just be a single hit, but we'll
+    // allow for the weird possibility that multiple hits were
+    // acquired...
+    //
     if (ExonSetTopHits->N)
       ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id]);
 
 
+
+    // DESTRUCTION!  (Eventually we'll reuse many of these, but *whatever*)
     free(ExonSetNucls);
     free(ExonSetTrans);
     esl_sq_Destroy(NuclSeq);
@@ -3961,6 +3982,8 @@ void RunModelOnExonSets
 
   }
 
+
+  // That's all we needed!  Good work, team!
   free(ExonCoordSets);
 
 
