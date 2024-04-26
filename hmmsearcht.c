@@ -561,7 +561,7 @@ void GetSpliceOptions
   if (DEBUGGING) DEBUG_OUT("Starting 'GetSpliceOptions'",1);
 
 
-  if (DEBUGGING && 0) {
+  if (DEBUGGING && 1) {
     fprintf(stderr,"\n");
     fprintf(stderr,"  > GSO Dom1: %d / %d\n",(int)(Overlap->upstream_hit_id),(int)(Overlap->upstream_dom_id));
     fprintf(stderr,"            : %d..%d\n",(int)(Overlap->upstream_nucl_start),(int)(Overlap->upstream_nucl_end));
@@ -577,7 +577,7 @@ void GetSpliceOptions
   ESL_DSQ * Codon;
   esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
 
-  for (int i=0; i<5; i++) {
+  for (int i=0; i<4; i++) {
     Canon5Prime[i] = 0;
     Canon3Prime[i] = 0;
   }
@@ -593,47 +593,59 @@ void GetSpliceOptions
   Codon[1] = UN[upstream_ss+1];
   Codon[2] = UN[upstream_ss+2];
   Codon[3] = UN[upstream_ss+3];
-  
+
   SpliceCodons[0] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-  if (UN[  upstream_ss+4] == 2 && UN[  upstream_ss+5] == 3) Canon5Prime[0] = 1;
-  if (DN[downstream_ss-2] == 0 && DN[downstream_ss-1] == 2) Canon3Prime[0] = 1;
+  if (SpliceCodons[0] >= 0 && SpliceCodons[0] <= 20) {
+    if (UN[  upstream_ss+4] == 2 && UN[  upstream_ss+5] == 3) Canon5Prime[0] = 1;
+    if (DN[downstream_ss-2] == 0 && DN[downstream_ss-1] == 2) Canon3Prime[0] = 1;
+  } else {
+    SpliceCodons[0] = -1; // Stop codon
+  }
 
 
-
-  // Option 2: |ABxx...yyC|
+  // Option 2: |ABxx...yyD|
   Codon[1] = UN[  upstream_ss+1];
   Codon[2] = UN[  upstream_ss+2];
   Codon[3] = DN[downstream_ss-1];
   
   SpliceCodons[1] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-  if (UN[  upstream_ss+3] == 2 && UN[  upstream_ss+4] == 3) Canon5Prime[1] = 1;
-  if (DN[downstream_ss-3] == 0 && DN[downstream_ss-2] == 2) Canon3Prime[1] = 1;
+  if (SpliceCodons[1] >= 0 && SpliceCodons[1] <= 20) {
+    if (UN[  upstream_ss+3] == 2 && UN[  upstream_ss+4] == 3) Canon5Prime[1] = 1;
+    if (DN[downstream_ss-3] == 0 && DN[downstream_ss-2] == 2) Canon3Prime[1] = 1;
+  } else {
+    SpliceCodons[1] = -1; // Stop codon
+  }
 
 
-
-  // Option 3: |Axx...yyBC|
+  // Option 3: |Axx...yyDE|
   Codon[1] = UN[  upstream_ss+1];
   Codon[2] = DN[downstream_ss-2];
   Codon[3] = DN[downstream_ss-1];
   
   SpliceCodons[2] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-  if (UN[  upstream_ss+2] == 2 && UN[  upstream_ss+3] == 3) Canon5Prime[2] = 1;
-  if (DN[downstream_ss-4] == 0 && DN[downstream_ss-3] == 2) Canon3Prime[2] = 1;
+  if (SpliceCodons[2] >= 0 && SpliceCodons[2] <= 20) {
+    if (UN[  upstream_ss+2] == 2 && UN[  upstream_ss+3] == 3) Canon5Prime[2] = 1;
+    if (DN[downstream_ss-4] == 0 && DN[downstream_ss-3] == 2) Canon3Prime[2] = 1;
+  } else {
+    SpliceCodons[2] = -1; // Stop codon
+  }
 
 
-
-  // Option 4: |xx...yyABC|
+  // Option 4: |xx...yyDEF|
   Codon[1] = DN[downstream_ss-3];
   Codon[2] = DN[downstream_ss-2];
   Codon[3] = DN[downstream_ss-1];
-  SpliceCodons[3] = esl_gencode_GetTranslation(gcode,&Codon[1]);
 
-  if (UN[  upstream_ss+1] == 2 && UN[  upstream_ss+2] == 3) Canon5Prime[3] = 1;
-  if (DN[downstream_ss-5] == 0 && DN[downstream_ss-4] == 2) Canon3Prime[3] = 1;
+  SpliceCodons[3] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (SpliceCodons[3] >= 0 && SpliceCodons[3] <= 20) {
+    if (UN[  upstream_ss+1] == 2 && UN[  upstream_ss+2] == 3) Canon5Prime[3] = 1;
+    if (DN[downstream_ss-5] == 0 && DN[downstream_ss-4] == 2) Canon3Prime[3] = 1;
+  } else {
+    SpliceCodons[3] = -1; // Stop codon
+  }
 
 
   free(Codon);
-
 
   if (DEBUGGING) DEBUG_OUT("'GetSpliceOptions' Complete",-1);
 
@@ -907,19 +919,36 @@ void SpliceOverlappingDomains
 
   // Let's see which SpliceCodon has the best match to the model at
   // the "model_ss," while also factoring in splice site signals.
-  int   best_split_opt   = 0;
+  int   best_split_opt   = -1;
   float best_split_score = -5.0;
-    for (int i=0; i<4; i++) {
+  for (int i=0; i<4; i++) {
+    
+    // Did we end up with a stop codon?
+    if (SpliceCodons[i] == -1) continue;
+
     float split_score = gm->rsc[SpliceCodons[i]][split_amino_model_index * 2] + SSSCORE[Canon5Prime[i]] + SSSCORE[Canon3Prime[i]];
     if (split_score > best_split_score) {
       best_split_score = split_score;
       best_split_opt   = i;
     }
+
   }
   free(SpliceCodons);
   free(Canon5Prime);
   free(Canon3Prime);
   
+
+
+  // This would be really bizarre (and worth checking to see if it
+  // ever actually happens...)
+  if (best_split_opt == -1) {
+    Overlap->score         = EDGE_FAIL_SCORE;
+    Overlap->score_density = EDGE_FAIL_SCORE;
+    if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (BUT WITH TERRIBLE OPTIONS?!)",-1);
+    return;
+  }
+
+
 
   if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
     Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - best_split_opt) - 1);
@@ -3568,82 +3597,6 @@ void FindComponentBestStart
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GetSplicedExonCoordSets
- *
- *  Inputs:  
- *
- *  Output:
- *
- */
-int ** GetSplicedExonCoordSets
-(SPLICE_GRAPH * Graph, int * num_exon_sets)
-{
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
-
-
-  // How many connected components do we have?
-  // (In the case that we have a full path through
-  //  the graph, we just report that one component.)
-  int num_conn_comps = 0;
-  int * StartNodes = malloc(Graph->num_nodes*sizeof(int));
-
-  if (Graph->has_full_path) {
-
-    StartNodes[0]  = Graph->best_full_path_start;
-    num_conn_comps = 1;
-
-  } else {
-
-    int * ComponentIDs = malloc((Graph->num_nodes+1)*sizeof(int));
-    for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
-      ComponentIDs[node_id] = 0;
-    
-    for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
-
-      if (!ComponentIDs[node_id]) {
-
-        int   best_comp_start = 0;
-        float best_comp_score = 0.0;
-        FindComponentBestStart(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&best_comp_start,&best_comp_score);
-
-        StartNodes[num_conn_comps++] = best_comp_start;
-
-      }
-
-    }
-
-    free(ComponentIDs);
-
-  }
-
-
-  // Cool!  Now let's grab the spliced coordinates
-  int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
-  for (int conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
-    ExonCoordSets[conn_comp_id] = GetExonSetFromStartNode(Graph,StartNodes[conn_comp_id]);
-  free(StartNodes);
-
-
-  if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
-
-
-  // Easy!
-  *num_exon_sets = num_conn_comps;
-  return ExonCoordSets;
-
-}
-
-
-
-
-
-
-
-
-
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
@@ -3830,6 +3783,82 @@ void DumpExonSets
 
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: GetSplicedExonCoordSets
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+int ** GetSplicedExonCoordSets
+(SPLICE_GRAPH * Graph, int * num_exon_sets)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
+
+
+  // How many connected components do we have?
+  // (In the case that we have a full path through
+  //  the graph, we just report that one component.)
+  int num_conn_comps = 0;
+  int * StartNodes = malloc(Graph->num_nodes*sizeof(int));
+
+  if (Graph->has_full_path) {
+
+    StartNodes[0]  = Graph->best_full_path_start;
+    num_conn_comps = 1;
+
+  } else {
+
+    int * ComponentIDs = malloc((Graph->num_nodes+1)*sizeof(int));
+    for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
+      ComponentIDs[node_id] = 0;
+    
+    for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
+
+      if (!ComponentIDs[node_id]) {
+
+        int   best_comp_start = 0;
+        float best_comp_score = 0.0;
+        FindComponentBestStart(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&best_comp_start,&best_comp_score);
+
+        StartNodes[num_conn_comps++] = best_comp_start;
+
+      }
+
+    }
+
+    free(ComponentIDs);
+
+  }
+
+
+  // Cool!  Now let's grab the spliced coordinates
+  int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
+  for (int conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
+    ExonCoordSets[conn_comp_id] = GetExonSetFromStartNode(Graph,StartNodes[conn_comp_id]);
+  free(StartNodes);
+
+
+  if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+
+
+  // Easy!
+  *num_exon_sets = num_conn_comps;
+  return ExonCoordSets;
+
+}
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: RunModelOnExonSets
  *
  *  Inputs:  
@@ -3837,11 +3866,13 @@ void DumpExonSets
  *  Output:
  *
  */
-void ReportSplicedTopHits
+int ReportSplicedTopHits
 (
   P7_TOPHITS  * ExonSetTopHits, 
   P7_PIPELINE * ExonSetPipeline, 
-  int         * ExonCoordSet
+  int         * ExonCoordSet,
+  FILE        * ofp,
+  int           textw
 )
 {
 
@@ -3854,12 +3885,12 @@ void ReportSplicedTopHits
   p7_tophits_SortBySeqidxAndAlipos(ExonSetTopHits);
   p7_tophits_RemoveDuplicates(ExonSetTopHits,ExonSetPipeline->use_bit_cutoffs);
 
-  // NOTE: Eventually we're going to want 'ofp' instead of 'stdout'
-  //       and 'textw' instead of '0'
-  p7_tophits_SortBySortkey(  ExonSetTopHits);
-  p7_tophits_Threshold(      ExonSetTopHits, ExonSetPipeline);
-  p7_tophits_Targets(stdout, ExonSetTopHits, ExonSetPipeline, 0);// if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
-  p7_tophits_Domains(stdout, ExonSetTopHits, ExonSetPipeline, 0);// if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+  p7_tophits_SortBySortkey(ExonSetTopHits);
+  p7_tophits_Threshold(    ExonSetTopHits, ExonSetPipeline);
+  p7_tophits_Targets(ofp,  ExonSetTopHits, ExonSetPipeline, textw); if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+  p7_tophits_Domains(ofp,  ExonSetTopHits, ExonSetPipeline, textw); if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+
+  return 0;
 
 }
 
@@ -3883,13 +3914,15 @@ void ReportSplicedTopHits
 void RunModelOnExonSets
 (
   SPLICE_GRAPH * Graph, 
-  TARGET_SEQ  * TargetNuclSeq, 
-  ESL_GENCODE * gcode, 
-  ESL_GETOPTS * go
+  TARGET_SEQ   * TargetNuclSeq, 
+  ESL_GENCODE  * gcode, 
+  ESL_GETOPTS  * go,
+  FILE         * ofp,
+  int            textw
 )
 {
 
-  DEBUG_OUT("Starting 'RunModelOnExonSets'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'RunModelOnExonSets'",1);
 
 
   int num_exon_sets;
@@ -3965,7 +3998,7 @@ void RunModelOnExonSets
     // acquired...
     //
     if (ExonSetTopHits->N)
-      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id]);
+      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id],ofp,textw);
 
 
 
@@ -3974,10 +4007,10 @@ void RunModelOnExonSets
     free(ExonSetTrans);
     esl_sq_Destroy(NuclSeq);
     esl_sq_Destroy(AminoSeq);
-    p7_tophits_Destroy(ExonSetTopHits);
-    p7_pipeline_Destroy(ExonSetPipeline);
     p7_bg_Destroy(ExonSetBackground);
     p7_oprofile_Destroy(ExonSetOProfile);
+    p7_tophits_Destroy(ExonSetTopHits);
+    p7_pipeline_Destroy(ExonSetPipeline);
     free(ExonCoordSets[exon_set_id]);
 
   }
@@ -4019,7 +4052,9 @@ void SpliceHits
   P7_PROFILE  * gm,
   P7_OPROFILE * om,
   ESL_GENCODE * gcode,
-  ESL_GETOPTS * go
+  ESL_GETOPTS * go,
+  FILE        * ofp,
+  int           textw
 )
 {
 
@@ -4066,7 +4101,7 @@ void SpliceHits
 
   // Re-run the model on the extracted nucleotide sequence(s)
   // for each connected component of the graph.
-  RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go);
+  RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go,ofp,textw);
 
 
 
@@ -4668,7 +4703,7 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
       // NORD - START
       if (tophits_accumulator->N > 1)
-        SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go);
+        SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);
       // NORD - END
 
 
