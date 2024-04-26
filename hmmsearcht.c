@@ -3825,16 +3825,62 @@ void DumpExonSets
 
 
 
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: ApplySpliceModel
+ *  Function: RunModelOnExonSets
  *
  *  Inputs:  
  *
  *  Output:
  *
  */
-void ApplySpliceModel
+void ReportSplicedTopHits
+(
+  P7_TOPHITS  * ExonSetTopHits, 
+  P7_PIPELINE * ExonSetPipeline, 
+  int         * ExonCoordSet
+)
+{
+
+  //
+  // FOR NOW: I'm just going to use this printing style until
+  //          we're getting to this point with *every* test case,
+  //          and then I'll get the 'ExonCoordSet' data integrated. 
+  //
+
+  p7_tophits_SortBySeqidxAndAlipos(ExonSetTopHits);
+  p7_tophits_RemoveDuplicates(ExonSetTopHits,ExonSetPipeline->use_bit_cutoffs);
+
+  // NOTE: Eventually we're going to want 'ofp' instead of 'stdout'
+  //       and 'textw' instead of '0'
+  p7_tophits_SortBySortkey(  ExonSetTopHits);
+  p7_tophits_Threshold(      ExonSetTopHits, ExonSetPipeline);
+  p7_tophits_Targets(stdout, ExonSetTopHits, ExonSetPipeline, 0);// if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+  p7_tophits_Domains(stdout, ExonSetTopHits, ExonSetPipeline, 0);// if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+
+}
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: RunModelOnExonSets
+ *
+ *  Inputs:  
+ *
+ *  Output:
+ *
+ */
+void RunModelOnExonSets
 (
   SPLICE_GRAPH * Graph, 
   TARGET_SEQ  * TargetNuclSeq, 
@@ -3843,7 +3889,7 @@ void ApplySpliceModel
 )
 {
 
-  DEBUG_OUT("Starting 'ApplySpliceModel'",1);
+  DEBUG_OUT("Starting 'RunModelOnExonSets'",1);
 
 
   int num_exon_sets;
@@ -3858,112 +3904,67 @@ void ApplySpliceModel
 
     int coding_region_len;
     ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&coding_region_len);
-    //ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
+    ESL_SQ  * NuclSeq      = esl_sq_CreateDigitalFrom(TargetNuclSeq->abc,"Exon Set",ExonSetNucls,(int64_t)coding_region_len,NULL,NULL,NULL);
+    NuclSeq->idx = exon_set_id+1;
+    esl_sq_Textize(NuclSeq);
+
+
     int trans_len = coding_region_len / 3;
-    
-
-    char * NuclStr = malloc(coding_region_len * sizeof(char));
-    for (int i=0; i<coding_region_len; i++)
-      NuclStr[i] = DNA_CHARS[ExonSetNucls[i+1]];
-    
-
-    fprintf(stderr,"==A==\n"); fflush(stderr); // DEBUGGING
-
-
-    // Sadly, I don't think there's really any way around
-    // having to deal with all of this cruft without
-    // massively re-writing a bunch of preexisting
-    // functions and stuff...
-    
-    
-    WORKER_INFO * SplicedWorker       = malloc(sizeof(WORKER_INFO));
-    SplicedWorker->bg                 = p7_bg_Create(Graph->Model->abc);
-    SplicedWorker->gcode              = gcode;
-    SplicedWorker->wrk                = esl_gencode_WorkstateCreate(go,gcode);
-    SplicedWorker->om                 = p7_oprofile_Clone(Graph->OModel);
-    SplicedWorker->pli                = p7_pipeline_Create(go,Graph->OModel->M,100,FALSE,p7_SEARCH_SEQS);
-    SplicedWorker->pli->is_translated = TRUE;
-    SplicedWorker->ntqsq              = esl_sq_CreateFrom("Exons\0",NuclStr,NULL,NULL,NULL);
-
-    int pipeline_create_err = p7_pli_NewModel(SplicedWorker->pli,SplicedWorker->om,SplicedWorker->bg);
-
-
-
-    fprintf(stderr,"==B==\n"); fflush(stderr); // DEBUGGING
-
-
-
-    // Because we've determined the strand, we only want to do
-    // the (relative to the nucleotides we've pulled) forward strand
-    SplicedWorker->pli->strands      = p7_STRAND_TOPONLY;
-    SplicedWorker->pli->block_length = 1024 * 256;// HMMSEARCHT_MAX_RESIDUE_COUNT
-
-
-
-    //
-    // Copying largely from 'serial_loop'
-    //
-
-
-    SplicedWorker->wrk->orf_block = esl_sq_CreateDigitalBlock(1000,SplicedWorker->om->abc); // BLOCK_SIZE
-    esl_sq_ReuseBlock(SplicedWorker->wrk->orf_block);
-
-    esl_sq_Digitize(TargetNuclSeq->abc,SplicedWorker->ntqsq);
-    esl_gencode_ProcessStart(gcode,SplicedWorker->wrk,SplicedWorker->ntqsq);
-    esl_gencode_ProcessPiece(gcode,SplicedWorker->wrk,SplicedWorker->ntqsq);
-    esl_gencode_ProcessEnd  (      SplicedWorker->wrk,SplicedWorker->ntqsq);
-
-
-
-    fprintf(stderr,"==C==\n"); fflush(stderr); // DEBUGGING
-
-
-
-    // We already know that the first reading frame is the chosen one
-    ESL_SQ * AminoSeq = &(SplicedWorker->wrk->orf_block->list[0]);
-    p7_pli_NewSeq(SplicedWorker->pli,AminoSeq);
-
-    esl_sq_SetName(AminoSeq,"Translation\0");
+    ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
+    ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,"Trans",ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
     AminoSeq->idx = exon_set_id+1;
-
-    p7_bg_SetLength(SplicedWorker->bg,AminoSeq->n);
-    p7_oprofile_ReconfigLength(SplicedWorker->om,AminoSeq->n);
+    strcpy(AminoSeq->orfid,"orf");
 
 
 
-    fprintf(stderr,"==D==\n"); fflush(stderr); // DEBUGGING
+    P7_PIPELINE * ExonSetPipeline  = p7_pipeline_Create(go,Graph->OModel->M,coding_region_len,FALSE,p7_SEARCH_SEQS);
+    ExonSetPipeline->is_translated = TRUE;
+    ExonSetPipeline->strands       = p7_STRAND_TOPONLY;
+    ExonSetPipeline->block_length  = coding_region_len;
+
+    P7_OPROFILE * ExonSetOProfile   = p7_oprofile_Clone(Graph->OModel);
+    P7_BG       * ExonSetBackground = p7_bg_Create(Graph->OModel->abc);
+
+    int pipeline_create_err = p7_pli_NewModel(ExonSetPipeline,ExonSetOProfile,ExonSetBackground);
+    if (pipeline_create_err == eslEINVAL) 
+      p7_Fail(ExonSetPipeline->errbuf);
+
+    p7_pli_NewSeq(ExonSetPipeline,AminoSeq);
+    p7_bg_SetLength(ExonSetBackground,AminoSeq->n);
+    p7_oprofile_ReconfigLength(ExonSetOProfile,AminoSeq->n);
 
 
 
-    p7_Pipeline(SplicedWorker->pli,SplicedWorker->om,SplicedWorker->bg,AminoSeq,SplicedWorker->ntqsq,SplicedWorker->th,NULL);
+    P7_TOPHITS * ExonSetTopHits = p7_tophits_Create();
+
+    int pipeline_execute_err  = p7_Pipeline(ExonSetPipeline,ExonSetOProfile,ExonSetBackground,AminoSeq,NuclSeq,ExonSetTopHits,NULL);
+    if (pipeline_execute_err != eslOK) {
+      fprintf(stderr,"\n  * PIPELINE FAILURE DURING EXON SET RE-ALIGNMENT *\n\n");
+      exit(101);
+    }
 
 
 
-    fprintf(stderr,"==E==\n"); fflush(stderr); // DEBUGGING
+    if (ExonSetTopHits->N)
+      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id]);
 
 
-    fprintf(stderr,"\n==TH: %d\n\n",(int)(SplicedWorker->th->N));
-
-    /*
-    p7_tophits_SortBySortkey(SplicedWorker->th);
-    p7_tophits_Threshold(SplicedWorker->th,SplicedWorker->pli);
-    p7_tophits_Targets(stdout,SplicedWorker->th,SplicedWorker->pli,0);
-    p7_tophits_Domains(stdout,SplicedWorker->th,SplicedWorker->pli,0);
-    */
-
-
-    free(NuclStr);
     free(ExonSetNucls);
+    free(ExonSetTrans);
+    esl_sq_Destroy(NuclSeq);
+    esl_sq_Destroy(AminoSeq);
+    p7_tophits_Destroy(ExonSetTopHits);
+    p7_pipeline_Destroy(ExonSetPipeline);
+    p7_bg_Destroy(ExonSetBackground);
+    p7_oprofile_Destroy(ExonSetOProfile);
     free(ExonCoordSets[exon_set_id]);
 
-
   }
-
 
   free(ExonCoordSets);
 
 
-  DEBUG_OUT("'ApplySpliceModel' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'RunModelOnExonSets' Complete",-1);
 
 }
 
@@ -4040,8 +4041,9 @@ void SpliceHits
 
 
 
-  // Run the SplHMM!
-  ApplySpliceModel(Graph,TargetNuclSeq,gcode,go);
+  // Re-run the model on the extracted nucleotide sequence(s)
+  // for each connected component of the graph.
+  RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go);
 
 
 
