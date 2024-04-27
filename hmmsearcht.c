@@ -4891,13 +4891,14 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
       }
 
 
-      ///////////////////////////////
-      //                           //
-      //       * SPLICING *        //
-      //                           //
-      if (tophits_accumulator->N > 1) SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);
-      //                           //
-      ///////////////////////////////
+                                    ////////////////////////////////////////////////////////////////////
+                                    //                                                                //
+                                    //                          * SPLICING *                          //
+                                    //                                                                //
+      if (tophits_accumulator->N > 1) SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);  //
+                                    //                                                                //
+                                    //                                                                //
+                                    ////////////////////////////////////////////////////////////////////
 
 
       esl_sq_Reuse(qsqDNA);
