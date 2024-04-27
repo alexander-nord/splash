@@ -2783,11 +2783,12 @@ int * GetBoundedSearchRegions
 
   // Swag!  Now we can define our actual intended search regions!
   //
-  int num_search_regions = 0;
-  int * SearchHMMStarts  = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
-  int * SearchHMMEnds    = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
-  int * SearchNuclStarts = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
-  int * SearchNuclEnds   = (int *)malloc(intMin(num_no_out_edge,num_no_in_edge)*sizeof(int));
+  int search_region_alloc = intMin(num_no_out_edge,num_no_in_edge);
+  int num_search_regions  = 0;
+  int * SearchHMMStarts   = (int *)malloc(search_region_alloc*sizeof(int));
+  int * SearchHMMEnds     = (int *)malloc(search_region_alloc*sizeof(int));
+  int * SearchNuclStarts  = (int *)malloc(search_region_alloc*sizeof(int));
+  int * SearchNuclEnds    = (int *)malloc(search_region_alloc*sizeof(int));
 
 
   for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
