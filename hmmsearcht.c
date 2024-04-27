@@ -65,12 +65,8 @@ typedef struct {
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *   SPLICING STUFF
- *
+ *                                                      BEGIN SPLICING STUFF
  */
-
-
 static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
@@ -109,9 +105,11 @@ int intMin (int a, int b) { if (a<b) return a; return b; }
 
 
 
-//////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 //
-//  TARGET_SEQ
+//  Struct: TARGET_SEQ
+//
+//  Desc. : 
 //
 typedef struct _target_seq {
   
@@ -127,9 +125,11 @@ typedef struct _target_seq {
 
 
 
-//////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 //
-//  DOMAIN_OVERLAP
+//  Struct: DOMAIN_OVERLAP
+//
+//  Desc. :
 //
 typedef struct _domain_overlap {
 
@@ -182,9 +182,11 @@ typedef struct _domain_overlap {
 
 
 
-//////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 //
-//  SPLICE_NODE
+//  Struct: SPLICE_NODE
+//
+//  Desc. :
 //
 typedef struct _splice_node {
 
@@ -228,9 +230,11 @@ typedef struct _splice_node {
 
 
 
-//////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////
 //
-//  SPLICE_GRAPH
+//  Struct: SPLICE_GRAPH
+//
+//  Desc. :
 //
 typedef struct _splice_graph {
 
@@ -272,6 +276,11 @@ typedef struct _splice_graph {
 
 
 } SPLICE_GRAPH;
+
+
+
+
+
 
 
 
@@ -346,15 +355,19 @@ void DumpGraph(SPLICE_GRAPH * Graph)
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FloatHighLowSortIndex
  *
- *  Desc. :
+ *  Desc. : Generate a sort index for an array of floats (in decreasing value)
+ *          using a basic mergesort implementation.
  *
- *  Inputs:  
+ *  Inputs:  1. Vals     : The floats that we want to produce a sorting for.
+ *           2. num_vals : The number of values in the array.
  *
- *  Output:
+ *  Output:  An array of indices corresponding to a sorting of 'Vals'.
  *
  */
 int * FloatHighLowSortIndex
@@ -435,6 +448,8 @@ int * FloatHighLowSortIndex
 }
 /*  Function: FloatLowHighSortIndex
  *
+ *  Desc. : Invert the sort index produced by 'FloatHighLowSortIndex'
+ *
  */
 int * FloatLowHighSortIndex
 (float * Vals, int num_vals)
@@ -456,19 +471,89 @@ int * FloatLowHighSortIndex
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetTargetNuclSeq
+ *
+ *  Desc. :  Given a sequence file and a collection of translated search hits, extract a
+ *           sub-region of the genome that contains the all of the nucleotides implicated in
+ *           the set of hits.
+ *
+ *           This assumes (correctly!) that all of the hits are to the same nucleotide sequence.
+ *
+ *  Inputs:  1. GenomicSeqFile : An ESL_SQFILE struct representing the input genom(e/ic sequence) file.
+ *           2.        TopHits : A collection of hits achieved by "standard" hmmsearcht (unspliced)
+ *
+ *  Output:  A TARGET_SEQ struct, containing the nucleotide subsequence within which all of the
+ *           unspliced hmmsearcht hits reside.
+ *
+ */
+TARGET_SEQ * GetTargetNuclSeq
+(ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetTargetNuclSeq'",1);
+
+  TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
+  GetMinAndMaxCoords(TopHits,TargetNuclSeq);
+
+  TargetNuclSeq->abc = GenomicSeqFile->abc;
+
+  ESL_SQFILE * TmpSeqFile;
+  esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
+  esl_sqfile_OpenSSI(TmpSeqFile,NULL);
+
+  TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
+  int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
+
+  esl_sqfile_Close(TmpSeqFile);
+
+  if (fetch_err_code != eslOK) {
+    fprintf(stderr,"\n  ERROR fetching subsequence\n\n");
+    exit(1);
+  }
+
+  TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
+
+  if (DEBUGGING) DEBUG_OUT("'GetTargetNuclSeq' Complete",-1);
+
+  return TargetNuclSeq;
+
+}
 
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GrabNuclRange
  *
- *  Desc. :
+ *  Desc. :  Extract a sub-sequence from our (already a sub-)sequence stored
+ *           in a TARGET_SEQ datastructure.
  *
- *  Inputs:
+ *           Importantly, the 'start' and 'end' coordinate values are with respect
+ *           to the full sequence of which TargetNuclSeq is a part.  This is because
+ *           we're expecting to be working with the coordinates listed in an ALIDISPLAY,
+ *           which are w.r.t. the full input sequence.
  *
- *  Output:
+ *  Inputs:  1. TargetNuclSeq : The nucleotide sub-sequence that we want to
+ *                              extract a (further sub-)sequence from.
+ *           2.         start : The (inclusive) start coordinate of the sub-sequence we
+ *                              want to extract.
+ *           3.           end : The (inclusive) end coordinate of the sub-sequence we
+ *                              want to extract.
+ *
+ *  Output:  An ESL_DSQ containing the numeric nucleotide codes for the requested
+ *           sub-sequence.
+ *
+ *           TODO: Add catches for out-of-bounds requests (these *shouldn't* happen)
  *
  */
 ESL_DSQ * GrabNuclRange
@@ -515,15 +600,15 @@ ESL_DSQ * GrabNuclRange
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: DetermineNuclType
  *
- *  Desc. :
+ *  Desc. :  Given a P7_ALIDISPLAY, determine the alphabet type of the nucleotide sequence.
  *
- *  Inputs:
+ *  Inputs:  1. AliDisplay : A P7_ALIDISPLAY object, assumed to be from hmmsearcht.
  *
- *  Output:
+ *  Output:  The easel code for the alphabet type of the nucleotide sequence (DNA or RNA).
  *
  */
 int DetermineNuclType 
@@ -543,15 +628,26 @@ int DetermineNuclType
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetSpliceOptions
  *
- *  Desc. :
+ *  Desc. :  Once we know the codon that would be a candidate for being split by a splice site,
+ *           check each of the possible ways to split that codon (or assign it fully to one side)
+ *           for (1.) the amino acid encoded by each candidate codon triple, and (2.) the
+ *           strength of the splice signal for each candidate splicing (currently, just a boolean
+ *           communicating whether the canonical AG/GT is being used).
  *
- *  Inputs:  
+ *  Inputs:  1.        Overlap :
+ *           2.    upstream_ss :
+ *           3.  downstream_ss :
+ *           4.   SpliceCodons :
+ *           5.    Canon5Prime :
+ *           6.    Canon3Prime :
+ *           7.          gcode : An ESL_GENCODE struct (mainly used for translation).
  *
- *  Output:
+ *  Output:  Nothing is returned, but the SpliceCodons, Canon5Prime, and Canon3Prime arrays are
+ *           filled in with values representing each of the precise splice site options.
  *
  */
 void GetSpliceOptions
@@ -667,15 +763,20 @@ void GetSpliceOptions
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindOptimalSpliceSite
  *
  *  Desc. :
  *
- *  Inputs:
+ *  Inputs:  1.                 Overlap :
+ *           2.                      gm :
+ *           3.                   gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           4.   upstream_splice_index :
+ *           5. downstream_splice_index :
+ *           6. split_amino_model_index :
  *
- *  Output:
+ *  Output:  A float representing the total score of the optimal splicing of the two hits.
  *
  */
 float FindOptimalSpliceSite
@@ -890,13 +991,15 @@ float FindOptimalSpliceSite
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SpliceOverlappingDomains
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Overlap :
+ *           2.      gm :
+ *           3.   gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -993,13 +1096,13 @@ void SpliceOverlappingDomains
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetNuclRangesFromAminoCoords
  *
  *  Desc. :
  *
- *  Inputs:
+ *  Inputs:  1. Edge :
  *
  *  Output:
  *
@@ -1088,13 +1191,16 @@ void GetNuclRangesFromAminoCoords
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SketchSpliceEdge
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.          Edge :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.            gm :
+ *           4.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -1183,19 +1289,20 @@ void SketchSpliceEdge
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: HitsAreSpliceComaptible
  *
  *  Desc. :
  *
- *  Inputs:
+ *  Inputs:  1.   Upstream :
+ *           2. Downstream :
  *
  *  Output:
  *
  */
 int HitsAreSpliceCompatible
-(P7_ALIDISPLAY * upstream, P7_ALIDISPLAY * downstream)
+(P7_ALIDISPLAY * Upstream, P7_ALIDISPLAY * Downstream)
 {
 
    
@@ -1204,11 +1311,11 @@ int HitsAreSpliceCompatible
   
   // Start by checking if we either have amino acid
   // overlap, or are close enough to consider extending
-  int amino_start_1 = upstream->hmmfrom;
-  int amino_end_1   = upstream->hmmto;
+  int amino_start_1 = Upstream->hmmfrom;
+  int amino_end_1   = Upstream->hmmto;
 
-  int amino_start_2 = downstream->hmmfrom;
-  int amino_end_2   = downstream->hmmto;
+  int amino_start_2 = Downstream->hmmfrom;
+  int amino_end_2   = Downstream->hmmto;
 
   // If the upstream ain't upstream, then obviously we can't treat
   // these as splice-compatible!
@@ -1229,16 +1336,16 @@ int HitsAreSpliceCompatible
   // compatibility!  Now it's just time to confirm that
   // the nucleotides also look good.
 
-  int  nucl_start_1 = upstream->sqfrom;
-  int  nucl_end_1   = upstream->sqto;
+  int  nucl_start_1 = Upstream->sqfrom;
+  int  nucl_end_1   = Upstream->sqto;
   
   int revcomp1 = 0;
   if (nucl_start_1 > nucl_end_1)
     revcomp1 = 1;
 
 
-  int nucl_start_2 = downstream->sqfrom;
-  int nucl_end_2   = downstream->sqto;
+  int nucl_start_2 = Downstream->sqfrom;
+  int nucl_end_2   = Downstream->sqto;
  
   int revcomp2 = 0;
   if (nucl_start_2 > nucl_end_2)
@@ -1283,13 +1390,17 @@ int HitsAreSpliceCompatible
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherViableSpliceEdges
  *
  *  Desc. :
  *
- *  Inputs:
+ *  Inputs:  1.          TopHits :
+ *           2.    TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.               gm :
+ *           4.            gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           5. num_splice_edges :
  *
  *  Output:
  *
@@ -1437,13 +1548,14 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetMinAndMaxCoords
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.       TopHits :
+ *           2. NuclTargetSeq : The sub-sequence of the target sequence wherein all hits reside.
  *
  *  Output:
  *
@@ -1528,64 +1640,18 @@ void GetMinAndMaxCoords
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GetTargetNuclSeq
- *
- *  Desc. :
- *
- *  Inputs:  
- *
- *  Output:
- *
- */
-TARGET_SEQ * GetTargetNuclSeq
-(ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
-{
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetTargetNuclSeq'",1);
-
-  TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
-  GetMinAndMaxCoords(TopHits,TargetNuclSeq);
-
-  TargetNuclSeq->abc = GenomicSeqFile->abc;
-
-  ESL_SQFILE * TmpSeqFile;
-  esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
-  esl_sqfile_OpenSSI(TmpSeqFile,NULL);
-
-  TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
-  int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
-
-  esl_sqfile_Close(TmpSeqFile);
-
-  if (fetch_err_code != eslOK) {
-    fprintf(stderr,"\n  ERROR fetching subsequence\n\n");
-    exit(1);
-  }
-
-  TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
-
-  if (DEBUGGING) DEBUG_OUT("'GetTargetNuclSeq' Complete",-1);
-
-  return TargetNuclSeq;
-
-}
-
-
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: InitSpliceNode
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.      Graph :
+ *           2.    node_id :
+ *           3.     hit_id :
+ *           4.     dom_id :
+ *           5. was_missed :
  *
  *  Output:
  *
@@ -1671,13 +1737,14 @@ SPLICE_NODE * InitSpliceNode
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: ConnectNodesByEdge
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.  Edge :
+ *           2. Graph :
  *
  *  Output:
  *
@@ -1776,13 +1843,13 @@ void ConnectNodesByEdge
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindBestPathToNode
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Node :  
  *
  *  Output:
  *
@@ -1829,13 +1896,13 @@ void FindBestPathToNode
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: EvangelizePath
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Node :
  *
  *  Output:
  *
@@ -1886,13 +1953,13 @@ void EvangelizePath
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherNTermNodes
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Graph :
  *
  *  Output:
  *
@@ -1942,13 +2009,13 @@ void GatherNTermNodes
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherCTermNodes
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Graph :
  *
  *  Output:
  *
@@ -1998,13 +2065,13 @@ void GatherCTermNodes
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GenCumScoreSort
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Graph :
  *
  *  Output:
  *
@@ -2038,13 +2105,13 @@ void GenCumScoreSort
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: EvaluatePaths
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Graph :
  *
  *  Output:
  *
@@ -2104,13 +2171,15 @@ void EvaluatePaths
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FillOutGraphStructure
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.            Graph :
+ *           2.      SpliceEdges :
+ *           3. num_splice_edges :
  *
  *  Output:
  *
@@ -2202,13 +2271,13 @@ void FillOutGraphStructure
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindBestFullPath
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. Graph :
  *
  *  Output:
  *
@@ -2259,13 +2328,17 @@ void FindBestFullPath
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: BuildSpliceGraph
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.       TopHits :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.            gm :
+ *           4.            om :
+ *           5.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -2340,13 +2413,18 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetNodeHitData
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.     Graph :
+ *           2.   node_id :
+ *           3.  hmm_from :
+ *           4.    hmm_to :
+ *           5. nucl_from :
+ *           6.   nucl_to :
  *
  *  Output:
  *
@@ -2383,13 +2461,15 @@ void GetNodeHitData
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: ExtractSubProfile
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.     FullModel :
+ *           2. hmm_start_pos :
+ *           3.   hmm_end_pos :
  *
  *  Output:
  *
@@ -2492,13 +2572,16 @@ P7_PROFILE * ExtractSubProfile
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: IsViableSearchArea
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.      upstream_hmm_to :
+ *           2.     upstream_nucl_to :
+ *           3.  downstream_hmm_from :
+ *           4. downstream_nucl_from :
  *
  *  Output:
  *
@@ -2552,13 +2635,14 @@ int IsViableSearchArea
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetBoundedSearchRegions
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.                  Graph :
+ *           2. num_search_regions_ref :
  *
  *  Output:
  *
@@ -2797,13 +2881,18 @@ int * GetBoundedSearchRegions
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SelectFinalSubHits
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.          SubHitADs :
+ *           2.       SubHitScores :
+ *           3.       num_sub_hits :
+ *           4.        sub_hmm_len :
+ *           5.          hmm_start :
+ *           6. final_num_sub_hits :
  *
  *  Output:
  *
@@ -2904,13 +2993,17 @@ P7_DOMAIN ** SelectFinalSubHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindSubHits
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.              Graph :
+ *           2.      TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.       SearchRegion :
+ *           4.              gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           5. final_num_sub_hits :
  *
  *  Output:
  *
@@ -3168,13 +3261,15 @@ P7_DOMAIN ** FindSubHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindMissingExons
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.         Graph :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -3318,13 +3413,15 @@ P7_TOPHITS * FindMissingExons
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: IntegrateMissedHits
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.          Graph :
+ *           2. NewSpliceEdges :
+ *           3.  num_new_edges :
  *
  *  Output:
  *
@@ -3380,13 +3477,15 @@ void IntegrateMissedHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: AddMissingExonsToGraph
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.         Graph :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -3539,13 +3638,14 @@ void AddMissingExonsToGraph
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetExonSetFromStartNode
  *
- *
  *  Desc. :
- *  Inputs:  
+ *
+ *  Inputs:  1.         Graph :
+ *           2. start_node_id :
  *
  *  Output:
  *
@@ -3615,13 +3715,17 @@ int * GetExonSetFromStartNode
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindComponentBestStart
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.            Node :
+ *           2.    ComponentIDs :
+ *           3.    component_id :
+ *           4. best_comp_start :
+ *           5. best_comp_score :
  *
  *  Output:
  *
@@ -3671,13 +3775,15 @@ void FindComponentBestStart
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: TranslateExonSetNucls
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.      ExonSetNucls :
+ *           2. coding_region_len :
+ *           3.             gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -3713,13 +3819,15 @@ ESL_DSQ * TranslateExonSetNucls
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GrabExonCoordSetNucls
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.      ExonCoordSet :
+ *           2.     TargetNuclSeq :
+ *           3. coding_region_len :
  *
  *  Output:
  *
@@ -3768,13 +3876,16 @@ ESL_DSQ * GrabExonCoordSetNucls
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  DEBUGGING Function: DumpExonSetSequence
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1. ExonCoordSets :
+ *           2. num_exon_sets :
+ *           3. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           4.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
@@ -3858,13 +3969,14 @@ void DumpExonSets
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetSplicedExonCoordSets
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.         Graph :
+ *           2. num_exon_sets :
  *
  *  Output:
  *
@@ -3936,13 +4048,17 @@ int ** GetSplicedExonCoordSets
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: RunModelOnExonSets
  *
  *  Desc. :
  *
- *  Inputs:  
+ *  Inputs:  1.  ExonSetTopHits :
+ *           2. ExonSetPipeline :
+ *           3.    ExonCoordSet :
+ *           4.             ofp :
+ *           5.           textw :
  *
  *  Output:
  *
@@ -3983,15 +4099,24 @@ int ReportSplicedTopHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: RunModelOnExonSets
  *
- *  Desc. :
+ *  Desc. :  This is the culmination of all of our work!
+ *           Given a splice graph, use the spliced nucleotide coordinates for each
+ *           connected component (ideally there will only be one...) to pull a final
+ *           nucleotide sequence and re-run the model on that (spliced) sequence.
  *
- *  Inputs:  
+ *  Inputs:  1.         Graph : The final SPLICE_GRAPH struct built on the set of unspliced hits.
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           4.            go :
+ *           5.           ofp :
+ *           6.         textw :
  *
- *  Output:
+ *  Output:  Nothing is returned.  The results of running the model against the spliced
+ *           nucleotide sequence are printed to ofp.
  *
  */
 void RunModelOnExonSets
@@ -4085,7 +4210,7 @@ void RunModelOnExonSets
 
 
 
-    // DESTRUCTION!  (Eventually we'll reuse many of these, but *whatever*)
+    // DESTRUCTION!  (TODO: Reuse these (but, for now *whatever*))
     free(ExonSetNucls);
     free(ExonSetTrans);
     esl_sq_Destroy(NuclSeq);
@@ -4119,13 +4244,26 @@ void RunModelOnExonSets
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * *
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SpliceHits
  *
- *  Inputs:  
+ *  Desc. :  This is the top-level function for spliced hmmsearcht
  *
- *  Output:
+ *  Inputs:  1.        TopHits : A set of hits generated by hmmsearcht.
+ *                               These serve as the initial collection of likely exons that
+ *                               we try to find ways to stitch together into full-model hits.
+ *           2. GenomicSeqFile : An ESL_SQFILE struct holding the genomic file that contains
+ *                               all of the target sequences for search.
+ *           3.             gm : The amino acid model for the protein / family.
+ *           4.             om : The optimized model (assumed to be built on 'gm').
+ *           5.          gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           6.             go : An ESL_GETOPTS struct (in case of options... duh).
+ *           7.            ofp : An open file pointer (specificially, the target for output).
+ *           8.          textw : The desired line width for output.
+ *
+ *  Output:  Nothing is returned, but if we find a way to splice together some of the
+ *           input hits they're written out to the ofp.
  *
  */
 void SpliceHits
@@ -4158,6 +4296,7 @@ void SpliceHits
   // Given that our hits are organized by target sequence, we can
   // be a bit more efficient in our file reading by only pulling
   // target sequences as they change (wrt the upstream hit)
+  //
   TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
 
 
@@ -4165,6 +4304,7 @@ void SpliceHits
   // Them's some lil' splice edges, alrighty!
   // Now we can do some simple graph-ery and find our best path(s?)
   // through the full HMM (hopefully)
+  //
   SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,TargetNuclSeq,gm,om,gcode);
 
 
@@ -4177,6 +4317,7 @@ void SpliceHits
   // If the graph doesn't currently have a complete path,
   // we'll see if we can find some holes to plug with small
   // (or otherwise missed) exons
+  //
   if (Graph->has_full_path == 0)
     AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
 
@@ -4184,6 +4325,7 @@ void SpliceHits
 
   // Re-run the model on the extracted nucleotide sequence(s)
   // for each connected component of the graph.
+  //
   RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go,ofp,textw);
 
 
@@ -4199,34 +4341,9 @@ void SpliceHits
   }
 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+ *                                                        END SPLICING STUFF
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
 
@@ -4770,43 +4887,13 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
       }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-      // NORD - START
-      if (tophits_accumulator->N > 1)
-        SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);
-      // NORD - END
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+      ///////////////////////////////
+      //                           //
+      //       * SPLICING *        //
+      //                           //
+      if (tophits_accumulator->N > 1) SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);
+      //                           //
+      ///////////////////////////////
 
 
       esl_sq_Reuse(qsqDNA);
