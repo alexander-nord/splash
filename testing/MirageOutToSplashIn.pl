@@ -300,6 +300,7 @@ sub WriteSeqToFile
 		print $SeqFile "\n" if ($seq_pos % 60 == 0);
 		print $SeqFile "$Seq[$seq_pos]";
 	}
+	print $SeqFile "\n";
 
 	close($SeqFile);
 
