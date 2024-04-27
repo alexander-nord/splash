@@ -291,62 +291,62 @@ typedef struct _splice_graph {
 /* DEBUGGING FUNCTION: DumpNode  */
 void DumpNode (SPLICE_NODE * Node)
 {
-  printf("   |\n");
-  printf("   |       NODE %d\n",Node->node_id);
-  printf("   |     ,---------------------------------------------------\n");
-  printf("   |     |\n");
-  printf("   |     |  Source in P7_TOPHITS  :  Hit %d, Domain %d\n", Node->hit_id, Node->dom_id);
-  printf("   |     |\n");
-  printf("   |     |  Score of Source Hit      :  %f\n",Node->hit_score);
-  printf("   |     |  Score of Path Up To Node :  %f\n",Node->cumulative_score);
-  printf("   |     |  Total Score of Best Path\n");
-  printf("   |     |      that Uses this Node  :  %f\n",Node->best_path_score);
-  printf("   |     |\n");
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   |       NODE %d\n",Node->node_id);
+  fprintf(stderr,"   |     ,---------------------------------------------------\n");
+  fprintf(stderr,"   |     |\n");
+  fprintf(stderr,"   |     |  Source in P7_TOPHITS  :  Hit %d, Domain %d\n", Node->hit_id, Node->dom_id);
+  fprintf(stderr,"   |     |\n");
+  fprintf(stderr,"   |     |  Score of Source Hit      :  %f\n",Node->hit_score);
+  fprintf(stderr,"   |     |  Score of Path Up To Node :  %f\n",Node->cumulative_score);
+  fprintf(stderr,"   |     |  Total Score of Best Path\n");
+  fprintf(stderr,"   |     |      that Uses this Node  :  %f\n",Node->best_path_score);
+  fprintf(stderr,"   |     |\n");
   if (Node->num_in_edges > 0) {
-    printf("   |     |  Number of Incoming Edges :  %d\n",Node->num_in_edges);
-    printf("   |     |  Best Upstream Node       :  Node %d\n",Node->UpstreamNodes[Node->best_in_edge]->node_id);
+    fprintf(stderr,"   |     |  Number of Incoming Edges :  %d\n",Node->num_in_edges);
+    fprintf(stderr,"   |     |  Best Upstream Node       :  Node %d\n",Node->UpstreamNodes[Node->best_in_edge]->node_id);
   } else if (Node->is_n_terminal) {
-    printf("   |     |  * N-TERMINAL NODE\n");
+    fprintf(stderr,"   |     |  * N-TERMINAL NODE\n");
   } else {
-    printf("   |     |  - No Incoming Edges\n");
+    fprintf(stderr,"   |     |  - No Incoming Edges\n");
   }
-  printf("   |     |\n");
+  fprintf(stderr,"   |     |\n");
   if (Node->num_out_edges > 0) {
-    printf("   |     |  Number of Outgoing Edges :  %d\n",Node->num_out_edges);
-    printf("   |     |  Best Downstream Node     :  Node %d\n",Node->DownstreamNodes[Node->best_out_edge]->node_id);
+    fprintf(stderr,"   |     |  Number of Outgoing Edges :  %d\n",Node->num_out_edges);
+    fprintf(stderr,"   |     |  Best Downstream Node     :  Node %d\n",Node->DownstreamNodes[Node->best_out_edge]->node_id);
   } else if (Node->is_c_terminal) {
-    printf("   |     |  * C-TERMINAL NODE\n");
+    fprintf(stderr,"   |     |  * C-TERMINAL NODE\n");
   } else {
-    printf("   |     |  - No Outgoing Edges\n");
+    fprintf(stderr,"   |     |  - No Outgoing Edges\n");
   }
-  printf("   |     |\n");
-  printf("   |     '\n");
-  printf("   |\n");
-  fflush(stdout);
+  fprintf(stderr,"   |     |\n");
+  fprintf(stderr,"   |     '\n");
+  fprintf(stderr,"   |\n");
+  fflush(stderr);
 }
 /* DEBUGGING FUNCTION: DumpGraph */
 void DumpGraph(SPLICE_GRAPH * Graph)
 {
-  printf("\n\n");
-  printf("     SPLICE GRAPH\n");
-  printf("   +=========================================================+\n");
-  printf("   |\n");
-  printf("   |  Total Number of Nodes      : %d\n",Graph->num_nodes);
-  printf("   |  Total Number of Edges      : %d\n",Graph->num_edges);
-  printf("   |\n");
-  printf("   |  Number of N-terminal nodes : %d\n",Graph->num_n_term);
-  printf("   |  Number of C-terminal nodes : %d\n",Graph->num_c_term);
-  printf("   |\n");
+  fprintf(stderr,"\n\n");
+  fprintf(stderr,"     SPLICE GRAPH\n");
+  fprintf(stderr,"   +=========================================================+\n");
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   |  Total Number of Nodes      : %d\n",Graph->num_nodes);
+  fprintf(stderr,"   |  Total Number of Edges      : %d\n",Graph->num_edges);
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   |  Number of N-terminal nodes : %d\n",Graph->num_n_term);
+  fprintf(stderr,"   |  Number of C-terminal nodes : %d\n",Graph->num_c_term);
+  fprintf(stderr,"   |\n");
   if (Graph->has_full_path)
-    printf("   |  * This graph has at least one full path through the HMM!\n");
-  printf("   |\n");
-  printf("   |\n");
+    fprintf(stderr,"   |  * This graph has at least one full path through the HMM!\n");
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   |\n");
   for (int i=1; i<=Graph->num_nodes; i++) DumpNode(Graph->Nodes[i]);
-  printf("   |\n");
-  printf("   |\n");
-  printf("   +=========================================================+\n");
-  printf("\n\n\n");
-  fflush(stdout);
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   |\n");
+  fprintf(stderr,"   +=========================================================+\n");
+  fprintf(stderr,"\n\n\n");
+  fflush(stderr);
 }
 
 
