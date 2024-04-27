@@ -4051,7 +4051,7 @@ int ** GetSplicedExonCoordSets
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: RunModelOnExonSets
+ *  Function: ReportSplicedTopHits
  *
  *  Desc. :
  *
