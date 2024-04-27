@@ -64,8 +64,8 @@ typedef struct {
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *                                                      BEGIN SPLICING STUFF
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *                                                                                            BEGIN SPLICING STUFF
  */
 static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
@@ -770,7 +770,7 @@ void GetSpliceOptions
  *  Desc. :
  *
  *  Inputs:  1.                 Overlap :
- *           2.                      gm :
+ *           2.                      gm : The straightforward profile for the protein / family.
  *           3.                   gcode : An ESL_GENCODE struct (mainly used for translation).
  *           4.   upstream_splice_index :
  *           5. downstream_splice_index :
@@ -998,7 +998,7 @@ float FindOptimalSpliceSite
  *  Desc. :
  *
  *  Inputs:  1. Overlap :
- *           2.      gm :
+ *           2.      gm : The straightforward profile for the protein / family.
  *           3.   gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
@@ -1199,7 +1199,7 @@ void GetNuclRangesFromAminoCoords
  *
  *  Inputs:  1.          Edge :
  *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
- *           3.            gm :
+ *           3.            gm : The straightforward profile for the protein / family.
  *           4.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
@@ -1398,7 +1398,7 @@ int HitsAreSpliceCompatible
  *
  *  Inputs:  1.          TopHits :
  *           2.    TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
- *           3.               gm :
+ *           3.               gm : The straightforward profile for the protein / family.
  *           4.            gcode : An ESL_GENCODE struct (mainly used for translation).
  *           5. num_splice_edges :
  *
@@ -2336,8 +2336,8 @@ void FindBestFullPath
  *
  *  Inputs:  1.       TopHits :
  *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
- *           3.            gm :
- *           4.            om :
+ *           3.            gm : The straightforward profile for the protein / family.
+ *           4.            om : The optimized profile (assumed to be built on 'gm').
  *           5.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
@@ -4058,8 +4058,8 @@ int ** GetSplicedExonCoordSets
  *  Inputs:  1.  ExonSetTopHits :
  *           2. ExonSetPipeline :
  *           3.    ExonCoordSet :
- *           4.             ofp :
- *           5.           textw :
+ *           4.             ofp : An open file pointer (specificially, the target for output).
+ *           5.           textw : The desired line width for output.
  *
  *  Output:
  *
@@ -4112,9 +4112,9 @@ int ReportSplicedTopHits
  *  Inputs:  1.         Graph : The final SPLICE_GRAPH struct built on the set of unspliced hits.
  *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
  *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
- *           4.            go :
- *           5.           ofp :
- *           6.         textw :
+ *           4.            go : An ESL_GETOPTS struct (in case of options... duh).
+ *           5.           ofp : An open file pointer (specificially, the target for output).
+ *           6.         textw : The desired line width for output.
  *
  *  Output:  Nothing is returned.  The results of running the model against the spliced
  *           nucleotide sequence are printed to ofp.
@@ -4256,8 +4256,8 @@ void RunModelOnExonSets
  *                               we try to find ways to stitch together into full-model hits.
  *           2. GenomicSeqFile : An ESL_SQFILE struct holding the genomic file that contains
  *                               all of the target sequences for search.
- *           3.             gm : The amino acid model for the protein / family.
- *           4.             om : The optimized model (assumed to be built on 'gm').
+ *           3.             gm : The straightforward profile for the protein / family.
+ *           4.             om : The optimized profile (assumed to be built on 'gm').
  *           5.          gcode : An ESL_GENCODE struct (mainly used for translation).
  *           6.             go : An ESL_GETOPTS struct (in case of options... duh).
  *           7.            ofp : An open file pointer (specificially, the target for output).
@@ -4302,15 +4302,18 @@ void SpliceHits
 
 
 
-  // Them's some lil' splice edges, alrighty!
-  // Now we can do some simple graph-ery and find our best path(s?)
-  // through the full HMM (hopefully)
+  // This function encapsulates a *ton* of the work we do.
+  // In short, take the collection of unspliced hits and build
+  // a splice graph representing all (reasonable) ways of splicing
+  // them.
   //
   SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,TargetNuclSeq,gm,om,gcode);
 
 
 
-  // DEBUGGING
+  // If we're debugging, it might be useful to get a (quite rough)
+  // picture of what our splice graph looks like.
+  //
   if (DEBUGGING) DumpGraph(Graph);
 
 
@@ -4343,8 +4346,8 @@ void SpliceHits
 
 }
 /*
- *                                                        END SPLICING STUFF
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+ *                                                                                              END SPLICING STUFF
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
 
