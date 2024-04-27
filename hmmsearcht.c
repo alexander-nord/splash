@@ -71,7 +71,7 @@ typedef struct {
  */
 
 
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -350,6 +350,8 @@ void DumpGraph(SPLICE_GRAPH * Graph)
  *
  *  Function: FloatHighLowSortIndex
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -462,6 +464,8 @@ int * FloatLowHighSortIndex
  *
  *  Function: GrabNuclRange
  *
+ *  Desc. :
+ *
  *  Inputs:
  *
  *  Output:
@@ -515,6 +519,8 @@ ESL_DSQ * GrabNuclRange
  *
  *  Function: DetermineNuclType
  *
+ *  Desc. :
+ *
  *  Inputs:
  *
  *  Output:
@@ -540,6 +546,8 @@ int DetermineNuclType
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetSpliceOptions
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -662,6 +670,8 @@ void GetSpliceOptions
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindOptimalSpliceSite
+ *
+ *  Desc. :
  *
  *  Inputs:
  *
@@ -884,6 +894,8 @@ float FindOptimalSpliceSite
  *
  *  Function: SpliceOverlappingDomains
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -985,6 +997,8 @@ void SpliceOverlappingDomains
  *
  *  Function: GetNuclRangesFromAminoCoords
  *
+ *  Desc. :
+ *
  *  Inputs:
  *
  *  Output:
@@ -1078,6 +1092,8 @@ void GetNuclRangesFromAminoCoords
  *
  *  Function: SketchSpliceEdge
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -1170,6 +1186,8 @@ void SketchSpliceEdge
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: HitsAreSpliceComaptible
+ *
+ *  Desc. :
  *
  *  Inputs:
  *
@@ -1268,6 +1286,8 @@ int HitsAreSpliceCompatible
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherViableSpliceEdges
+ *
+ *  Desc. :
  *
  *  Inputs:
  *
@@ -1421,7 +1441,11 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
  *
  *  Function: GetMinAndMaxCoords
  *
+ *  Desc. :
+ *
  *  Inputs:  
+ *
+ *  Output:
  *
  */
 void GetMinAndMaxCoords
@@ -1508,7 +1532,11 @@ void GetMinAndMaxCoords
  *
  *  Function: GetTargetNuclSeq
  *
+ *  Desc. :
+ *
  *  Inputs:  
+ *
+ *  Output:
  *
  */
 TARGET_SEQ * GetTargetNuclSeq
@@ -1554,6 +1582,8 @@ TARGET_SEQ * GetTargetNuclSeq
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: InitSpliceNode
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -1644,6 +1674,8 @@ SPLICE_NODE * InitSpliceNode
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: ConnectNodesByEdge
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -1748,6 +1780,8 @@ void ConnectNodesByEdge
  *
  *  Function: FindBestPathToNode
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -1798,6 +1832,8 @@ void FindBestPathToNode
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: EvangelizePath
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -1854,6 +1890,8 @@ void EvangelizePath
  *
  *  Function: GatherNTermNodes
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -1907,6 +1945,8 @@ void GatherNTermNodes
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherCTermNodes
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -1962,6 +2002,8 @@ void GatherCTermNodes
  *
  *  Function: GenCumScoreSort
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -1999,6 +2041,8 @@ void GenCumScoreSort
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: EvaluatePaths
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -2063,6 +2107,8 @@ void EvaluatePaths
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FillOutGraphStructure
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -2160,6 +2206,8 @@ void FillOutGraphStructure
  *
  *  Function: FindBestFullPath
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -2214,6 +2262,8 @@ void FindBestFullPath
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: BuildSpliceGraph
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -2294,6 +2344,8 @@ SPLICE_GRAPH * BuildSpliceGraph
  *
  *  Function: GetNodeHitData
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -2334,6 +2386,8 @@ void GetNodeHitData
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: ExtractSubProfile
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -2442,6 +2496,8 @@ P7_PROFILE * ExtractSubProfile
  *
  *  Function: IsViableSearchArea
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -2499,6 +2555,8 @@ int IsViableSearchArea
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetBoundedSearchRegions
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -2743,6 +2801,8 @@ int * GetBoundedSearchRegions
  *
  *  Function: SelectFinalSubHits
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -2847,6 +2907,8 @@ P7_DOMAIN ** SelectFinalSubHits
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: FindSubHits
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -3110,6 +3172,8 @@ P7_DOMAIN ** FindSubHits
  *
  *  Function: FindMissingExons
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -3258,6 +3322,8 @@ P7_TOPHITS * FindMissingExons
  *
  *  Function: IntegrateMissedHits
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -3317,6 +3383,8 @@ void IntegrateMissedHits
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: AddMissingExonsToGraph
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -3475,6 +3543,8 @@ void AddMissingExonsToGraph
  *
  *  Function: GetExonSetFromStartNode
  *
+ *
+ *  Desc. :
  *  Inputs:  
  *
  *  Output:
@@ -3549,6 +3619,8 @@ int * GetExonSetFromStartNode
  *
  *  Function: FindComponentBestStart
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -3603,6 +3675,8 @@ void FindComponentBestStart
  *
  *  Function: TranslateExonSetNucls
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -3642,6 +3716,8 @@ ESL_DSQ * TranslateExonSetNucls
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GrabExonCoordSetNucls
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -3695,6 +3771,8 @@ ESL_DSQ * GrabExonCoordSetNucls
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  DEBUGGING Function: DumpExonSetSequence
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -3765,7 +3843,6 @@ void DumpExonSets
   fprintf(stderr,"\n");
 
 
-
   fprintf(stderr,"+");
   for (int i=0; i<60; i++)
     fprintf(stderr,"=");
@@ -3784,6 +3861,8 @@ void DumpExonSets
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetSplicedExonCoordSets
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
@@ -3861,6 +3940,8 @@ int ** GetSplicedExonCoordSets
  *
  *  Function: RunModelOnExonSets
  *
+ *  Desc. :
+ *
  *  Inputs:  
  *
  *  Output:
@@ -3905,6 +3986,8 @@ int ReportSplicedTopHits
 /* * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: RunModelOnExonSets
+ *
+ *  Desc. :
  *
  *  Inputs:  
  *
