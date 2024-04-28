@@ -50,9 +50,9 @@ if (system("./$genome_downloader")) {
 }
 
 
-system("mv \"protein-data\"      \"$out_dir_name\"");
-system("mv \"genomes\"           \"$out_dir_name\"");
-system("mv \"species-to-genome\" \"$out_dir_name\"");
+system("mv \"protein-data\"      \"$out_dir_name\""         );
+system("mv \"genomes\"           \"$out_dir_name\""         );
+system("mv \"species-to-genome\" \"$out_dir_name\/genomes\"");
 
 
 
