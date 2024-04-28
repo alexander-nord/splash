@@ -665,7 +665,8 @@ void GetSpliceOptions
   if (DEBUGGING) DEBUG_OUT("Starting 'GetSpliceOptions'",1);
 
 
-  if (DEBUGGING && 1) {
+  // This is often too much unnecessary junk even for debugging...
+  if (DEBUGGING && 0) {
     fprintf(stderr,"\n");
     fprintf(stderr,"  > GSO Dom1: %d / %d\n",(int)(Overlap->upstream_hit_id),(int)(Overlap->upstream_dom_id));
     fprintf(stderr,"            : %d..%d\n",(int)(Overlap->upstream_nucl_start),(int)(Overlap->upstream_nucl_end));
@@ -2482,6 +2483,9 @@ P7_PROFILE * ExtractSubProfile
 )
 {
 
+  if (DEBUGGING) DEBUG_OUT("Starting 'ExtractSubProfile'",1);
+
+
   int fullM = FullModel->M;
   int  subM = 1 + hmm_end_pos - hmm_start_pos;
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
@@ -2557,6 +2561,9 @@ P7_PROFILE * ExtractSubProfile
     else                                                     { fprintf(stderr,"Success!\n\n"); }
     fflush(stderr);
   }
+
+
+  if (DEBUGGING) DEBUG_OUT("'ExtractSubProfile' Complete",-1);
 
 
   return SubModel;
@@ -2650,6 +2657,9 @@ int IsViableSearchArea
 int * GetBoundedSearchRegions
 (SPLICE_GRAPH * Graph, int * num_search_regions_ref)
 {
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
+
 
   // Make lists containing the IDs of all nodes that 
   // don't have outgoing / incoming edges.
@@ -2862,6 +2872,11 @@ int * GetBoundedSearchRegions
 
 
   *num_search_regions_ref = num_search_regions;
+
+
+  if (DEBUGGING) DEBUG_OUT("'GetBoundedSearchRegions' Complete",-1);
+
+
   return SearchRegionAggregate;
 
 
@@ -4069,6 +4084,7 @@ int ReportSplicedTopHits
   P7_TOPHITS  * ExonSetTopHits, 
   P7_PIPELINE * ExonSetPipeline, 
   int         * ExonCoordSet,
+  int         * exon_set_name_id, // just exon_set_id+1, for output
   FILE        * ofp,
   int           textw
 )
@@ -4079,14 +4095,26 @@ int ReportSplicedTopHits
   //          we're getting to this point with *every* test case,
   //          and then I'll get the 'ExonCoordSet' data integrated. 
   //
-
   p7_tophits_SortBySeqidxAndAlipos(ExonSetTopHits);
   p7_tophits_RemoveDuplicates(ExonSetTopHits,ExonSetPipeline->use_bit_cutoffs);
-
   p7_tophits_SortBySortkey(ExonSetTopHits);
-  p7_tophits_Threshold(    ExonSetTopHits, ExonSetPipeline);
-  p7_tophits_Targets(ofp,  ExonSetTopHits, ExonSetPipeline, textw); if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
-  p7_tophits_Domains(ofp,  ExonSetTopHits, ExonSetPipeline, textw); if (fprintf(ofp, "\n\n") < 0) ESL_EXCEPTION_SYS(eslEWRITE, "write failed");
+  p7_tophits_Threshold(ExonSetTopHits,ExonSetPipeline);
+
+  fprintf(ofp,"\n\n");
+  fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
+  for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
+    fprintf(ofp,"  + Exon %d\n",exon_id);
+    fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*4+1],ExonCoordSet[exon_id*4+3]);
+    fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*4+2],ExonCoordSet[exon_id*4+4]);
+  }
+  fprintf(ofp,"\n\n");
+
+  p7_tophits_Targets(ofp, ExonSetTopHits, ExonSetPipeline, textw); 
+  fprintf(ofp,"\n\n");
+  
+  p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
+  fprintf(ofp,"\n\n");
+
 
   return 0;
 
@@ -4207,7 +4235,7 @@ void RunModelOnExonSets
     // acquired...
     //
     if (ExonSetTopHits->N)
-      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id],ofp,textw);
+      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,ExonCoordSets[exon_set_id],exon_set_id+1,ofp,textw);
 
 
 
