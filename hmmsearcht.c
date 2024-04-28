@@ -471,6 +471,110 @@ int * FloatLowHighSortIndex
 
 
 
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetMinAndMaxCoords
+ *
+ *  Desc. :  Iterate over a collection of hits (from non-spliced hmmsearcht)
+ *           and identify the minimum and maximum coordinates of hits to the
+ *           genomic sequence.
+ *
+ *  Inputs:  1. TopHits       :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *
+ *  Output:
+ *
+ */
+void GetMinAndMaxCoords
+(P7_TOPHITS * TopHits, TARGET_SEQ * TargetNuclSeq)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetMinAndMaxCoords'",1);
+
+  // First, let's figure out if we're revcomp
+  int revcomp = 0;
+  int64_t min,max;
+
+  P7_HIT    * Hit;
+  P7_DOMAIN * Dom;
+  Dom = &(TopHits->hit[0]->dcl[0]);
+  if (Dom->ad->sqfrom > Dom->ad->sqto) {
+
+    min = Dom->ad->sqto;
+    max = Dom->ad->sqfrom;
+    revcomp = 1;
+
+  } else {
+
+    min = Dom->ad->sqfrom;
+    max = Dom->ad->sqto;
+
+  }
+
+
+  if (revcomp) {
+
+    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
+
+      Hit = TopHits->hit[hit_id];
+      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
+
+        Dom = &(Hit->dcl[dom_id]);
+
+        if (Dom->ad->sqfrom > max)
+          max = Dom->ad->sqfrom;
+
+        if (Dom->ad->sqto < min)
+          min = Dom->ad->sqto;
+
+      }
+
+    }
+
+  } else {
+
+    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
+
+      Hit = TopHits->hit[hit_id];
+      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
+
+        Dom = &(Hit->dcl[dom_id]);
+
+        if (Dom->ad->sqto > max)
+          max = Dom->ad->sqto;
+
+        if (Dom->ad->sqfrom < min)
+          min = Dom->ad->sqfrom;
+
+      }
+
+    }
+
+  }
+
+  TargetNuclSeq->start = min;
+  TargetNuclSeq->end   = max;
+
+  if (DEBUGGING) DEBUG_OUT("'GetMinAndMaxCoords' Complete",-1);
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetTargetNuclSeq
@@ -1546,94 +1650,6 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
 
 
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GetMinAndMaxCoords
- *
- *  Desc. :
- *
- *  Inputs:  1.       TopHits :
- *           2. NuclTargetSeq : The sub-sequence of the target sequence wherein all hits reside.
- *
- *  Output:
- *
- */
-void GetMinAndMaxCoords
-(P7_TOPHITS * TopHits, TARGET_SEQ * NuclTargetSeq)
-{  
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetMinAndMaxCoords'",1);
-
-  // First, let's figure out if we're revcomp
-  int revcomp = 0;
-  int64_t min,max;
-
-  P7_HIT    * Hit;
-  P7_DOMAIN * Dom;
-  Dom = &(TopHits->hit[0]->dcl[0]);
-  if (Dom->ad->sqfrom > Dom->ad->sqto) {
-
-    min = Dom->ad->sqto;
-    max = Dom->ad->sqfrom;
-    revcomp = 1;
-
-  } else {
-
-    min = Dom->ad->sqfrom;
-    max = Dom->ad->sqto;
-
-  }
-
-
-  if (revcomp) {
-
-    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
-
-      Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
-
-        Dom = &(Hit->dcl[dom_id]);
-
-        if (Dom->ad->sqfrom > max)
-          max = Dom->ad->sqfrom;
-
-        if (Dom->ad->sqto < min)
-          min = Dom->ad->sqto;
-
-      }
-
-    }
-
-  } else {
-
-    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
-
-      Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
-
-        Dom = &(Hit->dcl[dom_id]);
-
-        if (Dom->ad->sqto > max)
-          max = Dom->ad->sqto;
-
-        if (Dom->ad->sqfrom < min)
-          min = Dom->ad->sqfrom;
-
-      }
-
-    }
-
-  }
-
-  NuclTargetSeq->start = min;
-  NuclTargetSeq->end   = max;
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetMinAndMaxCoords'",-1);
-
-}
 
 
 
@@ -3755,11 +3771,11 @@ void FindComponentBestStart
   float * best_comp_score
 )
 {
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindComponentBestStart'",1);
 
 
   if (ComponentIDs[Node->node_id]) {
-    if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+    if (DEBUGGING) DEBUG_OUT("'FindComponentBestStart' Complete",-1);
     return;
   }
 
@@ -3777,7 +3793,7 @@ void FindComponentBestStart
     FindComponentBestStart(Node->DownstreamNodes[i],ComponentIDs,component_id,best_comp_start,best_comp_score);
 
 
-  if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'FindComponentBestStart' Complete",-1);
 
 }
 
@@ -4084,7 +4100,7 @@ int ReportSplicedTopHits
   P7_TOPHITS  * ExonSetTopHits, 
   P7_PIPELINE * ExonSetPipeline, 
   int         * ExonCoordSet,
-  int         * exon_set_name_id, // just exon_set_id+1, for output
+  int           exon_set_name_id, // just exon_set_id+1, for output
   FILE        * ofp,
   int           textw
 )
