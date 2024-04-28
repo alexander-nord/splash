@@ -6,6 +6,7 @@ use POSIX;
 
 sub RecordMappings;
 sub RecordSeqs;
+sub WriteSeqToFile;
 
 
 
@@ -21,7 +22,7 @@ if (!(-d $in_dir_name)) {
 }
 
 
-my $out_dir_name = 'inputs-to-splash/';
+my $out_dir_name = 'protein-data';
 if (-d $out_dir_name) {
 	die "\n  ERROR:  Output directory '$out_dir_name' already exists\n\n";
 } elsif (system("mkdir \"$out_dir_name\"")) {
