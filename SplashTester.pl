@@ -98,7 +98,7 @@ sub FamilySplash
 		{
 			my $file_base_name = $1;
 			push(@FilesToHMMBUILD,$family_dir_name.$file_name) 
-				if (!(-e $file_base_name.'.hmm'));
+				if (!(-e $family_dir_name.$file_base_name.'.hmm'));
 		}
 
 	}
@@ -118,7 +118,7 @@ sub FamilySplash
 			die "\n  ERROR:  Failed to build HMM on '$file_to_hmmbuild' (command:'$hmmbuild_cmd')\n\n";
 		}
 
-		push(@InputHMMs,$hmmbuild_cmd);
+		push(@InputHMMs,$hmm_file_name);
 
 	}
 
@@ -149,6 +149,7 @@ sub FamilySplash
 	foreach my $hmm_file_name (@InputHMMs) 
 	{
 
+
 		my $target_file_name = DetermineTargetSeq($hmm_file_name);
 		
 
@@ -157,6 +158,7 @@ sub FamilySplash
 		my $err_file_name = $fam_out_dir_name.$1.'.err';
 
 		my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+
 		if (system($hmmsearcht_cmd)) 
 		{
 			$num_fam_errors++;
@@ -197,7 +199,7 @@ sub DetermineTargetSeq
 
 	# Any chance there's a file related to this one with
 	# genome range data to pull in?
-	$hmm_file_name =~ /^(.*\/?)([^\/]+)\.hmm$/;
+	$hmm_file_name =~ /^(.*\/)([^\/]+)\.hmm$/;
 	my $hmm_file_dir_name  = $1;
 	my $hmm_file_base_name = $2;
 
@@ -222,9 +224,9 @@ sub DetermineTargetSeq
 	{
 		$range_file_name = $hmm_file_dir_name.$hmm_file_base_name.'.genome-range.out';
 	} 
-	elsif (-e $hmm_file_dir_name.$presumptive_species.'.genome_range.out')
+	elsif (-e $hmm_file_dir_name.$presumptive_species.'.genome-range.out')
 	{
-		$range_file_name = $hmm_file_dir_name.$presumptive_species.'.genome_range.out';
+		$range_file_name = $hmm_file_dir_name.$presumptive_species.'.genome-range.out';
 	}
 
 
@@ -366,7 +368,7 @@ sub ParseCommandArguments
 {
 
 	# Default output directory name
-	my $default_out_dir_name = 'Splash-Results';
+	my $default_out_dir_name = 'splash-results';
 	my $out_dir_name = $default_out_dir_name;
 	my $attempt = 1;
 	while (-d $out_dir_name) {
@@ -585,11 +587,11 @@ sub ConfirmRequiredTools
 	die "\n  ERROR:  Failed to locate easel/miniapps...? ('$miniapps_dir' should exist)\n\n"
 		if (!(-d $miniapps_dir));
 
-	my $SFETCH = $miniapps_dir.'esl-sfetch';
+	$SFETCH = $miniapps_dir.'esl-sfetch';
 	die "\n  ERROR:  Failed to locate required Easel tool sfetch (looking for '$SFETCH')\n\n"
 		if (!(-x $SFETCH));
 
-	my $SEQSTAT = $miniapps_dir.'esl-seqstat';
+	$SEQSTAT = $miniapps_dir.'esl-seqstat';
 	die "\n  ERROR:  Failed to locate required Easel tool seqstat (looking for '$SEQSTAT')\n\n"
 		if (!(-x $SEQSTAT));
 
