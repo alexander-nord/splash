@@ -4,6 +4,9 @@ use strict;
 use POSIX;
 
 
+sub FamilySplash;
+sub DetermineTargetSeq;
+sub GenomeRangeFileToTargetFile;
 sub HelpAndDie;
 sub ParseCommandArguments;
 sub ConfirmGenomeDir;
@@ -16,6 +19,7 @@ sub ConfirmRequiredTools;
 # We'll make sure we have the necessary tools before proceeding
 my $SFETCH;
 my $SEQSTAT;
+my $HMMBUILD;
 my $HMMSEARCHT;
 ConfirmRequiredTools();
 
@@ -26,15 +30,293 @@ HelpAndDie() if (@ARGV == 0);
 
 # What do they want us to even do?
 my %OPTIONS;
+my %SPECIES_TO_GENOME;
+my %GENOME_LIST; # So that we don't delete anything important
 ParseCommandArguments();
 
 
-# Alright, let's figure this stuff out!
+# We survived commandline parsing, so let's build an
+# output directory!
+die "\n  ERROR:  Failed to create output directory '$OPTIONS{'output-dir'}'\n\n"
+	if (system("mkdir \"$OPTIONS{'output-dir'}\""));
 
+# Just in case...
+my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
+
+
+# Alright, let's figure this stuff out!
+if    ($OPTIONS{'meta-dir'}  ) { die "\n  Not yet supported\n\n";         }
+elsif ($OPTIONS{'family'}    ) { FamilySplash($OPTIONS{'protein-input'}); }
+elsif ($OPTIONS{'single-seq'}) { die "\n  Not yet supported\n\n";         }
+else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
 
 
 
 1;
+
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: FamilySplash
+#
+sub FamilySplash
+{
+
+	my $family_dir_name = shift;
+
+
+	# This is, perhaps, presumptuous...
+	$family_dir_name =~ /\/([^\/]+)\/$/;
+	my $gene = $1;
+
+
+	# Read through the family's directory, figuring
+	# out what the situation is with our query data
+	opendir(my $FamilyDir,$family_dir_name) 
+		|| die "\n  ERROR:  Failed to open directory '$family_dir_name' (FamilySplash)\n\n";
+	my @InputHMMs;
+	my @FilesToHMMBUILD;
+	while (my $file_name = readdir($FamilyDir)) 
+	{
+
+		next if ($file_name =~ /^\./);
+
+		# Have we stumbled upon a real-life HMM?!
+		if (lc($file_name) =~ /\.hmm$/) 
+		{
+			push(@InputHMMs,$family_dir_name.$file_name);
+		}
+		elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
+		{
+			my $file_base_name = $1;
+			push(@FilesToHMMBUILD,$family_dir_name.$file_name) 
+				if (!(-e $file_base_name.'.hmm'));
+		}
+
+	}
+	closedir($FamilyDir);
+
+
+
+	# Build HMMs for any sequence files that didn't have one
+	foreach my $file_to_hmmbuild (@FilesToHMMBUILD)
+	{
+		
+		$file_to_hmmbuild =~ /^(\S+)\.[^\.]+$/;
+		my $hmm_file_name = $1.'.hmm';
+		my $hmmbuild_cmd  = "$HMMBUILD \"$hmm_file_name\" \"$file_to_hmmbuild\"";
+
+		if (system($hmmbuild_cmd)) {
+			die "\n  ERROR:  Failed to build HMM on '$file_to_hmmbuild' (command:'$hmmbuild_cmd')\n\n";
+		}
+
+		push(@InputHMMs,$hmmbuild_cmd);
+
+	}
+
+
+
+	# If we didn't find any HMMs (or HMM-ables) shout, scream, and cry
+	if (scalar(@InputHMMs) == 0) 
+	{
+		my $err_message = "Failed to locate any HMM or sequence files in directory '$family_dir_name'\n";
+		system("echo \"$err_message\" >> $ERROR_FILE");
+		print "  WARNING: $err_message\n";
+		return;
+	}
+
+
+
+	# Make an output directory for this family
+	my $fam_out_dir_name = $OPTIONS{'output-dir'}.$gene.'/';
+	if (system("mkdir \"$fam_out_dir_name\"")) {
+		die "\n  ERROR:  Failed to create output directory for family '$gene' (attempted name: '$fam_out_dir_name')\n\n";
+	}
+
+
+	# Iterate over each HMM, determining the appropriate
+	# target sequence and running hmmsearcht!
+	my $num_fam_errors    = 0;
+	my $num_fam_victories = 0;
+	foreach my $hmm_file_name (@InputHMMs) 
+	{
+
+		my $target_file_name = DetermineTargetSeq($hmm_file_name);
+		
+
+		$hmm_file_name =~ /\/([^\/]+)\.hmm$/;
+		my $out_file_name = $fam_out_dir_name.$1.'.out';
+		my $err_file_name = $fam_out_dir_name.$1.'.err';
+
+		my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+		if (system($hmmsearcht_cmd)) 
+		{
+			$num_fam_errors++;
+			system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
+			system("cat $err_file_name >> $ERROR_FILE");
+		} 
+		else 
+		{
+			$num_fam_victories++;
+		}
+
+
+		# If we created a target sequence file, kill it!
+		system("rm \"$target_file_name\"") unless ($GENOME_LIST{$target_file_name});
+
+	}
+
+
+}
+
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: DetermineTargetSeq
+#
+sub DetermineTargetSeq
+{
+
+	my $hmm_file_name = shift;
+
+	# Any chance there's a file related to this one with
+	# genome range data to pull in?
+	$hmm_file_name =~ /^(.*\/?)([^\/]+)\.hmm$/;
+	my $hmm_file_dir_name  = $1;
+	my $hmm_file_base_name = $2;
+
+
+	# If they used 'MirageOutToSplashIn' then we can find out
+	# the species easily.
+	$hmm_file_base_name =~ /^([^\.]+)\./;
+	my $presumptive_species = lc($1);
+	if ($OPTIONS{'full-genome'}) 
+	{
+		if ($SPECIES_TO_GENOME{$presumptive_species}) { 
+			return $SPECIES_TO_GENOME{$presumptive_species}; 
+		} else {
+			die "\n  ERROR:  Failed to locate genome for (presumptive) species '$presumptive_species' (for file '$hmm_file_name')\n\n";
+		}
+	}
+
+
+	# Is there a 'genome-ranges.out' file associated with this query?
+	my $range_file_name = 0;
+	if (-e $hmm_file_dir_name.$hmm_file_base_name.'.genome-range.out')
+	{
+		$range_file_name = $hmm_file_dir_name.$hmm_file_base_name.'.genome-range.out';
+	} 
+	elsif (-e $hmm_file_dir_name.$presumptive_species.'.genome_range.out')
+	{
+		$range_file_name = $hmm_file_dir_name.$presumptive_species.'.genome_range.out';
+	}
+
+
+	# Are we operating on a range file?
+	# If not, you're using the full genome, baby!
+	if ($range_file_name)
+	{
+		my $target_file_name = $hmm_file_name;
+		$target_file_name =~ s/\.hmm$/\.target\.fa/;
+
+		return GenomeRangeFileToTargetFile($range_file_name,$target_file_name);
+
+	}
+	elsif ($SPECIES_TO_GENOME{$presumptive_species})
+	{
+		return $SPECIES_TO_GENOME{$presumptive_species};
+	}
+
+	die "\n  ERROR:  Failed to determine target sequence for query '$hmm_file_name'\n\n";
+
+}
+
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: GenomeRangeFileToTargetFile
+#
+sub GenomeRangeFileToTargetFile
+{
+
+	my $range_file_name  = shift;
+	my $target_file_name = shift;
+
+	open(my $RangeFile,'<',$range_file_name);
+	my %RangeFileData;
+	while (my $line = <$RangeFile>) {
+		if ($line =~ /^\s*(\S+)\s*:\s*(\S+)\s*$/) {
+			$RangeFileData{lc($1)} = $2;
+		}
+	}
+	close($RangeFile);
+
+
+
+	if (!$RangeFileData{'species'}) {
+		die "\n  ERROR:  Range file '$range_file_name' does not have recognizable species entry\n\n";
+	}
+	my $species = $RangeFileData{'species'};
+
+
+	if (!$SPECIES_TO_GENOME{$species}) {
+		die "\n  ERROR:  Species '$species' has no listed genome (looking at '$range_file_name')\n\n";
+	}
+	my $genome = $SPECIES_TO_GENOME{$species};
+
+
+	if (!$RangeFileData{'chr'}) {
+		die "\n  ERROR:  Range file '$range_file_name' does not have recognizable chromosome entry\n\n";
+	}
+	my $chr = $RangeFileData{'chr'};
+
+
+	# We'll allow a single sequence, I *suppose*
+	#if (!$RangeFileData{'range'}) {
+	#	die "\n  ERROR:  Range file '$range_file_name' does not have recognizable range entry\n\n";
+	#}
+	#my $range = $RangeFileData{'range'};
+
+
+	# Put together the sfetch command
+	my $sfetch_cmd = "$SFETCH -o $target_file_name";
+	$sfetch_cmd = $sfetch_cmd." -c $RangeFileData{'range'}" if ($RangeFileData{'range'});
+	$sfetch_cmd = $sfetch_cmd." $genome $chr";
+
+
+	# Clear the way!
+	system("rm \"$target_file_name\"") if (-e $target_file_name);
+
+	if (system($sfetch_cmd)) {
+		die "\n  ERROR:  Subsequence range extraction failed (command:'$sfetch_cmd')\n\n";
+	}
+	return $target_file_name;
+
+}
 
 
 
@@ -51,6 +333,7 @@ ParseCommandArguments();
 sub HelpAndDie
 {
 	print "\n";
+	print "\n";
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
 	print "            :  ./Splash.pl {OPT.S} [gene]\n";
@@ -62,10 +345,7 @@ sub HelpAndDie
 	print "            '---------------------------------------------\n";
 	print "\n";
 	print "\n";
-	print "  OPT.S: --full-genome : Run test on full genome, rather than\n";
-	print "                           extracting a relatively narrow region\n";
-	print "                           of sequence associated with a gene's\n";
-	print "                           coding region.\n";
+	print "  OPT.S: --full-genome : Force use of full genome as target sequence.\n";
 	print "\n";
 	die   "\n";
 }
@@ -85,6 +365,16 @@ sub HelpAndDie
 sub ParseCommandArguments
 {
 
+	# Default output directory name
+	my $default_out_dir_name = 'Splash-Results';
+	my $out_dir_name = $default_out_dir_name;
+	my $attempt = 1;
+	while (-d $out_dir_name) {
+		$attempt++;
+		$out_dir_name = $default_out_dir_name.'-'.$attempt;
+	}
+	$OPTIONS{'output-dir'} = $out_dir_name.'/';
+
 
 	# Unless specified, we're looking for data in this directory
 	$OPTIONS{'inputs-dir'} = '../inputs-to-splash/';
@@ -98,7 +388,7 @@ sub ParseCommandArguments
 
 		if (lc($Arg) =~ '^-?-?full-genome$') 
 		{
-			$OPTIONS{'full-genome'} = 1;
+			$OPTIONS{'full-genome'} = 1; # Overrides existence of '.genome-range.out' files
 		}
 		elsif ($arg_id == $num_args-1 && !$OPTIONS{'protein-input'})
 		{
@@ -110,26 +400,6 @@ sub ParseCommandArguments
 				$OPTIONS{'single-seq'} = 1;
 				$OPTIONS{'meta-dir'}   = 0;
 				$OPTIONS{'family'}     = 0;
-
-				# Is there a genome guide? If not, assume full genome
-				$Arg =~ /^(.*\/?[^\/]+)\.[^\.|\/]+$/;	
-				my $seq_no_ext = $1;
-
-				$Arg =~ /^(.*\/?[^\.|\/]+)[^\/]+$/;
-				my $seq_bare_base = $1;
-				
-				if (-e $seq_no_ext.'.full-range.out') 
-				{
-					$OPTIONS{'single-seq-range'} = $seq_no_ext.'.full-range.out';
-				} 
-				elsif (-e $seq_bare_base) 
-				{
-					$OPTIONS{'single-seq-range'} = $seq_bare_base.'.full-range.out';
-				}
-				else
-				{
-					$OPTIONS{'full-genome'} = 1;
-				}
 
 			}
 			elsif (-d $Arg)
@@ -170,6 +440,7 @@ sub ParseCommandArguments
 	{
 		$OPTIONS{'genome-map'} = ConfirmGenomeDir($OPTIONS{'genome-dir'});
 	}
+	BuildSpeciesToGenomeMap();
 
 
 
@@ -178,6 +449,39 @@ sub ParseCommandArguments
 
 
 
+
+
+
+###########################################################################
+#
+#  Subroutine: BuildSpeciesToGenomeMap
+#
+sub BuildSpeciesToGenomeMap
+{
+
+	# Convert the species-to-genome mapping string to a hash
+	foreach my $species_genome_pair (split(/\&/,$OPTIONS{'genome-map'})) 
+	{
+
+		$species_genome_pair =~ /^([^\|]+)\|(\S+)$/;
+		my $species = $1;
+		my $genome  = $2;
+
+		if (!(-e $genome)) 
+		{
+			die "\n  ERROR:  Failed to locate genome file '$genome' (associated with species '$species')\n\n";
+		}
+		elsif (!(-e $genome.'.ssi') && system("$SFETCH --index \"$genome\""))
+		{
+			die "\n  ERROR:  Failed to build .ssi index on genome '$genome'\n\n";
+		}
+
+		$SPECIES_TO_GENOME{$species} = $genome;
+		$GENOME_LIST{$genome} = $species; # Just a little fun!
+	
+	}
+
+}
 
 
 
@@ -293,6 +597,10 @@ sub ConfirmRequiredTools
 	my $th_src_dir = $th_base_dir.'src/';
 	die "\n  ERROR:  Failed to locate translated HMMER3 source directory '$th_src_dir'\n\n"
 		if (!(-d $th_src_dir));
+
+	$HMMBUILD = $th_src_dir.'hmmbuild';
+	die "\n  ERROR:  Failed to locate hmmbuild in HMMER3 source directory (looking for '$HMMBUILD')\n\n"
+		if (!(-x $HMMBUILD));
 
 	$HMMSEARCHT = $th_src_dir.'hmmsearcht';
 	die "\n  ERROR:  Failed to locate hmmsearcht in HMMER3 source directory (looking for '$HMMSEARCHT')\n\n"

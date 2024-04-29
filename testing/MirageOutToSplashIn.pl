@@ -90,7 +90,7 @@ sub RecordMappings
 
 	$map_file_name =~ /\/([^\/]+)\/mappings\/([^\/]+)\.out$/;
 	my $species = $1;
-	my $gene = $2;
+	my $gene    = $2;
 
 
 	my $gene_out_dir_name = $out_dir_name.$gene.'/';
@@ -183,10 +183,11 @@ sub RecordMappings
 	close($MapFile);
 
 	
-	my $species_range_file_name = $gene_out_dir_name.$species.'.full_range.out';
+	my $species_range_file_name = $gene_out_dir_name.$species.'.genome-range.out';
 	open(my $SpeciesRangeFile,'>',$species_range_file_name) || die "\n  ERROR:  Failed to open range output file '$species_range_file_name'\n\n";
-	print $SpeciesRangeFile "CHR   : $straight_chr\n";
-	print $SpeciesRangeFile "RANGE : $min_coord..$max_coord\n";
+	print $SpeciesRangeFile "SPECIES : $species\n";
+	print $SpeciesRangeFile "CHR     : $straight_chr\n";
+	print $SpeciesRangeFile "RANGE   : $min_coord..$max_coord\n";
 	close($SpeciesRangeFile);
 
 
