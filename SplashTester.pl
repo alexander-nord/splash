@@ -336,12 +336,12 @@ sub HelpAndDie
 	print "\n";
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
-	print "            :  ./Splash.pl {OPT.S} [gene]\n";
+	print "            :  ./SplashTester.pl {OPT.S} [gene]\n";
 	print "            '---------------------------------------------\n";
 	print "\n";
 	print "  Use Case 2:  Search using a specific file as input\n";
 	print "            :\n";
-	print "            :  ./Splash.pl {OPT.S} [file.fa]\n";
+	print "            :  ./SplashTester.pl {OPT.S} [file.fa]\n";
 	print "            '---------------------------------------------\n";
 	print "\n";
 	print "\n";
