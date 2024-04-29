@@ -933,7 +933,7 @@ float FindOptimalSpliceSite
     us_trans_len++;
 
   }
-
+  int us_pre_ext_end_pos = us_trans_len-1; // For scoring purposes
 
 
   // Incorporate the extension
@@ -1013,6 +1013,14 @@ float FindOptimalSpliceSite
   for (int i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
 
 
+  // In order to determine the score difference created by the
+  // splice, we'll find the sum score at each position right
+  // before the extension, and those become the baseline to
+  // remove for determining the contribution of our cut.
+  float baseline_score = DSScores[Overlap->downstream_ext_len];
+  baseline_score      += USScores[us_pre_ext_end_pos];
+
+
 
   // What position in the model are we splitting on?
   int   optimal_us_pos    = 0;
@@ -1083,7 +1091,7 @@ float FindOptimalSpliceSite
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",-1);
 
 
-  return optimal_score;
+  return optimal_score-baseline_score;
 
 }
 
