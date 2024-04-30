@@ -86,7 +86,7 @@ void DEBUG_OUT (const char * message, const int func_depth_change) {
 }
 
 
-static float SSSCORE[2] = {-0.05,0.05}; // Non-canon vs canon splice site
+static float SSSCORE[2] = {-1.5,1.5}; // Non-canon vs canon splice site
 static float EDGE_FAIL_SCORE = -1000.0;
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
