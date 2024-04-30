@@ -613,7 +613,7 @@ TARGET_SEQ * GetTargetNuclSeq
   esl_sqfile_Close(TmpSeqFile);
 
   if (fetch_err_code != eslOK) {
-    fprintf(stderr,"\n  ERROR fetching subsequence\n\n");
+    fprintf(stderr,"\n  ERROR: Failed to fetch target subsequence (is there an .ssi index for the sequence file?)\n\n");
     exit(1);
   }
 
@@ -4127,9 +4127,9 @@ int ReportSplicedTopHits
   fprintf(ofp,"\n\n");
   fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
   for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
-    fprintf(ofp,"  + Exon %d\n",exon_id);
-    fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*4+1],ExonCoordSet[exon_id*4+3]);
+    fprintf(ofp,"  + Exon %d\n",exon_id+1);
     fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*4+2],ExonCoordSet[exon_id*4+4]);
+    fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*4+1],ExonCoordSet[exon_id*4+3]);
   }
   fprintf(ofp,"\n\n");
 

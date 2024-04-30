@@ -307,7 +307,7 @@ sub GenomeRangeFileToTargetFile
 	# Put together the sfetch command
 	my $sfetch_cmd = "$SFETCH -o $target_file_name";
 	$sfetch_cmd = $sfetch_cmd." -c $RangeFileData{'range'}" if ($RangeFileData{'range'});
-	$sfetch_cmd = $sfetch_cmd." $genome $chr";
+	$sfetch_cmd = $sfetch_cmd." $genome $chr 1>/dev/null";
 
 
 	# Clear the way!
@@ -316,6 +316,14 @@ sub GenomeRangeFileToTargetFile
 	if (system($sfetch_cmd)) {
 		die "\n  ERROR:  Subsequence range extraction failed (command:'$sfetch_cmd')\n\n";
 	}
+
+
+	# Build a lil' ssi on the target subsequence
+	my $sfetch_index_cmd = "$SFETCH --index $target_file_name 1>/dev/null";
+	if (system($sfetch_index_cmd)) {
+		die "\n  ERROR:  Failed to build .ssi index for target sequence '$target_file_name'\n\n";
+	}
+
 	return $target_file_name;
 
 }
@@ -338,12 +346,12 @@ sub HelpAndDie
 	print "\n";
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
-	print "            :  ./SplashTester.pl {OPT.S} [gene]\n";
+	print "            :  ./TestSplash.pl {OPT.S} [gene]\n";
 	print "            '---------------------------------------------\n";
 	print "\n";
 	print "  Use Case 2:  Search using a specific file as input\n";
 	print "            :\n";
-	print "            :  ./SplashTester.pl {OPT.S} [file.fa]\n";
+	print "            :  ./TestSplash.pl {OPT.S} [file.fa]\n";
 	print "            '---------------------------------------------\n";
 	print "\n";
 	print "\n";
@@ -368,7 +376,7 @@ sub ParseCommandArguments
 {
 
 	# Default output directory name
-	my $default_out_dir_name = 'splash-results';
+	my $default_out_dir_name = 'Splash-Test-Results';
 	my $out_dir_name = $default_out_dir_name;
 	my $attempt = 1;
 	while (-d $out_dir_name) {
@@ -381,6 +389,11 @@ sub ParseCommandArguments
 	# Unless specified, we're looking for data in this directory
 	$OPTIONS{'inputs-dir'} = '../inputs-to-splash/';
 	$OPTIONS{'genome-dir'} = '../inputs-to-splash/genomes/';
+
+
+	# How much sequence do we want to pull in around any tightly
+	# defined nucleotide ranges?
+	$OPTIONS{'num-extra-nucls'} = 5000;
 
 
 	my $num_args = scalar(@ARGV);
