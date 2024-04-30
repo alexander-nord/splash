@@ -359,6 +359,92 @@ void DumpGraph(SPLICE_GRAPH * Graph)
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function:  TARGET_SEQ_Destroy
+ *
+ */
+void TARGET_SEQ_Destroy
+(TARGET_SEQ * TS)
+{
+  esl_sq_Destroy(TS->esl_sq);
+  free(TS->Seq);
+  free(TS);
+  TS = NULL;
+}
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function:  DOMAIN_OVERLAP_Destroy
+ *
+ */
+void DOMAIN_OVERLAP_Destroy
+(DOMAIN_OVERLAP * DO)
+{
+  free(DO->UpstreamNucls);
+  free(DO->DownstreamNucls);
+  free(DO);
+  DO = NULL;
+}
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function:  SPLICE_NODE_Destroy
+ *
+ */
+void SPLICE_NODE_Destroy
+(SPLICE_NODE * Node)
+{
+
+  for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
+    if (Node->InEdges[in_edge_id])
+      DOMAIN_OVERLAP_Destroy(Node->InEdges[in_edge_id]);
+  }
+
+  for (int out_edge_id = 0; out_edge_id < Node->num_out_edges; out_edge_id++) {
+    if (Node->OutEdges[out_edge_id])
+      DOMAIN_OVERLAP_Destroy(Node->OutEdges[out_edge_id]);
+  }
+
+  free(Node);
+  Node = NULL;
+
+}
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function:  SPLICE_GRAPH_Destroy
+ *
+ */
+void SPLICE_GRAPH_Destroy
+(SPLICE_GRAPH * Graph)
+{
+
+  
+  // Wipe them nodes *OUT*
+  for (int node_id = 1; node_id <= Graph->num_nodes; node_id++)
+    SPLICE_NODE_Destroy(Graph->Nodes[node_id]);
+
+
+  free(Graph->NTermNodeIDs);
+  free(Graph->CTermNodeIDs);
+
+  Graph = NULL;
+
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: FloatHighLowSortIndex
  *
  *  Desc. : Generate a sort index for an array of floats (in decreasing value)
@@ -4387,8 +4473,8 @@ void SpliceHits
 
 
   // CLEANUP NEEDED:
-  // Graph
-  // TargetNuclSeq
+  //SPLICE_GRAPH_Destroy(Graph);
+  //TARGET_SEQ_Destroy(TargetNuclSeq);
 
 
   if (DEBUGGING) {
