@@ -97,10 +97,14 @@ sub FamilySplash
 		elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
 		{
 			my $file_base_name = $1;
-			push(@FilesToHMMBUILD,$family_dir_name.$file_name) 
-				if (!(-e $family_dir_name.$file_base_name.'.hmm'));
-		}
 
+			# In case runtime was killed while there was a 'target' file,
+			# we don't want to treat that as a query
+			if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.hmm')) 
+			{
+				push(@FilesToHMMBUILD,$family_dir_name.$file_name) 
+			}
+		}
 	}
 	closedir($FamilyDir);
 
@@ -164,6 +168,13 @@ sub FamilySplash
 			$num_fam_errors++;
 			system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
 			system("cat $err_file_name >> $ERROR_FILE");
+
+			if ($OPTIONS{'err-kills'})
+			{
+				system("rm \"$target_file_name\"") unless ($GENOME_LIST{$target_file_name});
+				die "\n  ERROR: Failed during execution of command: $hmmsearcht_cmd\n\n";
+			}
+
 		} 
 		else 
 		{
@@ -356,6 +367,8 @@ sub HelpAndDie
 	print "\n";
 	print "\n";
 	print "  OPT.S: --full-genome : Force use of full genome as target sequence.\n";
+	print "         --err-kills   : If an hmmsearcht run fails, kill the script\n";
+	print "                         (by default we log the error and continue)\n";
 	print "\n";
 	die   "\n";
 }
@@ -394,6 +407,7 @@ sub ParseCommandArguments
 	# How much sequence do we want to pull in around any tightly
 	# defined nucleotide ranges?
 	$OPTIONS{'num-extra-nucls'} = 5000;
+	$OPTIONS{'err-kills'}       =    0;
 
 
 	my $num_args = scalar(@ARGV);
@@ -404,6 +418,10 @@ sub ParseCommandArguments
 		if (lc($Arg) =~ '^-?-?full-genome$') 
 		{
 			$OPTIONS{'full-genome'} = 1; # Overrides existence of '.genome-range.out' files
+		}
+		elsif (lc($Arg =~ /^-?-?err-kills$/))
+		{
+			$OPTIONS{'err-kills'} = 1; # First failed run terminates script
 		}
 		elsif ($arg_id == $num_args-1 && !$OPTIONS{'protein-input'})
 		{

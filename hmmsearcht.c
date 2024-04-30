@@ -86,8 +86,8 @@ void DEBUG_OUT (const char * message, const int func_depth_change) {
 }
 
 
-static float SSSCORE[2] = {-1.5,1.5}; // Non-canon vs canon splice site
-static float EDGE_FAIL_SCORE = -1000.0;
+static float SSSCORE[2]      = {-1.5,1.5}; // Non-canon vs canon splice site
+static float EDGE_FAIL_SCORE = -14773.0;   // Makes me thirsty for a latte!
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
 static char   DNA_CHARS[ 5] = {'A','C','G','T','-'};
@@ -365,10 +365,8 @@ void DumpGraph(SPLICE_GRAPH * Graph)
 void TARGET_SEQ_Destroy
 (TARGET_SEQ * TS)
 {
-  esl_sq_Destroy(TS->esl_sq);
-  free(TS->Seq);
+  esl_sq_Destroy(TS->esl_sq); // This takes care of 'TS->Seq' too
   free(TS);
-  TS = NULL;
 }
 
 
@@ -384,7 +382,6 @@ void DOMAIN_OVERLAP_Destroy
   free(DO->UpstreamNucls);
   free(DO->DownstreamNucls);
   free(DO);
-  DO = NULL;
 }
 
 
@@ -399,15 +396,21 @@ void SPLICE_NODE_Destroy
 {
 
   for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
-    if (Node->InEdges[in_edge_id])
+    if (Node->InEdges[in_edge_id]) {
       DOMAIN_OVERLAP_Destroy(Node->InEdges[in_edge_id]);
+      Node->InEdges[in_edge_id] = NULL;
+    }
   }
 
   for (int out_edge_id = 0; out_edge_id < Node->num_out_edges; out_edge_id++) {
-    if (Node->OutEdges[out_edge_id])
+    if (Node->OutEdges[out_edge_id]) {
       DOMAIN_OVERLAP_Destroy(Node->OutEdges[out_edge_id]);
+      Node->OutEdges[out_edge_id] = NULL;
+    }
   }
 
+  free(Node->InEdges);
+  free(Node->OutEdges);
   free(Node);
   Node = NULL;
 
@@ -1234,7 +1237,7 @@ void SpliceOverlappingDomains
   // Let's see which SpliceCodon has the best match to the model at
   // the "model_ss," while also factoring in splice site signals.
   int   best_split_opt   = -1;
-  float best_split_score = -5.0;
+  float best_split_score = EDGE_FAIL_SCORE;
   for (int i=0; i<4; i++) {
     
     // Did we end up with a stop codon?
@@ -1831,8 +1834,9 @@ SPLICE_NODE * InitSpliceNode
   }
 
 
-  NewNode->cumulative_score = 0.0; // Best score up to and including this node
-  NewNode->best_path_score  = 0.0; // Best full path score using this node
+  // Initialize these scores to recognizable low values
+  NewNode->cumulative_score = EDGE_FAIL_SCORE; // Best score up to and including this node
+  NewNode->best_path_score  = EDGE_FAIL_SCORE; // Best full path score using this node
 
 
   if (DEBUGGING) DEBUG_OUT("'InitSpliceNode' Complete",-1);
@@ -1972,11 +1976,14 @@ void FindBestPathToNode
   if (DEBUGGING) DEBUG_OUT("Starting 'FindBestPathToNode'",1);
 
   // Have we already examined this node?
-  if (Node->cumulative_score != 0.0) {
+  if (Node->cumulative_score != EDGE_FAIL_SCORE) {
     if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
     return;
   }
 
+  // For each of the nodes that feed into this node,
+  // recursively find *their* best path, then determine
+  // across those options which is our favorite.
   for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
   
     FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
@@ -1993,7 +2000,14 @@ void FindBestPathToNode
 
   }
 
-  Node->cumulative_score += Node->hit_score;
+
+  // If this node doesn't have any inputs, its cumulative score
+  // should be initialized to 'EDGE_FAIL_SCORE'
+  if (Node->cumulative_score == EDGE_FAIL_SCORE) 
+    Node->cumulative_score  = Node->hit_score;
+  else
+    Node->cumulative_score += Node->hit_score;
+
 
   if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
 
@@ -2024,7 +2038,7 @@ void EvangelizePath
 
   if (DEBUGGING) DEBUG_OUT("Starting 'EvangelizePath'",1);
 
-  if (Node->best_path_score == 0.0) 
+  if (Node->best_path_score == EDGE_FAIL_SCORE) 
     Node->best_path_score = Node->cumulative_score;
 
   for (int i=0; i<Node->num_in_edges; i++) {
@@ -2240,12 +2254,12 @@ void EvaluatePaths
   Graph->best_full_path_start  = 0;
   Graph->best_full_path_end    = 0;
   Graph->best_full_path_length = 0;
-  Graph->best_full_path_score  = 0.0;
+  Graph->best_full_path_score  = EDGE_FAIL_SCORE;
   for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
     Graph->Nodes[node_id]->best_in_edge     = -1;
     Graph->Nodes[node_id]->best_out_edge    = -1;
-    Graph->Nodes[node_id]->cumulative_score =  0.0;
-    Graph->Nodes[node_id]->best_path_score  =  0.0;
+    Graph->Nodes[node_id]->cumulative_score =  EDGE_FAIL_SCORE;
+    Graph->Nodes[node_id]->best_path_score  =  EDGE_FAIL_SCORE;
   }
 
 
@@ -2402,7 +2416,6 @@ void FindBestFullPath
 
   // NOTE: Because NTermNodeIDs is sorted by best_path_score,
   //       we can break the first time we find a full path.
-
   SPLICE_NODE * Walker;
   for (int i=0; i<Graph->num_n_term; i++) {
 
@@ -4279,8 +4292,24 @@ void RunModelOnExonSets
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
+  // It's better to be re-using these than destroying
+  // and re-allocating every time
+  ESL_SQ      * NuclSeq           = esl_sq_Create();
+  ESL_SQ      * AminoSeq          = esl_sq_Create();
+  P7_PIPELINE * ExonSetPipeline   = NULL;
+  P7_TOPHITS  * ExonSetTopHits    = NULL;
+  P7_OPROFILE * ExonSetOModel     = p7_oprofile_Clone(Graph->OModel);
+  P7_BG       * ExonSetBackground = p7_bg_Create(Graph->OModel->abc);
+
+
   for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
+    
+    // If there's only one exon in this set of exons, we'll
+    // skip reporting it (maybe have this be a user option?)
+    //
+    if (ExonCoordSets[exon_set_id][0] == 1)
+      continue;
 
 
     // Grab the nucleotides for this set of exons and
@@ -4313,16 +4342,14 @@ void RunModelOnExonSets
     ExonSetPipeline->strands       = p7_STRAND_TOPONLY;
     ExonSetPipeline->block_length  = coding_region_len;
 
-    P7_OPROFILE * ExonSetOProfile   = p7_oprofile_Clone(Graph->OModel);
-    P7_BG       * ExonSetBackground = p7_bg_Create(Graph->OModel->abc);
 
-    int pipeline_create_err = p7_pli_NewModel(ExonSetPipeline,ExonSetOProfile,ExonSetBackground);
+    int pipeline_create_err = p7_pli_NewModel(ExonSetPipeline,ExonSetOModel,ExonSetBackground);
     if (pipeline_create_err == eslEINVAL) 
       p7_Fail(ExonSetPipeline->errbuf);
 
     p7_pli_NewSeq(ExonSetPipeline,AminoSeq);
     p7_bg_SetLength(ExonSetBackground,AminoSeq->n);
-    p7_oprofile_ReconfigLength(ExonSetOProfile,AminoSeq->n);
+    p7_oprofile_ReconfigLength(ExonSetOModel,AminoSeq->n);
 
 
 
@@ -4330,7 +4357,7 @@ void RunModelOnExonSets
     // for this set of exons and run that rowdy ol' p7_Pipeline!
     //
     P7_TOPHITS * ExonSetTopHits = p7_tophits_Create();
-    int pipeline_execute_err  = p7_Pipeline(ExonSetPipeline,ExonSetOProfile,ExonSetBackground,AminoSeq,NuclSeq,ExonSetTopHits,NULL);
+    int pipeline_execute_err  = p7_Pipeline(ExonSetPipeline,ExonSetOModel,ExonSetBackground,AminoSeq,NuclSeq,ExonSetTopHits,NULL);
     if (pipeline_execute_err != eslOK) {
       fprintf(stderr,"\n  * PIPELINE FAILURE DURING EXON SET RE-ALIGNMENT *\n\n");
       exit(101);
@@ -4349,21 +4376,23 @@ void RunModelOnExonSets
 
 
 
-    // DESTRUCTION!  (TODO: Reuse these (but, for now *whatever*))
+    // DESTRUCTION AND REBIRTH!
     free(ExonSetNucls);
     free(ExonSetTrans);
-    esl_sq_Destroy(NuclSeq);
-    esl_sq_Destroy(AminoSeq);
-    p7_bg_Destroy(ExonSetBackground);
-    p7_oprofile_Destroy(ExonSetOProfile);
-    p7_tophits_Destroy(ExonSetTopHits);
-    p7_pipeline_Destroy(ExonSetPipeline);
+    esl_sq_Reuse(NuclSeq);  // Takes care of 'ExonSetNucls'
+    esl_sq_Reuse(AminoSeq); // Takes care of 'ExonSetTrans'
+    p7_tophits_Reuse(ExonSetTopHits);
+    p7_pipeline_Reuse(ExonSetPipeline);
     free(ExonCoordSets[exon_set_id]);
 
   }
 
 
   // That's all we needed!  Good work, team!
+  if (ExonSetTopHits) p7_tophits_Destroy(ExonSetTopHits);
+  if (ExonSetPipeline) p7_pipeline_Destroy(ExonSetPipeline);
+  p7_oprofile_Destroy(ExonSetOModel);
+  p7_bg_Destroy(ExonSetBackground);
   free(ExonCoordSets);
 
 
@@ -4472,9 +4501,9 @@ void SpliceHits
 
 
 
-  // CLEANUP NEEDED:
+  // CLEANUP
   //SPLICE_GRAPH_Destroy(Graph);
-  //TARGET_SEQ_Destroy(TargetNuclSeq);
+  TARGET_SEQ_Destroy(TargetNuclSeq);
 
 
   if (DEBUGGING) {
