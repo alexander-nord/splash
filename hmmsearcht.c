@@ -145,7 +145,7 @@ typedef struct {
 // painless
 
 
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -959,6 +959,7 @@ void GetSpliceOptions
   }
 
 
+
   // Let's simplify our pointing
   ESL_DSQ * UN = Overlap->UpstreamNucls;
   ESL_DSQ * DN = Overlap->DownstreamNucls;
@@ -1078,11 +1079,12 @@ float FindOptimalSpliceSite
   float * USScores   = malloc(upstream_nucl_cnt*sizeof(float));
 
 
-  int us_trans_len    = 0; // Without messy indels, comes out to upstream_nucl_cnt/3
-  int nucl_read_pos   = 1;
-  int model_pos       = Overlap->amino_start;
-  int display_pos     = Overlap->upstream_disp_start;
+  int us_trans_len   = 0; // Without messy indels, comes out to upstream_nucl_cnt/3
+  int nucl_read_pos  = 1;
+  int model_pos      = Overlap->amino_start;
+  int display_pos    = Overlap->upstream_disp_start;
   while (model_pos <= Overlap->UpstreamDisplay->hmmto) {
+
 
     int amino_index = 27;
     if (Overlap->UpstreamDisplay->aseq[display_pos] != '-') {
@@ -1090,14 +1092,20 @@ float FindOptimalSpliceSite
       nucl_read_pos += 3;
     }
 
+
     USTrans[us_trans_len]    = amino_index;
     USModelPos[us_trans_len] = model_pos;
-    USScores[us_trans_len]   = gm->rsc[amino_index][2*model_pos];
+    if (amino_index == 27) 
+      USScores[us_trans_len] = -0.7; // Let's try this...
+    else 
+      USScores[us_trans_len] = gm->rsc[amino_index][2*model_pos];
+
 
     if (Overlap->UpstreamDisplay->aseq[display_pos] != '.')
       model_pos++;
     display_pos++;
     us_trans_len++;
+
 
   }
   int us_pre_ext_end_pos = us_trans_len-1; // For scoring purposes
@@ -1106,15 +1114,19 @@ float FindOptimalSpliceSite
   // Incorporate the extension
   for (int i=1; i<=Overlap->upstream_ext_len; i++) {
 
+
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
+
 
     USTrans[us_trans_len]    = amino_index;
     USModelPos[us_trans_len] = model_pos;
     USScores[us_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
+
     model_pos++;
     us_trans_len++;
+
 
   }
 
@@ -1138,15 +1150,19 @@ float FindOptimalSpliceSite
   model_pos        = Overlap->amino_start;
   while (ds_trans_len < Overlap->downstream_ext_len) {
 
+
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
+
 
     DSTrans[ds_trans_len]    = amino_index;
     DSModelPos[ds_trans_len] = model_pos;
     DSScores[ds_trans_len]   = gm->rsc[amino_index][2*model_pos];
 
+
     model_pos++;
     ds_trans_len++;
+
 
   }
 
@@ -1155,20 +1171,27 @@ float FindOptimalSpliceSite
   display_pos = 0;
   while (model_pos <= Overlap->amino_end) {
 
+
     int amino_index = 27;
     if (Overlap->DownstreamDisplay->aseq[display_pos] != '-') {
       amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
       nucl_read_pos += 3;
     }
 
+
     DSTrans[ds_trans_len]    = amino_index;
     DSModelPos[ds_trans_len] = model_pos;
-    DSScores[ds_trans_len]   = gm->rsc[amino_index][2*model_pos];
+    if (amino_index == 27) 
+      DSScores[ds_trans_len] = -0.7; // Let's try this...
+    else 
+      DSScores[ds_trans_len] = gm->rsc[amino_index][2*model_pos];
+
 
     if (Overlap->DownstreamDisplay->aseq[display_pos] != '.')
       model_pos++;
     display_pos++;
     ds_trans_len++;
+
 
   }
 
@@ -1186,7 +1209,6 @@ float FindOptimalSpliceSite
   // remove for determining the contribution of our cut.
   float baseline_score = DSScores[Overlap->downstream_ext_len];
   baseline_score      += USScores[us_pre_ext_end_pos];
-
 
 
   // What position in the model are we splitting on?
@@ -1255,7 +1277,7 @@ float FindOptimalSpliceSite
   *split_amino_model_index = optimal_model_pos;
 
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",-1);
+  if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete",-1);
 
 
   return optimal_score-baseline_score;
@@ -1299,6 +1321,14 @@ void SpliceOverlappingDomains
   int downstream_splice_index;
   int split_amino_model_index;
   float splice_score = FindOptimalSpliceSite(Overlap,gm,gcode,&upstream_splice_index,&downstream_splice_index,&split_amino_model_index);
+
+
+  if (splice_score == EDGE_FAIL_SCORE) {
+    Overlap->score         = EDGE_FAIL_SCORE;
+    Overlap->score_density = EDGE_FAIL_SCORE;
+    if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (splicing score was -inf...?)",-1);
+    return;
+  }
 
 
   // At this point, the optimal amino acid is the one that's
@@ -2053,28 +2083,34 @@ void FindBestPathToNode
 
   if (DEBUGGING) DEBUG_OUT("Starting 'FindBestPathToNode'",1);
 
+  
   // Have we already examined this node?
   if (Node->cumulative_score != EDGE_FAIL_SCORE) {
     if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
     return;
   }
 
+
   // For each of the nodes that feed into this node,
   // recursively find *their* best path, then determine
   // across those options which is our favorite.
   for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
   
+
     FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
+
 
     // What's the score of the path up to the current node using
     // this as our input edge?
     float edge_sum_score = Node->UpstreamNodes[in_edge_id]->cumulative_score;
     edge_sum_score += Node->InEdges[in_edge_id]->score;
 
+
     if (edge_sum_score > Node->cumulative_score) {
       Node->cumulative_score = edge_sum_score;
       Node->best_in_edge     = in_edge_id;
     }
+
 
   }
 
@@ -2085,6 +2121,10 @@ void FindBestPathToNode
     Node->cumulative_score  = Node->hit_score;
   else
     Node->cumulative_score += Node->hit_score;
+
+
+  // DEBUGGING
+  fprintf(stderr,"  :: Node ID:%d --> [ %f / %f / %f ]\n",Node->node_id,Node->hit_score,Node->cumulative_score,Node->best_path_score);
 
 
   if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
