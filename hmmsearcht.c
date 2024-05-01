@@ -65,8 +65,86 @@ typedef struct {
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *                                                                                            BEGIN SPLICING STUFF
+ *                                                                                           BEGIN SPLICING STUFF
+ * 
+ *  Catalogue of Ships
+ *  ==================
+ *
+ *  Fleet 1: Pertaining to Data Preparation
+ *
+ *  + FloatHighLowSortIndex : 
+ *  + FloatLowHighSortIndex :
+ *  + GetMinAndMaxCoords    :
+ *  + GetTargetNuclSeq      :
+ *  + GrabNuclRange         :
+ *  + DetermineNuclType     :
+ *  
+ *
+ *
+ *  Fleet 2: Pertaining to Splicing Hits
+ *
+ *  + GetSpliceOptions             :
+ *  + FindOptimalSpliceSite        :
+ *  + SpliceOverlappingDomains     :
+ *  + GetNuclRangesFromAminoCoords :
+ *  + SketchSpliceEdge             :
+ *  + HitsAreSpliceComaptible      :
+ *  + GatherViableSpliceEdges      :
+ *
+ *
+ *
+ *  Fleet 3: Pertaining to the Splice Graph
+ *
+ *  + InitSpliceNode        :
+ *  + ConnectNodesByEdge    :
+ *  + FindBestPathToNode    :
+ *  + EvangelizePath        :
+ *  + GatherNTermNodes      :
+ *  + GatherCTermNodes      :
+ *  + GenCumScoreSort       :
+ *  + EvaluatePaths         :
+ *  + FillOutGraphStructure :
+ *  + FindBestFullPath      :
+ *  + BuildSpliceGraph      :
+ *
+ *
+ *
+ *  Fleet 4: Pertaining to Filling in Gaps (Sub-Model Search)
+ *
+ *  + ExtractSubProfile       :
+ *  + NodesAreDCCCompatible   :
+ *  + GetBoundedSearchRegions :
+ *  + SelectFinalSubHits      :
+ *  + FindSubHits             :
+ *  + IntegrateMissedHits     :
+ *  + SeekMissingExons        :
+ *  + AddMissingExonsToGraph  :
+ *
+ *
+ *
+ *  Fleet 5: Pertaining to the Final Alignment
+ *
+ *  + GetExonSetFromStartNode :
+ *  + FindComponentBestStart  :
+ *  + TranslateExonSetNucls   :
+ *  + GrabExonCoordSetNucls   :
+ *  + GetSplicedExonCoordSets :
+ *  + ReportSplicedTopHits    :
+ *  + RunModelOnExonSets      :
+ *
+ *
+ *
+ *  Flagship: SpliceHits
+ *
  */
+
+
+
+// Before we get to the fun stuff, let's just set up some
+// bureaucratic stuff to make debugging relatively (hopefully)
+// painless
+
+
 static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
@@ -86,7 +164,7 @@ void DEBUG_OUT (const char * message, const int func_depth_change) {
 }
 
 
-static float SSSCORE[2]      = {-1.5,1.5}; // Non-canon vs canon splice site
+static float SSSCORE[2]      = {-0.7,0.7}; // Non-canon vs canon splice site
 static float EDGE_FAIL_SCORE = -14773.0;   // Makes me thirsty for a latte!
 
 static char AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
@@ -2537,48 +2615,6 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GetNodeHitData
- *
- *  Desc. :
- *
- *  Inputs:  1.     Graph :
- *           2.   node_id :
- *           3.  hmm_from :
- *           4.    hmm_to :
- *           5. nucl_from :
- *           6.   nucl_to :
- *
- *  Output:
- *
- */
-void GetNodeHitData 
-(
-  SPLICE_GRAPH * Graph, 
-  int   node_id, 
-  int * hmm_from, 
-  int * hmm_to, 
-  int * nucl_from, 
-  int * nucl_to
-) 
-{
-  
-  int hit_id = Graph->Nodes[node_id]->hit_id;
-  int dom_id = Graph->Nodes[node_id]->dom_id;
-
-  P7_DOMAIN * Dom = &(Graph->TopHits->hit[hit_id]->dcl[dom_id]);
-
-  *hmm_from  = Dom->ad->hmmfrom;
-  *hmm_to    = Dom->ad->hmmto;
-  *nucl_from = Dom->ad->sqfrom;
-  *nucl_to   = Dom->ad->sqto;
-
-}
-
-
-
-
 
 
 
@@ -2704,7 +2740,7 @@ P7_PROFILE * ExtractSubProfile
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: IsViableSearchArea
+ *  Function: NodesAreDCCCompatible
  *
  *  Desc. :
  *
@@ -2716,49 +2752,60 @@ P7_PROFILE * ExtractSubProfile
  *  Output:
  *
  */
-int IsViableSearchArea
+int NodesAreDCCCompatible
 (
-  int   upstream_hmm_to, 
-  int   upstream_nucl_to,
-  int downstream_hmm_from,
-  int downstream_nucl_from,
-  int revcomp
+  SPLICE_GRAPH * Graph,
+  SPLICE_NODE  * UpstreamNode,
+  SPLICE_NODE  * DownstreamNode
 )
 {
 
+
   // How large of an area are we willing to consider searching?
-  int min_hmm_dist  =     3;
   int max_hmm_dist  =    50;
-  int max_nucl_dist = 10000;
+  int max_nucl_dist = 50000;
+
+
+  // Pull the relevant data from the upstream and downstream nodes
+  P7_DOMAIN * USDom     = &(Graph->TopHits->hit[UpstreamNode->hit_id]->dcl[UpstreamNode->dom_id]);
+  int upstream_hmm_to   = USDom->ad->hmmto;
+  int upstream_nucl_to  = USDom->ad->sqto;
+
+
+  P7_DOMAIN * DSDom        = &(Graph->TopHits->hit[DownstreamNode->hit_id]->dcl[DownstreamNode->dom_id]);
+  int downstream_hmm_from  = DSDom->ad->hmmfrom;
+  int downstream_nucl_from = DSDom->ad->sqfrom;
 
 
   // Is the "upstream" hit even really upstream?
-  // Is there enough space that there could conceivably
-  // be a missed exon?
   int hmm_dist = 1 + downstream_hmm_from - upstream_hmm_to;
-  if (hmm_dist <= min_hmm_dist)
+  if (hmm_dist <= 0)
     return 0;
 
 
-  int nucl_dist = downstream_nucl_from - upstream_nucl_to;
-  if (revcomp) {
-    if (nucl_dist >= 0) 
-      return 0;
-    nucl_dist *= -1;
-  } else {
-    if (nucl_dist <= 0) 
-      return 0;
-  }
-  nucl_dist++;
+  // I mean *REALLY* upstream?
+  int nucl_dist = 1;
+  if (Graph->revcomp) nucl_dist += upstream_nucl_to - downstream_nucl_from;
+  else                nucl_dist += downstream_nucl_from - upstream_nucl_to;
+  if (nucl_dist <= 0)
+    return 0;
 
 
+  // Hmmm, I suppose you're oriented correctly...
+  // But are you close enough?!
   if (hmm_dist <= max_hmm_dist && nucl_dist <= max_nucl_dist)
     return 1;
 
-  
+
+  // So close, but not quite ready to work together!
   return 0;
 
 }
+
+
+
+
+
 
 
 
@@ -2771,23 +2818,22 @@ int IsViableSearchArea
  *
  *  Desc. :
  *
- *  Inputs:  1.                  Graph :
- *           2. num_search_regions_ref :
+ *  Inputs:
  *
  *  Output:
  *
  */
 int * GetBoundedSearchRegions
-(SPLICE_GRAPH * Graph, int * num_search_regions_ref)
+(SPLICE_GRAPH * Graph)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
 
 
-  // Make lists containing the IDs of all nodes that 
-  // don't have outgoing / incoming edges.
-  int * NoOutEdgeNodes = (int *)malloc(Graph->num_nodes * sizeof(int));
-  int * NoInEdgeNodes  = (int *)malloc(Graph->num_nodes * sizeof(int));
+  // Who all doesn't have an incoming / outgoing edge?
+  // (not including "genuine" terminal nodes, of course!)
+  int * NoOutEdgeNodes = malloc(Graph->num_nodes * sizeof(int));
+  int * NoInEdgeNodes  = malloc(Graph->num_nodes * sizeof(int));
   int num_no_out_edge  = 0;
   int num_no_in_edge   = 0;
 
@@ -2796,205 +2842,219 @@ int * GetBoundedSearchRegions
 
     SPLICE_NODE * Node = Graph->Nodes[node_id];
 
-    if (Node->num_out_edges == 0 && Node->is_c_terminal == 0) {
-      NoOutEdgeNodes[num_no_out_edge] = node_id;
-      num_no_out_edge++;
-    }
+    if (Node->num_out_edges == 0 && Node->is_c_terminal == 0)
+      NoOutEdgeNodes[num_no_out_edge++] = node_id;
 
-    if (Node->num_in_edges == 0 && Node->is_n_terminal == 0) {
-      NoInEdgeNodes[num_no_in_edge] = node_id;
-      num_no_in_edge++;
-    }
+    if (Node->num_in_edges == 0 && Node->is_n_terminal == 0)
+      NoInEdgeNodes[num_no_in_edge++] = node_id;
 
   }
 
 
-
-  int * NoOutEdgePartners = (int *)malloc(num_no_out_edge * sizeof(int));
-  int * NoOutEdgeHMMTo    = (int *)malloc(num_no_out_edge * sizeof(int));
-  int * NoOutEdgeNuclTo   = (int *)malloc(num_no_out_edge * sizeof(int));
-
-  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
-  
-    int hmm_from,hmm_to,nucl_from,nucl_to;
-    GetNodeHitData(Graph,NoOutEdgeNodes[no_out_edge_id],&hmm_from,&hmm_to,&nucl_from,&nucl_to);
-
-    NoOutEdgeHMMTo[no_out_edge_id]  = hmm_to;
-    NoOutEdgeNuclTo[no_out_edge_id] = nucl_to;
-
-  }
+  // This could *surely* be optimized, but I think it's going to
+  // be reasonably fast to do an all-versus-all sorta thang...
+  int * DisConnCompOuts = malloc(num_no_out_edge * sizeof(int));
+  int * DisConnCompIns  = malloc(num_no_in_edge  * sizeof(int));
+  for (int i=0; i<num_no_out_edge; i++) DisConnCompOuts[i] = 0;
+  for (int i=0; i<num_no_in_edge ; i++) DisConnCompIns[i]  = 0;
 
 
-  int * NoInEdgePartners  = (int *)malloc(num_no_in_edge  * sizeof(int));
-  int * NoInEdgeNuclFrom  = (int *)malloc(num_no_in_edge  * sizeof(int));
-  int * NoInEdgeHMMFrom   = (int *)malloc(num_no_in_edge  * sizeof(int));
-
-  for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
-  
-    int hmm_from,hmm_to,nucl_from,nucl_to;
-    GetNodeHitData(Graph,NoOutEdgeNodes[no_in_edge_id],&hmm_from,&hmm_to,&nucl_from,&nucl_to);
-
-    NoInEdgeHMMFrom[no_in_edge_id]  = hmm_from;
-    NoInEdgeNuclFrom[no_in_edge_id] = nucl_from;
-
-  }
+  int dcc_ids_issued   = 0; // Note that this is more like "num_dcc_ids issued"
+  int num_live_dcc_ids = 0;
+  int * LiveDCCIDs = malloc(num_no_out_edge * sizeof(int));
+  for (int i=0; i<num_no_out_edge; i++) {
 
 
+    // Grab the next node without any outgoing edges
+    SPLICE_NODE * UpstreamNode = Graph->Nodes[NoOutEdgeNodes[i]];
 
-  // Try to pair up members of 'NoOutEdgeNodes' with members of
-  // 'NoInEdgeNodes'
-  //
-  // We're going to be maximalist (within reason), with respect to
-  // the size of the nucleotide window.
-
-
-  // First, iterate over 'NoOutEdgeNodes' and find the furthest away
-  // 'NoInEdgeNodes' entry within the acceptable range
-  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
-
-    int optimal_partner   = -1;
-    int optimal_nucl_dist = -1;
-
-    int up_hmm_to  = NoOutEdgeHMMTo[no_out_edge_id];
-    int up_nucl_to = NoOutEdgeNuclTo[no_out_edge_id];
-
-    for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
-
-      int down_hmm_from  = NoInEdgeHMMFrom[no_in_edge_id];
-      int down_nucl_from = NoInEdgeNuclFrom[no_in_edge_id];
-
-      // Are these compatible, in terms of defining a search area?
-      if (!IsViableSearchArea(up_hmm_to,up_nucl_to,down_hmm_from,down_nucl_from,Graph->revcomp))
-        continue;
-
-      int nucl_dist = abs(down_nucl_from - up_nucl_to) + 1;
-      if (nucl_dist > optimal_nucl_dist) {
-        optimal_partner   = no_in_edge_id;
-        optimal_nucl_dist = nucl_dist;
-      }
-
-    }
-
-    NoOutEdgePartners[no_out_edge_id] = optimal_partner;
-
-  }
-
-
-
-
-  // Now run it in the other direction (optimal partners for
-  // downstream hits without edges in)
-  for (int no_in_edge_id = 0; no_in_edge_id < num_no_in_edge; no_in_edge_id++) {
-
-    int optimal_partner   = -1;
-    int optimal_nucl_dist = -1;
-
-    int down_hmm_from  = NoInEdgeHMMFrom[no_in_edge_id];
-    int down_nucl_from = NoInEdgeNuclFrom[no_in_edge_id];
-
-    for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
-
-      int up_hmm_to  = NoOutEdgeHMMTo[no_out_edge_id];
-      int up_nucl_to = NoOutEdgeNuclTo[no_out_edge_id];
-
-      if (!IsViableSearchArea(up_hmm_to,up_nucl_to,down_hmm_from,down_nucl_from,Graph->revcomp))
-        continue;
-
-      int nucl_dist = abs(up_nucl_to - down_nucl_from) + 1;
-      if (nucl_dist > optimal_nucl_dist) {
-        optimal_partner   = no_out_edge_id;
-        optimal_nucl_dist = nucl_dist;
-      }
-
-    }
-
-    NoInEdgePartners[no_in_edge_id] = optimal_partner;
-
-  }
-
-
-
-  // Swag!  Now we can define our actual intended search regions!
-  //
-  int search_region_alloc = intMin(num_no_out_edge,num_no_in_edge);
-  int num_search_regions  = 0;
-  int * SearchHMMStarts   = (int *)malloc(search_region_alloc*sizeof(int));
-  int * SearchHMMEnds     = (int *)malloc(search_region_alloc*sizeof(int));
-  int * SearchNuclStarts  = (int *)malloc(search_region_alloc*sizeof(int));
-  int * SearchNuclEnds    = (int *)malloc(search_region_alloc*sizeof(int));
-
-
-  for (int no_out_edge_id = 0; no_out_edge_id < num_no_out_edge; no_out_edge_id++) {
-
-
-    // Who's our optimal partner? Have they already been considered?
-    int no_in_edge_id = NoOutEdgePartners[no_out_edge_id];
-    NoOutEdgePartners[no_out_edge_id] = -1;
-
-    if (no_in_edge_id == -1)
-      continue;
-
-
-    // Who's *their* optimal partner? Has that bound already been used?
-    int no_in_edge_partner_id = NoInEdgePartners[no_in_edge_id];
-    NoInEdgePartners[no_in_edge_id] = -1;
-
-    if (no_in_edge_partner_id == -1)
-      continue;
-
-
-    // Final check: Has that (preferred "no out edge" node) already been considered?
-    if (NoOutEdgePartners[no_in_edge_partner_id] == -1)
-      continue;
-    NoOutEdgePartners[no_in_edge_partner_id] = -1;
-
-
-    int search_hmm_from  = NoOutEdgeHMMTo[no_in_edge_partner_id];
-    int search_nucl_from = NoOutEdgeNuclTo[no_in_edge_partner_id];
-    int search_hmm_to    = NoInEdgeHMMFrom[no_in_edge_id];
-    int search_nucl_to   = NoInEdgeNuclFrom[no_in_edge_id];
-
-
-    SearchHMMStarts[num_search_regions]  = search_hmm_from;
-    SearchHMMEnds[num_search_regions]    = search_hmm_to;
-    SearchNuclStarts[num_search_regions] = search_nucl_from;
-    SearchNuclEnds[num_search_regions]   = search_nucl_to;
-    num_search_regions++;
-
-  }
-
-
-  // Now we just need to jam all our starts / ends into a
-  // single 'aggregator' array, and we're done, baby!
-  int * SearchRegionAggregate = NULL;
-  if (num_search_regions > 0) {
-
-    SearchRegionAggregate = (int *)malloc(4 * num_search_regions * sizeof(int));
     
-    for (int i=0; i<num_search_regions; i++) {
-      SearchRegionAggregate[4*i    ] = SearchHMMStarts[i];
-      SearchRegionAggregate[4*i + 1] = SearchHMMEnds[i];
-      SearchRegionAggregate[4*i + 2] = SearchNuclStarts[i];
-      SearchRegionAggregate[4*i + 3] = SearchNuclEnds[i];
+    int dcc_id    = dcc_ids_issued+1; // What's our component ID?
+    int connected = 0;                // Did we connect to anyone?
+
+    
+    // Scan through the nodes without incoming edges and
+    // see who's available for friendship
+    for (int j=0; j<num_no_in_edge; j++) {
+
+
+      // Has this node already heard the good news?
+      if (DisConnCompIns[j] == dcc_id)
+        continue;
+
+
+      SPLICE_NODE * DownstreamNode = Graph->Nodes[NoInEdgeNodes[j]];
+
+
+      if (!NodesAreDCCCompatible(Graph,UpstreamNode,DownstreamNode));
+        continue;
+
+
+      // Compatibility achieved!
+      // These might be redundantly set multiple times, but that's life!
+      DisConnCompOuts[i] = dcc_id;
+      connected = 1;
+
+
+      // This DCC ID is live, baby!
+      LiveDCCIDs[num_live_dcc_ids++] = dcc_id;
+
+
+      // Has this downstream node already made friends?
+      // If so, they're our friends now!
+      //
+      // This is the lazy way to do this comparison and adjustment,
+      // but it's 
+      //
+      if (DisConnCompIns[j]) {
+
+        int dcc_id_to_replace = DisConnCompIns[j];
+
+        for (int x=0; x<num_no_out_edge; x++) {
+          if (DisConnCompOuts[x] == dcc_id_to_replace)
+            DisConnCompOuts[x] = dcc_id;
+        }
+
+        for (int x=0; x<num_no_in_edge; x++) {
+          if (DisConnCompIns[x] == dcc_id_to_replace) {
+            DisConnCompIns[x] = dcc_id;
+          }
+        }
+
+        // The replaced ID is no longer alive :'(
+        num_live_dcc_ids--;
+        for (int x=0; x<num_live_dcc_ids; x++) {
+          if (LiveDCCIDs[x] == dcc_id_to_replace) {
+            LiveDCCIDs[x] = dcc_id;
+          }
+        }
+
+
+      } else {
+
+        // Just the one friend... for now!
+        DisConnCompIns[j] = dcc_id;
+      
+      }
+
     }
+
+
+    // Did we register a new dcc_id?
+    //
+    // NOTE that it's theoretically possible DCCs could be merged,
+    //   so we could end up with an overcount of the number of DCCs.
+    //
+    if (connected)
+      dcc_ids_issued++;
 
   }
 
 
-  // Cleanup
-  free(NoOutEdgePartners);
+  // Now we can go through all of the hits in each of our
+  // "disconnected components" and determine a maximal 
+  // search area
+  int * SearchRegionAggregate = malloc((1 + 4 * num_live_dcc_ids) * sizeof(int));
+  SearchRegionAggregate[0] = num_live_dcc_ids;
+
+
+  // Once again, there is plenty of room for optimization,
+  // but I really doubt this is going to be a bottleneck
+  // in Splash...
+  P7_DOMAIN * DomPtr;
+  for (int meta_dcc_id = 0; meta_dcc_id < num_live_dcc_ids; meta_dcc_id++) {
+
+
+    int dcc_id = LiveDCCIDs[meta_dcc_id];
+
+
+    // 
+    // 1. What should we set as the bounds for our search region, based
+    //    on the nodes without outgoing edges?
+    //
+
+    int dcc_hmm_start  = -1;
+    int dcc_nucl_start = -1;
+
+    for (int i=0; i<num_no_out_edge; i++) {
+
+      if (DisConnCompOuts[i] != dcc_id)
+        continue;
+
+      int node_id = NoOutEdgeNodes[i];
+      DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
+
+
+      // NOTE that the START of the search region will be defined by the
+      // minimal END position in the model.
+      // It looks like these variable names are at odds, but they aren't,
+      // I swear!
+      if (dcc_hmm_start == -1 || dcc_hmm_start > DomPtr->ad->hmmto)
+        dcc_hmm_start = DomPtr->ad->hmmto;
+
+
+      if (Graph->revcomp) {
+        if (dcc_nucl_start == -1 || dcc_nucl_start < DomPtr->ad->sqto)
+          dcc_nucl_start = DomPtr->ad->sqto;
+      } else {
+        if (dcc_nucl_start == -1 || dcc_nucl_start > DomPtr->ad->sqto)
+          dcc_nucl_start = DomPtr->ad->sqto;
+      }
+
+    }
+
+
+
+    // 
+    // 2. What should we set as the bounds for our search region, based
+    //    on the nodes without incoming edges?
+    //
+
+    int dcc_hmm_end  = -1;
+    int dcc_nucl_end = -1;
+
+    for (int i=0; i<num_no_in_edge; i++) {
+
+      if (DisConnCompIns[i] != dcc_id)
+        continue;
+
+      int node_id = NoInEdgeNodes[i];
+      DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
+
+
+      if (dcc_hmm_end == -1 || dcc_hmm_end < DomPtr->ad->hmmfrom)
+        dcc_hmm_end = DomPtr->ad->hmmfrom;
+
+
+      if (Graph->revcomp) {
+        if (dcc_nucl_end == -1 || dcc_nucl_end > DomPtr->ad->sqfrom)
+          dcc_nucl_end = DomPtr->ad->sqfrom;
+      } else {
+        if (dcc_nucl_end == -1 || dcc_nucl_end < DomPtr->ad->sqfrom)
+          dcc_nucl_end = DomPtr->ad->sqfrom;
+      }
+
+    }
+
+
+
+    //
+    // 3. Log it!
+    //
+    SearchRegionAggregate[4*meta_dcc_id + 1] = dcc_hmm_start;
+    SearchRegionAggregate[4*meta_dcc_id + 2] = dcc_hmm_end;
+    SearchRegionAggregate[4*meta_dcc_id + 3] = dcc_nucl_start;
+    SearchRegionAggregate[4*meta_dcc_id + 4] = dcc_nucl_end;
+
+  }
+
+
+
   free(NoOutEdgeNodes);
-  free(NoOutEdgeNuclTo);
-  free(NoInEdgePartners);
   free(NoInEdgeNodes);
-  free(NoInEdgeNuclFrom);
-  free(SearchHMMStarts);
-  free(SearchHMMEnds);
-  free(SearchNuclStarts);
-  free(SearchNuclEnds);
-
-
-  *num_search_regions_ref = num_search_regions;
+  free(DisConnCompOuts);
+  free(DisConnCompIns);
+  free(LiveDCCIDs);
 
 
   if (DEBUGGING) DEBUG_OUT("'GetBoundedSearchRegions' Complete",-1);
@@ -3002,10 +3062,7 @@ int * GetBoundedSearchRegions
 
   return SearchRegionAggregate;
 
-
 }
-
-
 
 
 
@@ -3400,157 +3457,6 @@ P7_DOMAIN ** FindSubHits
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: FindMissingExons
- *
- *  Desc. :
- *
- *  Inputs:  1.         Graph :
- *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
- *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
- *
- *  Output:
- *
- */
-P7_TOPHITS * FindMissingExons
-(
-  SPLICE_GRAPH * Graph, 
-  TARGET_SEQ   * TargetNuclSeq, 
-  ESL_GENCODE  * gcode
-)
-{
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'FindMissingExons'",1);
-
-
-  // Grab the sub-regions of our conceptual DP zone that we want
-  // to search for missing exons.
-  //
-  // This 'SearchRegionAggregate' is indexed in groups consisting
-  // of: the starting position in the model, the ending position in
-  // the model, the starting coordinate on the genome, and the ending
-  // coordinate on the genome.
-  //
-  int num_search_regions;
-  int * SearchRegionAggregate = GetBoundedSearchRegions(Graph,&num_search_regions);
-
-  if (num_search_regions == 0) {
-    if (DEBUGGING) DEBUG_OUT("'FindMissingExons' Complete (none found)",-1);
-    return NULL;
-  }
-
-
-  if (DEBUGGING) {
-    fprintf(stderr,"\n  Num Search Regions: %d\n",num_search_regions);
-    for (int i=0; i<num_search_regions; i++) {
-      fprintf(stderr,"    - Search Region : %d\n",i+1);
-      fprintf(stderr,"      HMM Positions : %d..%d\n",SearchRegionAggregate[i*4    ],SearchRegionAggregate[i*4 + 1]);
-      fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 2],SearchRegionAggregate[i*4 + 3]);
-    }
-    fprintf(stderr,"\n");
-    DEBUG_OUT("'GetMissingExons' Complete (early kill)",-1);
-    free(SearchRegionAggregate);
-    return NULL;
-  }
-
-
-  // Now we can iterate over our list of search regions and,
-  // for each:
-  //
-  //   1. Extract the appropriate sub-region of the model
-  //   2. Pull the appropriate portion of the target sequence
-  //   3. Search the sub-model against the sub-target,
-  //        using the forward algorithm with minimal quality
-  //        restrictions (yikes!)
-  //
-  //   and...
-  //
-  //   4. Integrate any new hits into the graph!
-  //
-  int num_sub_hits = 0;
-  int sub_hits_capacity = 20;
-  P7_DOMAIN ** SubHits = malloc(sub_hits_capacity*sizeof(P7_DOMAIN *));
-  for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
-
-
-    int num_new_sub_hits;
-    P7_DOMAIN ** NewSubHits = FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[4*search_region_id],gcode,&num_new_sub_hits);
-
-
-    if (num_new_sub_hits == 0)
-      continue;
-
-
-    // New sub-hit(s) alert!
-
-
-    // Resize?
-    if (num_sub_hits + num_new_sub_hits > sub_hits_capacity) {
-      sub_hits_capacity = intMax(sub_hits_capacity*2,num_sub_hits+num_new_sub_hits);
-      P7_DOMAIN ** MoreSubHits = malloc(sub_hits_capacity * sizeof(P7_DOMAIN *));
-      for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++)
-        MoreSubHits[sub_hit_id] = SubHits[sub_hit_id];
-      free(SubHits);
-      SubHits = MoreSubHits;
-    }
-
-
-    // Pop those shrimps on the barbie, as they say up there in Argentina
-    for (int new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
-      SubHits[num_sub_hits++] = NewSubHits[new_sub_hit_id];
-
-
-    free(NewSubHits); // clear the pointer
-
-  }
-  free(SearchRegionAggregate);
-
-
-  if (num_sub_hits == 0) {
-    free(SubHits);
-    return NULL;
-  }
-
-
-  //
-  //  NOTE:  From here, what we do is aggregate our new 'SubHits' into
-  //         a 'P7_TOPHITS' datastructure.
-  //
-  //         IMPORTANTLY, we're faking these in order to take advantage
-  //         of some of the functions that are already available.
-  //         DO NOT ASSUME HMMER FUNCTIONS WILL WORK WITH THIS DATASTRUCTURE!
-  //
-  P7_TOPHITS * MissingHits = p7_tophits_Create();
-
-  for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
-
-    P7_HIT * NewHit;
-    int hit_create_err  = p7_tophits_CreateNextHit(MissingHits,&NewHit);
-    if (hit_create_err != eslOK) {
-      fprintf(stderr,"\n  ERROR (GetMissingExons): Failed while attempting P7_HIT allocation\n\n");
-    }
-
-    NewHit->ndom  = 1;
-    NewHit->dcl   = SubHits[sub_hit_id];
-    NewHit->score = SubHits[sub_hit_id]->bitscore;
-
-  }
-  free(SubHits);
-
- 
-  if (DEBUGGING) DEBUG_OUT("'FindMissingExons' Complete",-1);
-
-
-  return MissingHits;
-
-}
-
-
-
-
-
-
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
@@ -3616,6 +3522,162 @@ void IntegrateMissedHits
 
 
 
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SeekMissingExons
+ *
+ *  Desc. :
+ *
+ *  Inputs:  1.         Graph :
+ *           2. TargetNuclSeq : The sub-sequence of the target sequence wherein all hits reside.
+ *           3.         gcode : An ESL_GENCODE struct (mainly used for translation).
+ *
+ *  Output:
+ *
+ */
+P7_TOPHITS * SeekMissingExons
+(
+  SPLICE_GRAPH * Graph, 
+  TARGET_SEQ   * TargetNuclSeq, 
+  ESL_GENCODE  * gcode
+)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SeekMissingExons'",1);
+
+
+  // Grab the sub-regions of our conceptual DP zone that we want
+  // to search for missing exons.
+  //
+  // This 'SearchRegionAggregate' is indexed in groups consisting
+  // of: the starting position in the model, the ending position in
+  // the model, the starting coordinate on the genome, and the ending
+  // coordinate on the genome.
+  //
+  int * SearchRegionAggregate = GetBoundedSearchRegions(Graph);
+  int   num_search_regions    = SearchRegionAggregate[0];
+
+  if (SearchRegionAggregate == NULL) {
+    if (DEBUGGING) DEBUG_OUT("'SeekMissingExons' Complete (none found)",-1);
+    return NULL;
+  }
+
+
+  if (DEBUGGING) {
+    fprintf(stderr,"\n  Num Search Regions: %d\n",num_search_regions);
+    for (int i=0; i<num_search_regions; i++) {
+      fprintf(stderr,"    - Search Region : %d\n",i+1);
+      fprintf(stderr,"      HMM Positions : %d..%d\n",SearchRegionAggregate[i*4 + 1],SearchRegionAggregate[i*4 + 2]);
+      fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 3],SearchRegionAggregate[i*4 + 4]);
+    }
+    fprintf(stderr,"\n");
+    DEBUG_OUT("'SeekMissingExons' Complete (early kill)",-1);
+    free(SearchRegionAggregate);
+    return NULL;
+  }
+
+
+  // Now we can iterate over our list of search regions and,
+  // for each:
+  //
+  //   1. Extract the appropriate sub-region of the model
+  //   2. Pull the appropriate portion of the target sequence
+  //   3. Search the sub-model against the sub-target,
+  //        using the Viterbi algorithm
+  //
+  //   and...
+  //
+  //   4. Integrate any new hits into the graph!
+  //
+  int num_sub_hits = 0;
+  int sub_hits_capacity = 20;
+  P7_DOMAIN ** SubHits = malloc(sub_hits_capacity*sizeof(P7_DOMAIN *));
+  for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
+
+
+    int num_new_sub_hits;
+    P7_DOMAIN ** NewSubHits = FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[(4*search_region_id)+1],gcode,&num_new_sub_hits);
+
+
+    if (num_new_sub_hits == 0)
+      continue;
+
+
+    // New sub-hit(s) alert!
+
+
+    // Resize?
+    if (num_sub_hits + num_new_sub_hits > sub_hits_capacity) {
+      sub_hits_capacity = intMax(sub_hits_capacity*2,num_sub_hits+num_new_sub_hits);
+      P7_DOMAIN ** MoreSubHits = malloc(sub_hits_capacity * sizeof(P7_DOMAIN *));
+      for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++)
+        MoreSubHits[sub_hit_id] = SubHits[sub_hit_id];
+      free(SubHits);
+      SubHits = MoreSubHits;
+    }
+
+
+    // Pop those shrimps on the barbie, as they say up there in Argentina
+    for (int new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
+      SubHits[num_sub_hits++] = NewSubHits[new_sub_hit_id];
+
+
+    free(NewSubHits); // clear the pointer
+
+  }
+  free(SearchRegionAggregate);
+
+
+  if (num_sub_hits == 0) {
+    free(SubHits);
+    return NULL;
+  }
+
+
+  //
+  //  NOTE:  From here, what we do is aggregate our new 'SubHits' into
+  //         a 'P7_TOPHITS' datastructure.
+  //
+  //         IMPORTANTLY, we're faking these in order to take advantage
+  //         of some of the functions that are already available.
+  //         DO NOT ASSUME HMMER FUNCTIONS WILL WORK WITH THIS DATASTRUCTURE!
+  //
+  P7_TOPHITS * MissingHits = p7_tophits_Create();
+
+  for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+
+    P7_HIT * NewHit;
+    int hit_create_err  = p7_tophits_CreateNextHit(MissingHits,&NewHit);
+    if (hit_create_err != eslOK) {
+      fprintf(stderr,"\n  ERROR (SeekMissingExons): Failed while attempting P7_HIT allocation\n\n");
+    }
+
+    NewHit->ndom  = 1;
+    NewHit->dcl   = SubHits[sub_hit_id];
+    NewHit->score = SubHits[sub_hit_id]->bitscore;
+
+  }
+  free(SubHits);
+
+ 
+  if (DEBUGGING) DEBUG_OUT("'SeekMissingExons' Complete",-1);
+
+
+  return MissingHits;
+
+}
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: AddMissingExonsToGraph
@@ -3649,7 +3711,7 @@ void AddMissingExonsToGraph
   // IS NOT CONTAINED IN THESE!  BE CAREFUL BEFORE USING HMMER INTERNAL
   // FUNCTIONS TO INTERROGATE THEM!
   //
-  Graph->MissedHits = FindMissingExons(Graph,TargetNuclSeq,gcode);
+  Graph->MissedHits = SeekMissingExons(Graph,TargetNuclSeq,gcode);
 
   
   if (Graph->MissedHits == NULL) {
