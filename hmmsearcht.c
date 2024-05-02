@@ -910,12 +910,13 @@ int DetermineNuclType
  *           communicating whether the canonical AG/GT is being used).
  *
  *  Inputs:  1.        Overlap :
- *           2.    upstream_ss :
- *           3.  downstream_ss :
- *           4.   SpliceCodons :
- *           5.    Canon5Prime :
- *           6.    Canon3Prime :
- *           7.          gcode : An ESL_GENCODE struct (mainly used for translation).
+ *           2.  TargetNuclSeq :
+ *           3.    upstream_ss :
+ *           4.  downstream_ss :
+ *           5.   SpliceCodons :
+ *           6.    Canon5Prime :
+ *           7.    Canon3Prime :
+ *           8.          gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:  Nothing is returned, but the SpliceCodons, Canon5Prime, and Canon3Prime arrays are
  *           filled in with values representing each of the precise splice site options.
@@ -924,6 +925,7 @@ int DetermineNuclType
 void GetSpliceOptions
 (
   DOMAIN_OVERLAP * Overlap,
+  TARGET_SEQ     * TargetNuclSeq,
   int   upstream_ss,
   int   downstream_ss,
   int * SpliceCodons,
@@ -958,6 +960,11 @@ void GetSpliceOptions
     Canon3Prime[i] = 0;
   }
 
+
+
+  // TO DO:  In order to accommodate splices that push right up against
+  //         the edge of a hit, we'll need to just pull in the nucleotides
+  //         directly from 'TargetNuclSeq'
 
 
   // Let's simplify our pointing
@@ -1299,16 +1306,18 @@ float FindOptimalSpliceSite
  *
  *  Desc. :
  *
- *  Inputs:  1. Overlap :
- *           2.      gm : The straightforward profile for the protein / family.
- *           3.   gcode : An ESL_GENCODE struct (mainly used for translation).
+ *  Inputs:  1.       Overlap :
+ *           2. TargetNuclSeq :
+ *           3.            gm : The straightforward profile for the protein / family.
+ *           4.         gcode : An ESL_GENCODE struct (mainly used for translation).
  *
  *  Output:
  *
  */
 void SpliceOverlappingDomains
 (
-  DOMAIN_OVERLAP * Overlap, 
+  DOMAIN_OVERLAP * Overlap,
+  TARGET_SEQ     * TargetNuclSeq,
   P7_PROFILE     * gm, 
   ESL_GENCODE    * gcode
 )
@@ -1338,7 +1347,7 @@ void SpliceOverlappingDomains
   int * Canon5Prime  = malloc(4*sizeof(int)); // GT
   int * Canon3Prime  = malloc(4*sizeof(int)); // AG
 
-  GetSpliceOptions(Overlap,upstream_splice_index,downstream_splice_index,SpliceCodons,Canon5Prime,Canon3Prime,gcode);
+  GetSpliceOptions(Overlap,TargetNuclSeq,upstream_splice_index,downstream_splice_index,SpliceCodons,Canon5Prime,Canon3Prime,gcode);
 
 
 
@@ -1582,7 +1591,7 @@ void SketchSpliceEdge
 
 
 
-  SpliceOverlappingDomains(Edge,gm,gcode);
+  SpliceOverlappingDomains(Edge,TargetNuclSeq,gm,gcode);
 
 
   if (DEBUGGING) DEBUG_OUT("'SketchSpliceEdge' Complete",-1);
