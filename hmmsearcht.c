@@ -952,8 +952,42 @@ void GetSpliceOptions
   }
 
 
-  ESL_DSQ * Codon;
-  esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
+
+  // We need to convert the indices 'upstream_ss' and 'downstream_ss'
+  // to actual nucleotide coordinates
+  int us_option_range_start = Overlap->upstream_nucl_start;
+  int us_option_range_end;
+  int ds_option_range_start;
+  int ds_option_range_end   = Overlap->downstream_nucl_start;
+  if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
+
+    // Forward strand
+
+    us_option_range_start += upstream_ss + 1; // Gets us into the "contested" zone
+    us_option_range_end    = us_option_range_start + 4;
+
+    ds_option_range_end   += downstream_ss - 1;
+    ds_option_range_start  = ds_option_range_end - 4;
+
+  } else {
+
+    // Revcomp
+
+    us_option_range_start -= upstream_ss + 1;
+    us_option_range_end    = us_option_range_start - 4;
+
+    ds_option_range_end   -= downstream_ss - 1;
+    ds_option_range_start  = ds_option_range_end + 4;
+
+  }
+
+
+
+  // Grab them ranges!
+  ESL_DSQ * UN = GrabNuclRange(TargetNuclSeq,us_option_range_start,us_option_range_end);
+  ESL_DSQ * DN = GrabNuclRange(TargetNuclSeq,ds_option_range_start,ds_option_range_end);
+
+
 
   for (int i=0; i<4; i++) {
     Canon5Prime[i] = 0;
@@ -962,74 +996,67 @@ void GetSpliceOptions
 
 
 
-  // TO DO:  In order to accommodate splices that push right up against
-  //         the edge of a hit, we'll need to just pull in the nucleotides
-  //         directly from 'TargetNuclSeq'
+  ESL_DSQ * Codon;
+  esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
 
 
-  // Let's simplify our pointing
-  ESL_DSQ * UN = Overlap->UpstreamNucls;
-  ESL_DSQ * DN = Overlap->DownstreamNucls;
+  // NOTE: Even though there's an intuitive loop structure to this,
+  //       it doesn't kill us to unroll it, so I've unrolled it.
 
 
-
-  // Option 1: |ABCxx...yy|
-  Codon[1] = UN[upstream_ss+1];
-  Codon[2] = UN[upstream_ss+2];
-  Codon[3] = UN[upstream_ss+3];
-
+  // Option 1: |ABCxx|...yy|
+  Codon[1] = UN[1];
+  Codon[2] = UN[2];
+  Codon[3] = UN[3];
   SpliceCodons[0] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+
   if (SpliceCodons[0] >= 0 && SpliceCodons[0] <= 20) {
-    if (UN[  upstream_ss+4] == 2 && UN[  upstream_ss+5] == 3) Canon5Prime[0] = 1;
-    if (DN[downstream_ss-2] == 0 && DN[downstream_ss-1] == 2) Canon3Prime[0] = 1;
+    if (UN[4] == 2 && UN[5] == 3) Canon5Prime[0] = 1;
+    if (DN[4] == 0 && DN[5] == 2) Canon3Prime[0] = 1;
   } else {
     SpliceCodons[0] = -1; // Stop codon
   }
 
 
-  // Option 2: |ABxx...yyD|
-  Codon[1] = UN[  upstream_ss+1];
-  Codon[2] = UN[  upstream_ss+2];
-  Codon[3] = DN[downstream_ss-1];
-  
+  // Option 2: |ABxx.|..yyD|
+  Codon[3] = DN[5];  
   SpliceCodons[1] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+
   if (SpliceCodons[1] >= 0 && SpliceCodons[1] <= 20) {
-    if (UN[  upstream_ss+3] == 2 && UN[  upstream_ss+4] == 3) Canon5Prime[1] = 1;
-    if (DN[downstream_ss-3] == 0 && DN[downstream_ss-2] == 2) Canon3Prime[1] = 1;
+    if (UN[3] == 2 && UN[4] == 3) Canon5Prime[1] = 1;
+    if (DN[3] == 0 && DN[4] == 2) Canon3Prime[1] = 1;
   } else {
     SpliceCodons[1] = -1; // Stop codon
   }
 
 
-  // Option 3: |Axx...yyDE|
-  Codon[1] = UN[  upstream_ss+1];
-  Codon[2] = DN[downstream_ss-2];
-  Codon[3] = DN[downstream_ss-1];
-  
+  // Option 3: |Axx..|.yyDE|
+  Codon[2] = DN[4];
   SpliceCodons[2] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+
   if (SpliceCodons[2] >= 0 && SpliceCodons[2] <= 20) {
-    if (UN[  upstream_ss+2] == 2 && UN[  upstream_ss+3] == 3) Canon5Prime[2] = 1;
-    if (DN[downstream_ss-4] == 0 && DN[downstream_ss-3] == 2) Canon3Prime[2] = 1;
+    if (UN[2] == 2 && UN[3] == 3) Canon5Prime[2] = 1;
+    if (DN[2] == 0 && DN[3] == 2) Canon3Prime[2] = 1;
   } else {
     SpliceCodons[2] = -1; // Stop codon
   }
 
 
-  // Option 4: |xx...yyDEF|
-  Codon[1] = DN[downstream_ss-3];
-  Codon[2] = DN[downstream_ss-2];
-  Codon[3] = DN[downstream_ss-1];
-
+  // Option 4: |xx...|yyDEF|
+  Codon[1] = DN[3];
   SpliceCodons[3] = esl_gencode_GetTranslation(gcode,&Codon[1]);
+
   if (SpliceCodons[3] >= 0 && SpliceCodons[3] <= 20) {
-    if (UN[  upstream_ss+1] == 2 && UN[  upstream_ss+2] == 3) Canon5Prime[3] = 1;
-    if (DN[downstream_ss-5] == 0 && DN[downstream_ss-4] == 2) Canon3Prime[3] = 1;
+    if (UN[1] == 2 && UN[2] == 3) Canon5Prime[3] = 1;
+    if (DN[1] == 0 && DN[2] == 2) Canon3Prime[3] = 1;
   } else {
     SpliceCodons[3] = -1; // Stop codon
   }
 
 
   free(Codon);
+  free(UN);
+  free(DN);
 
   if (DEBUGGING) DEBUG_OUT("'GetSpliceOptions' Complete",-1);
 
@@ -1326,6 +1353,9 @@ void SpliceOverlappingDomains
   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceOverlappingDomains'",1);
 
 
+  // These splice indices are the terminal nucleotides *within* the
+  // uncontested coding region, relative to the nucleotide sequences
+  // in Overlap
   int   upstream_splice_index;
   int downstream_splice_index;
   int split_amino_model_index;
