@@ -2162,10 +2162,6 @@ void FindBestPathToNode
     Node->cumulative_score += Node->hit_score;
 
 
-  // DEBUGGING
-  fprintf(stderr,"  :: Node ID:%d --> [ %f / %f / %f ]\n",Node->node_id,Node->hit_score,Node->cumulative_score,Node->best_path_score);
-
-
   if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
 
 }
@@ -4072,7 +4068,11 @@ ESL_DSQ * TranslateExonSetNucls
 (ESL_DSQ * ExonSetNucls, int coding_region_len, ESL_GENCODE * gcode)
 {
 
-  ESL_DSQ * ExonSetTrans = malloc((1 + coding_region_len/3) * sizeof(ESL_DSQ));
+  if (DEBUGGING) DEBUG_OUT("Starting 'TranslateExonSetNucls'",1);
+
+
+  int translation_len = coding_region_len/3;
+  ESL_DSQ * ExonSetTrans = malloc((1 + translation_len) * sizeof(ESL_DSQ));
 
   ESL_DSQ * Codon = malloc(3*sizeof(ESL_DSQ));
   int trans_index = 1;
@@ -4085,6 +4085,10 @@ ESL_DSQ * TranslateExonSetNucls
   }
 
   free(Codon);
+
+
+  if (DEBUGGING) DEBUG_OUT("'TranslateExonSetNucls' Complete",-1);
+
 
   return ExonSetTrans;
 
@@ -4117,14 +4121,14 @@ ESL_DSQ * GrabExonCoordSetNucls
 {
 
   int num_exons = ExonCoordSet[0];
+
   int num_nucls = 0;
-
-
   for (int exon_id = 0; exon_id < num_exons; exon_id++)
     num_nucls += abs(ExonCoordSet[exon_id*4 + 1] - ExonCoordSet[exon_id*4 + 3]) + 1;
 
-  ESL_DSQ * ExonSetNucls = malloc(num_nucls * sizeof(ESL_DSQ));
+  ESL_DSQ * ExonSetNucls = malloc((num_nucls+1) * sizeof(ESL_DSQ));
   *coding_region_len = num_nucls;
+
 
   int nucl_placer = 1;
   for (int exon_id = 0; exon_id < num_exons; exon_id++) {
@@ -4293,7 +4297,13 @@ int ** GetSplicedExonCoordSets
         float best_comp_score = 0.0;
         FindComponentBestStart(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&best_comp_start,&best_comp_score);
 
-        StartNodes[num_conn_comps++] = best_comp_start;
+        // There's some way that we can get a node to not be properly tagged
+        // so that it *thinks* its connected component hasn't been considered.
+        // This results in 'FindComponentBestStart' returning without setting
+        // 'best_comp_start'
+        // This *is* a bug, but for now I'm just patching over it
+        if (best_comp_start != 0)
+          StartNodes[num_conn_comps++] = best_comp_start;
 
       }
 
