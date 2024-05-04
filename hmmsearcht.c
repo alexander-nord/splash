@@ -393,6 +393,9 @@ typedef struct _exon_display_info {
   // The relevant data from the 'ExonCoordSet'
   int exon_set_id;
   int exon_id;
+  int Nterm;
+  int Cterm;
+
   int hmm_start;
   int hmm_end;
   int nucl_start;
@@ -4414,7 +4417,7 @@ char * RightAlignStr
     OutStr[writer--] = InStr[i];
 
   while (writer >= 0)
-    OutStr[writer] = ' ';
+    OutStr[writer--] = ' ';
 
   return OutStr;
 
@@ -4430,12 +4433,6 @@ char * RightAlignStr
 char * IntToCharArr
 (int in_val, int * char_arr_len)
 {
-
-
-  // DEBUGGING
-  fprintf(stdout,"<<<'%d'\n",in_val); fflush(stdout);
-
-
 
   *char_arr_len = 1;
 
@@ -4464,12 +4461,6 @@ char * IntToCharArr
   }
   if (is_negative) CharArr[0] = '-';
 
-
-
-  // DEBUGGING
-  fprintf(stdout,">>>'%s'\n",CharArr); fflush(stdout);
-
-
   return CharArr;
 
 }
@@ -4482,23 +4473,24 @@ char * IntToCharArr
  *
  */
 void GetALSBlockLengths
-(P7_ALIDISPLAY * AD, int * block_A_len, int * block_B_len)
+(
+  P7_ALIDISPLAY * AD, 
+  int * block_A_len,  
+  int * ExonCoordSet, 
+  int * block_B_len
+)
 {
   
   *block_A_len = intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(OUT_TRANS_STR_NAME));
 
-  int hmm_from_len,hmm_to_len,sq_from_len,sq_to_len;
-  char * hmm_from_str = IntToCharArr(AD->hmmfrom,&hmm_from_len);
-  char * hmm_to_str   = IntToCharArr(AD->hmmto,&hmm_to_len);
-  char * sq_from_str  = IntToCharArr((int)(AD->sqfrom),&sq_from_len);
-  char * sq_to_str    = IntToCharArr((int)(AD->sqto),&sq_to_len);
+  int max_coord = 0;
+  for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
+    int set_max = intMax(intMax(ExonCoordSet[(exon_id*4)+1],ExonCoordSet[(exon_id*4)+3]),intMax(ExonCoordSet[(exon_id*4)+2],ExonCoordSet[(exon_id*4)+4]));
+    max_coord = intMax(max_coord,set_max);
+  }
 
-  *block_B_len = intMax(intMax(hmm_from_len,hmm_to_len),intMax(sq_from_len,sq_to_len));
-
-  free(hmm_from_str);
-  free(hmm_to_str);
-  free(sq_from_str);
-  free(sq_to_str);
+  char * max_coord_str = IntToCharArr(max_coord,block_B_len);
+  free(max_coord_str);
 
 }
 
@@ -4511,8 +4503,14 @@ void GetALSBlockLengths
  *  Function: PrintExon
  *
  */
-int PrintExon
-(EXON_DISPLAY_INFO * EDI, TARGET_SEQ * TargetNuclSeq, int ad_read_pos)
+void PrintExon
+(
+  EXON_DISPLAY_INFO * EDI, 
+  TARGET_SEQ * TargetNuclSeq, 
+  int * ad_nucl_read_pos,
+  int * ad_amino_read_pos,
+  int * codon_pos
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'PrintExon'",1);
@@ -4521,17 +4519,31 @@ int PrintExon
   FILE          * ofp = EDI->ofp;
   P7_ALIDISPLAY * AD  = EDI->AD;
   
-  ESL_DSQ * LeftDinucls;
-  ESL_DSQ * RightDinucls;
+  ESL_DSQ * LeftDinucls  = NULL;
+  ESL_DSQ * RightDinucls = NULL;
   int ali_nucl_start = EDI->nucl_start;
   if (EDI->revcomp) {
-    ali_nucl_start += 2;
-    LeftDinucls     = GrabNuclRange(TargetNuclSeq,EDI->nucl_start+2,EDI->nucl_start+1);
-    RightDinucls    = GrabNuclRange(TargetNuclSeq,EDI->nucl_end-1,EDI->nucl_end-2);
+
+    if (!EDI->Nterm) {
+      LeftDinucls = GrabNuclRange(TargetNuclSeq,EDI->nucl_start+2,EDI->nucl_start+1);
+      ali_nucl_start += 2;
+    }
+
+    if (!EDI->Cterm) {
+      RightDinucls = GrabNuclRange(TargetNuclSeq,EDI->nucl_end-1,EDI->nucl_end-2);
+    }
+
   } else {
-    ali_nucl_start -= 2;
-    LeftDinucls     = GrabNuclRange(TargetNuclSeq,EDI->nucl_start-2,EDI->nucl_start-1);
-    RightDinucls    = GrabNuclRange(TargetNuclSeq,EDI->nucl_end+1,EDI->nucl_end+2);
+
+    if (!EDI->Nterm) {
+      LeftDinucls = GrabNuclRange(TargetNuclSeq,EDI->nucl_start-2,EDI->nucl_start-1);
+      ali_nucl_start -= 2;
+    }
+
+    if (!EDI->Cterm) {
+      RightDinucls = GrabNuclRange(TargetNuclSeq,EDI->nucl_end+1,EDI->nucl_end+2);
+    }
+
   }
 
 
@@ -4545,53 +4557,95 @@ int PrintExon
 
 
   // Left splicing dinucleotides
-  ModelAli[0]   = ' ';
-  ModelAli[1]   = ' ';
-  QualityAli[0] = ' ';
-  QualityAli[1] = ' ';
-  TransAli[0]   = ' ';
-  TransAli[1]   = ' ';
-  NuclAli[0]    = LC_DNA_CHARS[LeftDinucls[1]];
-  NuclAli[1]    = LC_DNA_CHARS[LeftDinucls[2]];
-  PPAli[0]      = '|';
-  PPAli[1]      = '|';
+  int write_pos = 0;
+  if (!EDI->Nterm) {
+    ModelAli[0]   = ' ';
+    ModelAli[1]   = ' ';
+    QualityAli[0] = ' ';
+    QualityAli[1] = ' ';
+    TransAli[0]   = ' ';
+    TransAli[1]   = ' ';
+    NuclAli[0]    = LC_DNA_CHARS[LeftDinucls[1]];
+    NuclAli[1]    = LC_DNA_CHARS[LeftDinucls[2]];
+    PPAli[0]      = '|';
+    PPAli[1]      = '|';
+    write_pos = 2;
+  }
+
 
 
   int current_nucl_pos = EDI->nucl_start;
-  int read_pos         = ad_read_pos;
-  int write_pos        = 2;
-  while (current_nucl_pos <= EDI->nucl_end) {
+  while ((EDI->revcomp && current_nucl_pos >= EDI->nucl_end)
+         || (!EDI->revcomp && current_nucl_pos <= EDI->nucl_end)) {
 
-    ModelAli[write_pos]   = AD->model[read_pos];
-    QualityAli[write_pos] = AD->mline[read_pos];
-    TransAli[write_pos]   = AD->aseq[read_pos];
-    NuclAli[write_pos]    = AD->ntseq[read_pos];
-    PPAli[write_pos]      = AD->ppline[read_pos];
+    NuclAli[write_pos] = AD->ntseq[*ad_nucl_read_pos];
+    if (NuclAli[write_pos] != '-') {
+      if (EDI->revcomp) {
+        current_nucl_pos--;
+      } else {
+        current_nucl_pos++;
+      }
+    }
+    *ad_nucl_read_pos += 1;
 
-    // Did we advance in the nucleotide sequence?
-    if (NuclAli[write_pos] != '-')
-      current_nucl_pos++;
+    if (*codon_pos == 1) {
+      ModelAli[write_pos]   = AD->model[*ad_amino_read_pos];
+      QualityAli[write_pos] = AD->mline[*ad_amino_read_pos];
+      TransAli[write_pos]   = AD->aseq[*ad_amino_read_pos];
+      PPAli[write_pos]      = AD->ppline[*ad_amino_read_pos];
+      *ad_amino_read_pos   += 1;
+    } else {
+      ModelAli[write_pos]   = ' ';
+      QualityAli[write_pos] = ' ';
+      TransAli[write_pos]   = ' ';
+      PPAli[write_pos]      = ' ';
+    }
+
+    *codon_pos += 1;
+    if (*codon_pos == 3)
+      *codon_pos = 0;
 
     write_pos++;
-    read_pos++;
 
   }
-  int ad_end_read_pos = read_pos;
 
 
   // Right splicing dinucleotides
-  ModelAli[write_pos]     = ' ';
-  ModelAli[write_pos+1]   = ' ';
-  QualityAli[write_pos]   = ' ';
-  QualityAli[write_pos+1] = ' ';
-  TransAli[write_pos]     = ' ';
-  TransAli[write_pos+1]   = ' ';
-  NuclAli[write_pos]      = LC_DNA_CHARS[RightDinucls[1]];
-  NuclAli[write_pos+1]    = LC_DNA_CHARS[RightDinucls[2]];
-  PPAli[write_pos]        = '|';
-  PPAli[write_pos+1]      = '|';
+  if (!EDI->Cterm) {
+    ModelAli[write_pos]     = ' ';
+    ModelAli[write_pos+1]   = ' ';
+    QualityAli[write_pos]   = ' ';
+    QualityAli[write_pos+1] = ' ';
+    TransAli[write_pos]     = ' ';
+    TransAli[write_pos+1]   = ' ';
+    NuclAli[write_pos]      = LC_DNA_CHARS[RightDinucls[1]];
+    NuclAli[write_pos+1]    = LC_DNA_CHARS[RightDinucls[2]];
+    PPAli[write_pos]        = '|';
+    PPAli[write_pos+1]      = '|';
+    write_pos += 2;
+  }
 
-  int ali_len = write_pos + 2;
+  // Make the strings *very* printable! (for debugging, mainly...)
+  ModelAli[write_pos]   = 0;
+  QualityAli[write_pos] = 0;
+  TransAli[write_pos]   = 0;
+  NuclAli[write_pos]    = 0;
+  PPAli[write_pos]      = 0;
+
+
+  int ali_len = write_pos; // Just for clarity of reading
+
+
+  // Just wipe these now, since they're stored in the alignment
+  if ( LeftDinucls) free( LeftDinucls);
+  if (RightDinucls) free(RightDinucls);
+
+
+
+  // We're officially well-positioned to print out this exon!
+  // Before we start printing the alingment, let's give just
+  // a kiss of metadata
+  fprintf(ofp,"\n  %s %s ==[ Exon Set %d / Exon %d ]==\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
 
 
   int formatted_int_len; // We just need a pointer for 'IntToCharArr'
@@ -4608,6 +4662,7 @@ int PrintExon
       line_read_end = ali_len;
 
 
+    //////////////////////////////////
     //
     // 1. Model
     //
@@ -4618,38 +4673,44 @@ int PrintExon
     free(CharredInt);
     free(FormattedInt);
 
-    int advanced_in_model = 0;
-    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
+    int init_model_pos = model_pos;
+    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
       fprintf(ofp,"%c",ModelAli[read_pos]);
-      if (ModelAli[read_pos] != ' ') {
+      if (ModelAli[read_pos] != ' ' && ModelAli[read_pos] != '.') {
         model_pos++;
-        advanced_in_model++;
       }
     }
-    fprintf(ofp," %d\n",model_pos-advanced_in_model);
+    if (model_pos == init_model_pos) {
+      fprintf(ofp," %d\n",model_pos);
+    } else {
+      fprintf(ofp," %d\n",model_pos-1);
+    }
 
 
 
+    //////////////////////////////////
     //
     // 2. Quality stuff
     //
     fprintf(ofp,"  %s %s ",EDI->NameBlank,EDI->CoordBlank);
-    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",QualityAli[read_pos]);
     fprintf(ofp,"\n");
 
 
 
+    //////////////////////////////////
     //
     // 3. Translation
     //
     fprintf(ofp,"  %s %s ",EDI->TransName,EDI->CoordBlank);
-    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",TransAli[read_pos]);
     fprintf(ofp,"\n");
 
 
 
+    //////////////////////////////////
     //
     // 4. Nucleotides
     //
@@ -4660,37 +4721,48 @@ int PrintExon
     free(CharredInt);
     free(FormattedInt);
 
-    int advanced_in_genome = 0;
-    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
+    int init_nucl_pos = nucl_pos;
+    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
       fprintf(ofp,"%c",NuclAli[read_pos]);
       if (NuclAli[read_pos] != '-') {
-        nucl_pos++;
-        advanced_in_genome++;
+        if (EDI->revcomp) {
+          nucl_pos--;
+        } else {
+          nucl_pos++;
+        }
       }
     }
-    fprintf(ofp," %d\n",nucl_pos-advanced_in_genome);
+    if (nucl_pos == init_nucl_pos) {
+      fprintf(ofp," %d\n",nucl_pos);
+    } else if (EDI->revcomp) {
+      fprintf(ofp," %d\n",nucl_pos+1);
+    } else {
+      fprintf(ofp," %d\n",nucl_pos-1);
+    }
 
 
 
+    //////////////////////////////////
     //
     // 5. PP Time!
     //
     fprintf(ofp,"  %s %s ",EDI->NameBlank,EDI->CoordBlank);
-    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",PPAli[read_pos]);
     fprintf(ofp,"\n");
 
 
 
+    //////////////////////////////////
+    //
     // That's another buncha rows!
+    //
     fprintf(ofp,"\n");
 
   }
 
 
 
-  free(LeftDinucls);
-  free(RightDinucls);
   free(ModelAli);
   free(QualityAli);
   free(TransAli);
@@ -4700,7 +4772,6 @@ int PrintExon
 
   if (DEBUGGING) DEBUG_OUT("'PrintExon' Complete",-1);
 
-  return ad_end_read_pos;
 
 }
 
@@ -4742,7 +4813,7 @@ void PrintSplicedAlignment
   EDI->exon_set_id = exon_set_name_id;
 
 
-  GetALSBlockLengths(EDI->AD,&(EDI->name_str_len),&(EDI->coord_str_len));
+  GetALSBlockLengths(EDI->AD,&(EDI->name_str_len),ExonCoordSet,&(EDI->coord_str_len));
 
   EDI->HMMName   = RightAlignStr(EDI->AD->hmmname  ,EDI->name_str_len);
   EDI->TransName = RightAlignStr(OUT_TRANS_STR_NAME,EDI->name_str_len);
@@ -4760,9 +4831,11 @@ void PrintSplicedAlignment
   if (ExonCoordSet[1] > ExonCoordSet[3])
     EDI->revcomp = 1;
   
+  int codon_pos         = 0;
+  int ad_nucl_read_pos  = 0;
+  int ad_amino_read_pos = 0;
 
-  int ad_read_pos = 0;
-  int num_exons   = ExonCoordSet[0];
+  int num_exons = ExonCoordSet[0];
   for (int exon_id = 0; exon_id < num_exons; exon_id++) {
 
     EDI->exon_id     = exon_id + 1;
@@ -4771,7 +4844,13 @@ void PrintSplicedAlignment
     EDI->nucl_start  = ExonCoordSet[(4*exon_id)+1];
     EDI->nucl_end    = ExonCoordSet[(4*exon_id)+3];
 
-    ad_read_pos = PrintExon(EDI,TargetNuclSeq,ad_read_pos);
+    if (exon_id == 0) EDI->Nterm = 1;
+    else              EDI->Nterm = 0;
+
+    if (exon_id == num_exons-1) EDI->Cterm = 1;
+    else                        EDI->Cterm = 0;
+
+    PrintExon(EDI,TargetNuclSeq,&ad_nucl_read_pos,&ad_amino_read_pos,&codon_pos);
 
   }
 
@@ -4863,9 +4942,9 @@ int ReportSplicedTopHits
   if (ExonSetTopHits->N > 1) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
+    if (DEBUGGING) p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
-  fprintf(ofp,"\n\n");
 
   fprintf(ofp,":\n");
   fprintf(ofp,"|\n");
