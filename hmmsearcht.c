@@ -1460,11 +1460,11 @@ void SpliceOverlappingDomains
 
 
   if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - best_split_opt) - 1);
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - best_split_opt - 1);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - best_split_opt));
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - best_split_opt);
   } else {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - best_split_opt) - 1);
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - best_split_opt - 1);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - best_split_opt));
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - best_split_opt);
   }
 
 
@@ -4944,7 +4944,8 @@ int ReportSplicedTopHits
   if (ExonSetTopHits->N > 1) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
-    if (DEBUGGING) p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
+    if (DEBUGGING && 0) 
+      p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
 
