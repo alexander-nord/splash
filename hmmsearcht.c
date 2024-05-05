@@ -967,6 +967,7 @@ int DetermineNuclType
  *           filled in with values representing each of the precise splice site options.
  *
  */
+/*
 void GetSpliceOptions
 (
   DOMAIN_OVERLAP * Overlap,
@@ -1106,7 +1107,184 @@ void GetSpliceOptions
   if (DEBUGGING) DEBUG_OUT("'GetSpliceOptions' Complete",-1);
 
 }
+*/
 
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: SelectSpliceOpt
+ *
+ */
+int SelectSpliceOpt
+(
+  ESL_DSQ * UN,
+  ESL_DSQ * DN,
+  int model_pos,
+  P7_PROFILE * gm,
+  ESL_GENCODE * gcode,
+  float * splice_score
+)
+{
+
+  int best_opt  = -1;
+  *splice_score = EDGE_FAIL_SCORE;
+
+
+  ESL_DSQ * Codon;
+  esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
+
+
+  // 0. |ABCxx|...yy|
+  Codon[1] = UN[1];
+  Codon[2] = UN[2];
+  Codon[3] = UN[3];
+
+  int amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  float opt_score = EDGE_FAIL_SCORE;
+  if (amino_index >= 0 && amino_index <= 20) {
+
+    opt_score = gm->rsc[amino_index][2*model_pos];
+
+    if (UN[4] == 2 && UN[5] == 3) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (DN[4] == 0 && DN[5] == 2) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    *splice_score = opt_score;
+    best_opt = 0;
+
+  }
+
+
+  // 1. |ABxx.|..yyF|
+  Codon[3] = DN[5];
+
+  amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (amino_index >= 0 && amino_index <= 20) {
+
+    opt_score = gm->rsc[amino_index][2*model_pos];
+
+    if (UN[3] == 2 && UN[4] == 3) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (DN[3] == 0 && DN[4] == 2) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (opt_score > *splice_score) {
+      *splice_score = opt_score;
+      best_opt = 1;
+    }
+
+  }
+
+
+  // 2. |Axx..|.yyEF|
+  Codon[2] = DN[4];
+
+  amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (amino_index >= 0 && amino_index <= 20) {
+
+    opt_score = gm->rsc[amino_index][2*model_pos];
+
+    if (UN[2] == 2 && UN[3] == 3) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (DN[2] == 0 && DN[3] == 2) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (opt_score > *splice_score) {
+      *splice_score = opt_score;
+      best_opt = 2;
+    }
+
+  }
+
+
+  // 3. |xx...|yyDEF|
+  Codon[1] = DN[3];
+
+  amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
+  if (amino_index >= 0 && amino_index <= 20) {
+
+    opt_score = gm->rsc[amino_index][2*model_pos];
+
+    if (UN[2] == 2 && UN[3] == 3) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (DN[2] == 0 && DN[3] == 2) opt_score += SSSCORE[1];
+    else                          opt_score += SSSCORE[0];
+
+    if (opt_score > *splice_score) {
+      *splice_score = opt_score;
+      best_opt = 3;
+    }
+
+  }
+
+
+  free(Codon);
+
+  return best_opt;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetContestedUpstreamNucls
+ *
+ */
+ESL_DSQ * GetContestedUpstreamNucls
+(ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * DN)
+{
+  int write_pos = 1;
+  while (write_pos<6) {
+    if (NuclSeq[read_pos] >= 0 && NuclSeq[read_pos] <= 3)
+      UN[write_pos++] = NuclSeq[read_pos];
+    read_pos++;
+  }
+}
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetContestedDownstreamNucls
+ *
+ */
+ESL_DSQ * GetContestedDownstreamNucls
+(ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * DN)
+{
+  int write_pos = 5;
+  while (write_pos) {
+    if (NuclSeq[read_pos] >= 0 && NuclSeq[read_pos] <= 3)
+      DN[write_pos--] = NuclSeq[read_pos];
+    read_pos--;
+  }
+}
 
 
 
@@ -1138,7 +1316,8 @@ float FindOptimalSpliceSite
   ESL_GENCODE    * gcode,
   int *   upstream_splice_index,
   int * downstream_splice_index,
-  int * split_amino_model_index
+  int * split_amino_model_index,
+  int * codon_split_option
 )
 {
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",1);
@@ -1155,6 +1334,7 @@ float FindOptimalSpliceSite
   // Oversize -- Deal with it!
   int   * USTrans    = malloc(upstream_nucl_cnt*sizeof(int));
   int   * USModelPos = malloc(upstream_nucl_cnt*sizeof(int));
+  int   * USNuclPos  = malloc(upstream_nucl_cnt*sizeof(int));
   float * USScores   = malloc(upstream_nucl_cnt*sizeof(float));
 
 
@@ -1163,6 +1343,9 @@ float FindOptimalSpliceSite
   int model_pos      = Overlap->amino_start;
   int display_pos    = Overlap->upstream_disp_start;
   while (model_pos <= Overlap->UpstreamDisplay->hmmto) {
+
+
+    USNuclPos[us_trans_len] = nucl_read_pos;
 
 
     int amino_index = 27;
@@ -1194,6 +1377,9 @@ float FindOptimalSpliceSite
   for (int i=1; i<=Overlap->upstream_ext_len; i++) {
 
 
+    USNuclPos[us_trans_len] = nucl_read_pos;
+
+
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
 
@@ -1222,12 +1408,16 @@ float FindOptimalSpliceSite
   // Oversize -- deal with it!
   int   * DSTrans    = malloc(downstream_nucl_cnt*sizeof(int));
   int   * DSModelPos = malloc(downstream_nucl_cnt*sizeof(int));
+  int   * DSNuclPos  = malloc(downstream_nucl_cnt*sizeof(int));
   float * DSScores   = malloc(downstream_nucl_cnt*sizeof(float));
 
   int ds_trans_len = 0;
-  nucl_read_pos    = 1;
+  nucl_read_pos    = 3; // Because we sneak in 2 extra nucleotides for splice signal
   model_pos        = Overlap->amino_start;
   while (ds_trans_len < Overlap->downstream_ext_len) {
+
+
+    DSNuclPos[ds_trans_len] = nucl_read_pos+2;
 
 
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
@@ -1249,6 +1439,9 @@ float FindOptimalSpliceSite
 
   display_pos = 0;
   while (model_pos <= Overlap->amino_end) {
+
+
+    DSNuclPos[ds_trans_len] = nucl_read_pos+2;
 
 
     int amino_index = 27;
@@ -1291,10 +1484,15 @@ float FindOptimalSpliceSite
 
 
   // What position in the model are we splitting on?
-  int   optimal_us_pos    = 0;
-  int   optimal_ds_pos    = 0;
-  int   optimal_model_pos = 0;
-  float optimal_score     = 0.0;
+  int   optimal_us_pos     = 0;
+  int   optimal_ds_pos     = 0;
+  int   optimal_model_pos  = 0;
+  int   optimal_splice_opt = 0;
+  float optimal_score      = 0.0;
+
+  // Arrays we'll use for splice site evaluation
+  ESL_DSQ * UN = malloc(6*sizeof(ESL_DSQ));
+  ESL_DSQ * UN = malloc(6*sizeof(ESL_DSQ));
 
   int us_start = 0;
   int ds_start = 0;
@@ -1313,13 +1511,24 @@ float FindOptimalSpliceSite
 
       while (DSModelPos[ds_pos] == model_pos) {
 
-        float sum_score = USScores[us_pos] + DSScores[ds_pos];
+
+        // Pull in the "contested" nucleotides for this position
+        GetContestedUpstreamNucls(Overlap->UpstreamNucls,USNuclPos[us_pos],UN);
+        GetContestedDownstreamNucls(Overlap->DownstreamNucls,DSNuclPos[ds_pos],DN);
+
+  
+        float splice_score;
+        int splice_option = SelectSpliceOpt(UN,DN,model_pos,gm,gcode,&splice_score);
+
+
+        float sum_score = USScores[us_pos] + DSScores[ds_pos] + splice_score;
 
         if (sum_score > optimal_score) {
-          optimal_score     = sum_score;
-          optimal_us_pos    = us_pos;
-          optimal_ds_pos    = ds_pos;
-          optimal_model_pos = model_pos;
+          optimal_score      = sum_score;
+          optimal_us_pos     = us_pos;
+          optimal_ds_pos     = ds_pos;
+          optimal_model_pos  = model_pos;
+          optimal_splice_opt = splice_option;
         }
 
         ds_pos++;
@@ -1334,12 +1543,19 @@ float FindOptimalSpliceSite
     ds_start = ds_pos;
 
   }
+  
   free(USTrans);
   free(USModelPos);
+  free(USNuclPos);
   free(USScores);
+  
   free(DSTrans);
   free(DSModelPos);
+  free(DSNuclPos);
   free(DSScores);
+
+  free(UN);
+  free(DN);
 
 
   // Currently, the optimal positions share an amino,
@@ -1354,6 +1570,7 @@ float FindOptimalSpliceSite
   *upstream_splice_index   = 3 * optimal_us_pos;
   *downstream_splice_index = 3 * optimal_ds_pos + 4;
   *split_amino_model_index = optimal_model_pos;
+  *codon_split_option      = optimal_splice_opt;
 
 
   if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete",-1);
@@ -1404,53 +1621,14 @@ void SpliceOverlappingDomains
   int   upstream_splice_index;
   int downstream_splice_index;
   int split_amino_model_index;
-  float splice_score = FindOptimalSpliceSite(Overlap,gm,gcode,&upstream_splice_index,&downstream_splice_index,&split_amino_model_index);
+  int codon_split_option;
+  float splice_score = FindOptimalSpliceSite(Overlap,gm,gcode,&upstream_splice_index,&downstream_splice_index,&split_amino_model_index,&codon_split_option);
 
-
-  if (splice_score == EDGE_FAIL_SCORE) {
-    Overlap->score         = EDGE_FAIL_SCORE;
-    Overlap->score_density = EDGE_FAIL_SCORE;
-    if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (splicing score was -inf...?)",-1);
-    return;
-  }
-
-
-  // At this point, the optimal amino acid is the one that's
-  // contested between the two hits, so we need to decide how
-  // best to splice it.
-  int * SpliceCodons = malloc(4*sizeof(int));
-  int * Canon5Prime  = malloc(4*sizeof(int)); // GT
-  int * Canon3Prime  = malloc(4*sizeof(int)); // AG
-
-  GetSpliceOptions(Overlap,TargetNuclSeq,upstream_splice_index,downstream_splice_index,SpliceCodons,Canon5Prime,Canon3Prime,gcode);
-
-
-
-  // Let's see which SpliceCodon has the best match to the model at
-  // the "model_ss," while also factoring in splice site signals.
-  int   best_split_opt   = -1;
-  float best_split_score = EDGE_FAIL_SCORE;
-  for (int i=0; i<4; i++) {
-    
-    // Did we end up with a stop codon?
-    if (SpliceCodons[i] == -1) continue;
-
-    float split_score = gm->rsc[SpliceCodons[i]][split_amino_model_index * 2] + SSSCORE[Canon5Prime[i]] + SSSCORE[Canon3Prime[i]];
-    if (split_score > best_split_score) {
-      best_split_score = split_score;
-      best_split_opt   = i;
-    }
-
-  }
-  free(SpliceCodons);
-  free(Canon5Prime);
-  free(Canon3Prime);
-  
 
 
   // This would be really bizarre (and worth checking to see if it
   // ever actually happens...)
-  if (best_split_opt == -1) {
+  if (codon_split_opt == -1) {
     Overlap->score         = EDGE_FAIL_SCORE;
     Overlap->score_density = EDGE_FAIL_SCORE;
     if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (BUT WITH TERRIBLE OPTIONS?!)",-1);
@@ -1460,15 +1638,15 @@ void SpliceOverlappingDomains
 
 
   if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - best_split_opt));
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - best_split_opt);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - codon_split_option));
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - codon_split_option);
   } else {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - best_split_opt));
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - best_split_opt);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - codon_split_option));
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - codon_split_option);
   }
 
 
-  if (best_split_opt < 2) {
+  if (codon_split_option < 2) {
     Overlap->upstream_exon_terminus   = split_amino_model_index;
     Overlap->downstream_exon_terminus = split_amino_model_index + 1;
   } else {
@@ -1477,8 +1655,8 @@ void SpliceOverlappingDomains
   }
 
 
-  Overlap->score = splice_score + best_split_score;
-  Overlap->score_density = Overlap->score / (1 + Overlap->amino_end - Overlap->amino_start);
+  Overlap->score = splice_score;
+  Overlap->score_density = splice_score / (1 + Overlap->amino_end - Overlap->amino_start);
 
 
   if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete",-1);
@@ -1642,8 +1820,16 @@ void SketchSpliceEdge
 
 
   // Grab them nucleotides!
-  Edge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,Edge->upstream_nucl_start,Edge->upstream_nucl_end);
-  Edge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,Edge->downstream_nucl_start,Edge->downstream_nucl_end);
+  // Note that in order to ensure we can consider *every*
+  // position in the overlap, we need to grab 2 extra
+  // nucleotides to serve as splice signal candidates.
+  if (Edge->upstream_nucl_start < Edge->upstream_nucl_end) {
+    Edge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,Edge->upstream_nucl_start,Edge->upstream_nucl_end+2);
+    Edge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,Edge->downstream_nucl_start-2,Edge->downstream_nucl_end);
+  } else {
+    Edge->UpstreamNucls   = GrabNuclRange(TargetNuclSeq,Edge->upstream_nucl_start,Edge->upstream_nucl_end-2);
+    Edge->DownstreamNucls = GrabNuclRange(TargetNuclSeq,Edge->downstream_nucl_start+2,Edge->downstream_nucl_end);
+  }
 
 
   // Finish off by adding this friendly little pointer
@@ -1659,7 +1845,7 @@ void SketchSpliceEdge
     fprintf(stderr,"\n");
     fprintf(stderr,"                      : Downstream : %d ... %d\n",Edge->downstream_nucl_start,Edge->downstream_nucl_end);
     fprintf(stderr,"                                   : ");
-    for (int i=1; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+1; i++)
+    for (int i=3; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+3; i++)
       fprintf(stderr,"%c",DNA_CHARS[Edge->DownstreamNucls[i]]);
     fprintf(stderr,"\n\n");
   }
