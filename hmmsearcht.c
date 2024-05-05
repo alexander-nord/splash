@@ -4834,12 +4834,31 @@ void PrintExon
   fprintf(ofp,"\n  %s %s [ Exon Set %d / Exon %d ]\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
 
 
+  // I'm making the executive decision that this is what the
+  // Translated Nucleotide String is titled, and nobody can stop
+  // me!
+  int exon_id_len;
+  char * exon_id_str = IntToCharArr(EDI->exon_id,&exon_id_len);
+  char * TNSName = malloc((exon_id_len + 6) * sizeof(char));
+  TNSName[0] = 'e';
+  TNSName[1] = 'x';
+  TNSName[2] = 'o';
+  TNSName[3] = 'n';
+  TNSName[4] = ' ';
+  for (int i=0; i<exon_id_len; i++)
+    TNSName[5+i] = exon_id_str[i];
+  TNSName[5+exon_id_len] = 0;
+  char * FormattedTNSName = RightAlignStr(TNSName,EDI->name_str_len);
+
+
+
   int formatted_int_len; // We just need a pointer for 'IntToCharArr'
   char * CharredInt;
   char * FormattedInt;
 
   // If they're pranking us, prank 'em right back!
   if (EDI->textw < 1) EDI->textw = ali_len;
+
 
   int model_pos = EDI->hmm_start;
   int nucl_pos  = ali_nucl_start;
@@ -4892,7 +4911,8 @@ void PrintExon
     //
     // 3. Translation
     //
-    fprintf(ofp,"  %s %s ",EDI->TransName,EDI->CoordBlank);
+    // OLD: fprintf(ofp,"  %s %s ",EDI->TransName,EDI->CoordBlank);
+    fprintf(ofp,"  %s %s ",FormattedTNSName,EDI->CoordBlank);
     for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",TransAli[read_pos]);
     fprintf(ofp,"\n");
