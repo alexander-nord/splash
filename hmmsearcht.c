@@ -4644,7 +4644,7 @@ void PrintExon
   // We're officially well-positioned to print out this exon!
   // Before we start printing the alingment, let's give just
   // a kiss of metadata
-  fprintf(ofp,"\n  %s %s ==[ Exon Set %d / Exon %d ]==\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
+  fprintf(ofp,"\n  %s %s [ Exon Set %d / Exon %d ]\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
 
 
   int formatted_int_len; // We just need a pointer for 'IntToCharArr'
@@ -4929,8 +4929,20 @@ int ReportSplicedTopHits
   fprintf(ofp,"\n\n");
   */
 
+  int num_exons   = ExonCoordSet[0];
+  int model_start = ExonCoordSet[2];
+  int model_end   = ExonCoordSet[4 + 4*(num_exons-1)];
+  int nucl_start  = ExonCoordSet[1];
+  int nucl_end    = ExonCoordSet[3 + 4*(num_exons-1)];
+
   fprintf(ofp,"\n\n+=====================================================+\n");
-  fprintf(ofp,"| Splash spliced alignment (exon set %d)\n",exon_set_name_id);
+  fprintf(ofp,"|\n");
+  fprintf(ofp,"| splash - spliced alignment of some hits\n");
+  fprintf(ofp,"|\n");
+  fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
+  fprintf(ofp,"| = Model Positions  %d..%d\n",model_start,model_end);
+  fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
+  fprintf(ofp,"|\n");
   fprintf(ofp,":\n\n");
 
 
