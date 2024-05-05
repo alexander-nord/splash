@@ -1123,6 +1123,7 @@ void GetSpliceOptions
  */
 int SelectSpliceOpt
 (
+  DOMAIN_OVERLAP * Overlap,
   ESL_DSQ * UN,
   ESL_DSQ * DN,
   int model_pos,
@@ -1215,10 +1216,10 @@ int SelectSpliceOpt
 
     opt_score = gm->rsc[amino_index][2*model_pos];
 
-    if (UN[2] == 2 && UN[3] == 3) opt_score += SSSCORE[1];
+    if (UN[1] == 2 && UN[2] == 3) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
-    if (DN[2] == 0 && DN[3] == 2) opt_score += SSSCORE[1];
+    if (DN[1] == 0 && DN[2] == 2) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
     if (opt_score > *splice_score) {
@@ -1252,7 +1253,7 @@ int SelectSpliceOpt
  *
  */
 ESL_DSQ * GetContestedUpstreamNucls
-(ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * DN)
+(ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * UN)
 {
   int write_pos = 1;
   while (write_pos<6) {
@@ -1492,7 +1493,7 @@ float FindOptimalSpliceSite
 
   // Arrays we'll use for splice site evaluation
   ESL_DSQ * UN = malloc(6*sizeof(ESL_DSQ));
-  ESL_DSQ * UN = malloc(6*sizeof(ESL_DSQ));
+  ESL_DSQ * DN = malloc(6*sizeof(ESL_DSQ));
 
   int us_start = 0;
   int ds_start = 0;
@@ -1518,7 +1519,7 @@ float FindOptimalSpliceSite
 
   
         float splice_score;
-        int splice_option = SelectSpliceOpt(UN,DN,model_pos,gm,gcode,&splice_score);
+        int splice_option = SelectSpliceOpt(Overlap,UN,DN,model_pos,gm,gcode,&splice_score);
 
 
         float sum_score = USScores[us_pos] + DSScores[ds_pos] + splice_score;
@@ -1628,7 +1629,7 @@ void SpliceOverlappingDomains
 
   // This would be really bizarre (and worth checking to see if it
   // ever actually happens...)
-  if (codon_split_opt == -1) {
+  if (codon_split_option == -1) {
     Overlap->score         = EDGE_FAIL_SCORE;
     Overlap->score_density = EDGE_FAIL_SCORE;
     if (DEBUGGING) DEBUG_OUT("'SpliceOverlappingDomains' Complete (BUT WITH TERRIBLE OPTIONS?!)",-1);
@@ -1638,11 +1639,11 @@ void SpliceOverlappingDomains
 
 
   if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - codon_split_option));
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - codon_split_option);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start + (upstream_splice_index + (3 - codon_split_option)) - 1;
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start + (downstream_splice_index - codon_split_option) - 1;
   } else {
-    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - codon_split_option));
-    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - codon_split_option);
+    Overlap->upstream_spliced_nucl_end = Overlap->upstream_nucl_start - (upstream_splice_index + (3 - codon_split_option)) + 1;
+    Overlap->downstream_spliced_nucl_start = Overlap->downstream_nucl_start - (downstream_splice_index - codon_split_option) + 1;
   }
 
 
