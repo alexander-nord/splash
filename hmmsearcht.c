@@ -164,7 +164,7 @@ void DEBUG_OUT (const char * message, const int func_depth_change) {
 }
 
 
-static float SSSCORE[2]      = {-0.7,0.7}; // Non-canon vs canon splice site
+static float SSSCORE[2]      = {-0.7,0.0}; // Non-canon vs canon splice site
 static float EDGE_FAIL_SCORE = -14773.0;   // Makes me thirsty for a latte!
 
 static char  AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
@@ -173,7 +173,6 @@ static char LC_DNA_CHARS[ 5] = {'a','c','g','t','-'};
 static char    RNA_CHARS[ 5] = {'A','C','G','U','-'};
 static char LC_RNA_CHARS[ 5] = {'a','c','g','u','-'};
 
-static char OUT_TRANS_STR_NAME[12] = "Translation\0";
 
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
@@ -4481,7 +4480,7 @@ void GetALSBlockLengths
 )
 {
   
-  *block_A_len = intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(OUT_TRANS_STR_NAME));
+  *block_A_len = intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(AD->orfname));
 
   int max_coord = 0;
   for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
@@ -4652,6 +4651,9 @@ void PrintExon
   char * CharredInt;
   char * FormattedInt;
 
+  // If they're pranking us, prank 'em right back!
+  if (EDI->textw < 1) EDI->textw = ali_len;
+
   int model_pos = EDI->hmm_start;
   int nucl_pos  = ali_nucl_start;
   for (int line_read_start = 0; line_read_start < ali_len; line_read_start += EDI->textw) {
@@ -4815,10 +4817,10 @@ void PrintSplicedAlignment
 
   GetALSBlockLengths(EDI->AD,&(EDI->name_str_len),ExonCoordSet,&(EDI->coord_str_len));
 
-  EDI->HMMName   = RightAlignStr(EDI->AD->hmmname  ,EDI->name_str_len);
-  EDI->TransName = RightAlignStr(OUT_TRANS_STR_NAME,EDI->name_str_len);
-  EDI->NuclName  = RightAlignStr(EDI->AD->sqname   ,EDI->name_str_len);
-  EDI->NameBlank = RightAlignStr(" "               ,EDI->name_str_len);
+  EDI->HMMName   = RightAlignStr(EDI->AD->hmmname,EDI->name_str_len);
+  EDI->TransName = RightAlignStr(EDI->AD->orfname,EDI->name_str_len);
+  EDI->NuclName  = RightAlignStr(EDI->AD->sqname ,EDI->name_str_len);
+  EDI->NameBlank = RightAlignStr(" "             ,EDI->name_str_len);
 
 
   EDI->CoordBlank = malloc((EDI->coord_str_len+1)*sizeof(char));
@@ -5003,6 +5005,11 @@ void RunModelOnExonSets
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
+  // Let's just get our grubby lil' pawz on the name of the
+  // target sequence
+  char * TargetSeqName = Graph->TopHits->hit[0]->name;
+
+
   // It's better to be re-using these than destroying
   // and re-allocating every time
   ESL_SQ      * NuclSeq           = esl_sq_Create();
@@ -5038,9 +5045,9 @@ void RunModelOnExonSets
     //
     int trans_len = coding_region_len / 3;
     ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
-    ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,"Trans",ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
+    ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,TargetSeqName,ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
     AminoSeq->idx = exon_set_id+1;
-    strcpy(AminoSeq->orfid,"orf");
+    strcpy(AminoSeq->orfid,"exon");
 
 
 
