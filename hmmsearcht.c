@@ -4733,7 +4733,7 @@ void PrintExon
   }
 
 
-  // Prep for each row in the alignment
+  // Prep for each row in the alignment.  Extra length in case of gaps.
   int exon_ali_str_alloc = 2 * abs(EDI->nucl_end - EDI->nucl_start);
   char * ModelAli   = malloc(exon_ali_str_alloc * sizeof(char));
   char * QualityAli = malloc(exon_ali_str_alloc * sizeof(char));
@@ -5140,10 +5140,10 @@ int ReportSplicedTopHits
   // For now, if there isn't just one solid hit then we'll default to
   // standard output (this should be considered an extremely rare/bug
   // scenario if we encounter it...)
-  if (ExonSetTopHits->N > 1) {
+  if (ExonSetTopHits->N != 1) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
-    if (DEBUGGING && 0) 
+    if (DEBUGGING) 
       p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
@@ -5156,6 +5156,54 @@ int ReportSplicedTopHits
 
 }
 
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: CheckHitsMatchExonCoords
+ *
+ */
+void CheckHitsMatchExonCoords
+(P7_TOPHITS * ExonSetTopHits, int * ExonCoordSet)
+{
+
+  // First off, if we have more than one hit we'll just
+  // jump ship now (again, this would be considered a bad
+  // outcome, but I don't think it's likely to occur...)
+  if (ExonSetTopHits->N != 1) return;
+
+
+  // Grab the (possibly "adjusted") hmmfrom and hmmto coordinates
+  P7_ALIDISPLAY * AD = (&ExonSetTopHits->hit[0]->dcl[0])->ad;
+  int hit_hmmfrom = AD->hmmfrom;
+  int hit_hmmto   = AD->hmmto;
+
+
+  // We could pass this in, but what's the harm?
+  int strand = 3;
+  if (ExonCoordSet[1] > ExonCoordSet[3])
+    strand = -3;
+
+
+  // If this is zero, then nothing should happen...
+  int start_pos_diff = hit_hmmfrom - ExonCoordSet[2];
+  ExonCoordSet[2]    = hit_hmmfrom;
+  ExonCoordSet[1]   += start_pos_diff * strand;
+
+  // If this is ZERO, then NOTHING should happen!
+  int final_exon_index = 4 * (ExonCoordSet[0]-1);
+  int end_pos_diff     = ExonCoordSet[final_exon_index+4] - hit_hmmto;
+  ExonCoordSet[final_exon_index + 4]  = hit_hmmto;
+  ExonCoordSet[final_exon_index + 3] -= end_pos_diff * strand;
+
+
+}
 
 
 
@@ -5281,6 +5329,17 @@ void RunModelOnExonSets
       exit(101);
     }
 
+
+    // In at least one well-documented case (rat/gpx5), this run
+    // of the pipeline ditches the first expected character of the
+    // model region (e.g., we're expecting hmmfrom=61, but end up
+    // with a hit with hmmfrom=62).
+    //
+    // This function is a sanity check to make sure the output of
+    // the re-run of the pipeline is in agreement with expectations.
+    // If there's discord, we defer to the pipeline.
+    //
+    CheckHitsMatchExonCoords(ExonSetTopHits,ExonCoordSets[exon_set_id]);
 
 
     // If we were successful in our search, report the hit(s)
