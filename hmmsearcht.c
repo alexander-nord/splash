@@ -944,176 +944,6 @@ int DetermineNuclType
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GetSpliceOptions
- *
- *  Desc. :  Once we know the codon that would be a candidate for being split by a splice site,
- *           check each of the possible ways to split that codon (or assign it fully to one side)
- *           for (1.) the amino acid encoded by each candidate codon triple, and (2.) the
- *           strength of the splice signal for each candidate splicing (currently, just a boolean
- *           communicating whether the canonical AG/GT is being used).
- *
- *  Inputs:  1.        Overlap :
- *           2.  TargetNuclSeq :
- *           3.    upstream_ss :
- *           4.  downstream_ss :
- *           5.   SpliceCodons :
- *           6.    Canon5Prime :
- *           7.    Canon3Prime :
- *           8.          gcode : An ESL_GENCODE struct (mainly used for translation).
- *
- *  Output:  Nothing is returned, but the SpliceCodons, Canon5Prime, and Canon3Prime arrays are
- *           filled in with values representing each of the precise splice site options.
- *
- */
-/*
-void GetSpliceOptions
-(
-  DOMAIN_OVERLAP * Overlap,
-  TARGET_SEQ     * TargetNuclSeq,
-  int   upstream_ss,
-  int   downstream_ss,
-  int * SpliceCodons,
-  int * Canon5Prime,
-  int * Canon3Prime,
-  ESL_GENCODE * gcode
-)
-{
-  
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetSpliceOptions'",1);
-
-
-  // This is often too much unnecessary junk even for debugging...
-  if (DEBUGGING && 0) {
-    fprintf(stderr,"\n");
-    fprintf(stderr,"  > GSO Dom1: %d / %d\n",(int)(Overlap->upstream_hit_id),(int)(Overlap->upstream_dom_id));
-    fprintf(stderr,"            : %d..%d\n",(int)(Overlap->upstream_nucl_start),(int)(Overlap->upstream_nucl_end));
-    fprintf(stderr,"  > GSO Dom2: %d / %d\n",(int)(Overlap->downstream_hit_id),(int)(Overlap->downstream_dom_id));
-    fprintf(stderr,"            : %d..%d\n",(int)(Overlap->downstream_nucl_start),(int)(Overlap->downstream_nucl_end));
-    fprintf(stderr,"    splice\n");
-    fprintf(stderr,"    coord.s : %d , %d\n",upstream_ss,downstream_ss);
-    fprintf(stderr,"\n");
-    fflush(stderr);
-  }
-
-
-
-  // We need to convert the indices 'upstream_ss' and 'downstream_ss'
-  // to actual nucleotide coordinates
-  int us_option_range_start = Overlap->upstream_nucl_start;
-  int us_option_range_end;
-  int ds_option_range_start;
-  int ds_option_range_end   = Overlap->downstream_nucl_start;
-  if (Overlap->upstream_nucl_start < Overlap->upstream_nucl_end) {
-
-    // Forward strand
-
-    us_option_range_start += upstream_ss + 1; // Gets us into the "contested" zone
-    us_option_range_end    = us_option_range_start + 4;
-
-    ds_option_range_end   += downstream_ss - 1;
-    ds_option_range_start  = ds_option_range_end - 4;
-
-  } else {
-
-    // Revcomp
-
-    us_option_range_start -= upstream_ss + 1;
-    us_option_range_end    = us_option_range_start - 4;
-
-    ds_option_range_end   -= downstream_ss - 1;
-    ds_option_range_start  = ds_option_range_end + 4;
-
-  }
-
-
-
-  // Grab them ranges!
-  ESL_DSQ * UN = GrabNuclRange(TargetNuclSeq,us_option_range_start,us_option_range_end);
-  ESL_DSQ * DN = GrabNuclRange(TargetNuclSeq,ds_option_range_start,ds_option_range_end);
-
-
-
-  for (int i=0; i<4; i++) {
-    Canon5Prime[i] = 0;
-    Canon3Prime[i] = 0;
-  }
-
-
-
-  ESL_DSQ * Codon;
-  esl_abc_CreateDsq(Overlap->ntalpha,"AAA",&Codon);
-
-
-  // NOTE: Even though there's an intuitive loop structure to this,
-  //       it doesn't kill us to unroll it, so I've unrolled it.
-
-
-  // Option 1: |ABCxx|...yy|
-  Codon[1] = UN[1];
-  Codon[2] = UN[2];
-  Codon[3] = UN[3];
-  SpliceCodons[0] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-
-  if (SpliceCodons[0] >= 0 && SpliceCodons[0] <= 20) {
-    if (UN[4] == 2 && UN[5] == 3) Canon5Prime[0] = 1;
-    if (DN[4] == 0 && DN[5] == 2) Canon3Prime[0] = 1;
-  } else {
-    SpliceCodons[0] = -1; // Stop codon
-  }
-
-
-  // Option 2: |ABxx.|..yyD|
-  Codon[3] = DN[5];  
-  SpliceCodons[1] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-
-  if (SpliceCodons[1] >= 0 && SpliceCodons[1] <= 20) {
-    if (UN[3] == 2 && UN[4] == 3) Canon5Prime[1] = 1;
-    if (DN[3] == 0 && DN[4] == 2) Canon3Prime[1] = 1;
-  } else {
-    SpliceCodons[1] = -1; // Stop codon
-  }
-
-
-  // Option 3: |Axx..|.yyDE|
-  Codon[2] = DN[4];
-  SpliceCodons[2] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-
-  if (SpliceCodons[2] >= 0 && SpliceCodons[2] <= 20) {
-    if (UN[2] == 2 && UN[3] == 3) Canon5Prime[2] = 1;
-    if (DN[2] == 0 && DN[3] == 2) Canon3Prime[2] = 1;
-  } else {
-    SpliceCodons[2] = -1; // Stop codon
-  }
-
-
-  // Option 4: |xx...|yyDEF|
-  Codon[1] = DN[3];
-  SpliceCodons[3] = esl_gencode_GetTranslation(gcode,&Codon[1]);
-
-  if (SpliceCodons[3] >= 0 && SpliceCodons[3] <= 20) {
-    if (UN[1] == 2 && UN[2] == 3) Canon5Prime[3] = 1;
-    if (DN[1] == 0 && DN[2] == 2) Canon3Prime[3] = 1;
-  } else {
-    SpliceCodons[3] = -1; // Stop codon
-  }
-
-
-  free(Codon);
-  free(UN);
-  free(DN);
-
-  if (DEBUGGING) DEBUG_OUT("'GetSpliceOptions' Complete",-1);
-
-}
-*/
-
-
-
-
-
-
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -1252,7 +1082,7 @@ int SelectSpliceOpt
  *  Function: GetContestedUpstreamNucls
  *
  */
-ESL_DSQ * GetContestedUpstreamNucls
+void GetContestedUpstreamNucls
 (ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * UN)
 {
   int write_pos = 1;
@@ -1266,17 +1096,12 @@ ESL_DSQ * GetContestedUpstreamNucls
 
 
 
-
-
-
-
-
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GetContestedDownstreamNucls
  *
  */
-ESL_DSQ * GetContestedDownstreamNucls
+void GetContestedDownstreamNucls
 (ESL_DSQ * NuclSeq, int read_pos, ESL_DSQ * DN)
 {
   int write_pos = 5;
@@ -1321,6 +1146,7 @@ float FindOptimalSpliceSite
   int * codon_split_option
 )
 {
+
   if (DEBUGGING) DEBUG_OUT("Starting 'FindOptimalSpliceSite'",1);
 
 
@@ -1331,6 +1157,7 @@ float FindOptimalSpliceSite
 
 
   int upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
+
 
   // Oversize -- Deal with it!
   int   * USTrans    = malloc(upstream_nucl_cnt*sizeof(int));
@@ -1398,13 +1225,13 @@ float FindOptimalSpliceSite
 
 
 
-
   //
   //  DOWNSTREAM
   //
 
 
   int downstream_nucl_cnt = abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end) + 1;
+
 
   // Oversize -- deal with it!
   int   * DSTrans    = malloc(downstream_nucl_cnt*sizeof(int));
@@ -1491,15 +1318,17 @@ float FindOptimalSpliceSite
   int   optimal_splice_opt = 0;
   float optimal_score      = 0.0;
 
+
   // Arrays we'll use for splice site evaluation
   ESL_DSQ * UN = malloc(6*sizeof(ESL_DSQ));
   ESL_DSQ * DN = malloc(6*sizeof(ESL_DSQ));
+
 
   int us_start = 0;
   int ds_start = 0;
   for (model_pos = Overlap->amino_start; model_pos < Overlap->amino_end; model_pos++) {
 
-    
+
     while (USModelPos[us_start] < model_pos) us_start++;
     while (DSModelPos[ds_start] < model_pos) ds_start++;
 
@@ -1508,7 +1337,9 @@ float FindOptimalSpliceSite
     int ds_pos;
     while (USModelPos[us_pos] == model_pos) {
 
+
       ds_pos = ds_start;
+
 
       while (DSModelPos[ds_pos] == model_pos) {
 
@@ -1523,6 +1354,7 @@ float FindOptimalSpliceSite
 
 
         float sum_score = USScores[us_pos] + DSScores[ds_pos] + splice_score;
+
 
         if (sum_score > optimal_score) {
           optimal_score      = sum_score;
@@ -1545,6 +1377,7 @@ float FindOptimalSpliceSite
 
   }
   
+
   free(USTrans);
   free(USModelPos);
   free(USNuclPos);
@@ -1971,6 +1804,65 @@ int HitsAreSpliceCompatible
 
 
 
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: HighCTermGapContent
+ *
+ */
+int HighCTermGapContent
+(P7_ALIDISPLAY * AD)
+{
+
+  int model_c_term_gaps   =  0;
+  int num_check_positions = 10;
+  if (AD->N < 10) 
+    num_check_positions = AD->N;
+
+  for (int i=AD->N-1; i>=(AD->N-num_check_positions); i--) {
+    if (AD->aseq[i]      == '-') model_c_term_gaps++;
+    if (AD->ntseq[3*i+1] == '-') model_c_term_gaps++;
+  }
+
+  if (model_c_term_gaps > num_check_positions / 2)
+    return 1;
+
+  return 0;
+
+}
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: HighNTermGapContent
+ *
+ */
+int HighNTermGapContent
+(P7_ALIDISPLAY * AD)
+{
+
+  int model_n_term_gaps   =  0;
+  int num_check_positions = 10;
+  if (AD->N < 10) 
+    num_check_positions = AD->N;
+
+  for (int i=0; i<num_check_positions; i++) {
+    if (AD->aseq[i]      == '-') model_n_term_gaps++;
+    if (AD->ntseq[3*i+1] == '-') model_n_term_gaps++;
+  }
+
+  if (model_n_term_gaps > num_check_positions / 2)
+    return 1;
+
+  return 0;
+
+}
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherViableSpliceEdges
@@ -2034,7 +1926,13 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
       for (int upstream_dom_id = 0; upstream_dom_id < num_upstream_doms; upstream_dom_id++) {
 
+
         P7_ALIDISPLAY * UpstreamDisplay = (&UpstreamHit->dcl[upstream_dom_id])->ad;
+
+
+        if (HighCTermGapContent(UpstreamDisplay))       
+          continue;
+
 
         for (int downstream_dom_id = 0; downstream_dom_id < num_downstream_doms; downstream_dom_id++) {
 
@@ -2044,6 +1942,11 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
 
           P7_ALIDISPLAY * DownstreamDisplay = (&DownstreamHit->dcl[downstream_dom_id])->ad;
+
+
+          if (HighNTermGapContent(DownstreamDisplay))
+            continue;
+
 
           if (HitsAreSpliceCompatible(UpstreamDisplay,DownstreamDisplay)) {
 
