@@ -3096,7 +3096,7 @@ int * GetBoundedSearchRegions
       SPLICE_NODE * DownstreamNode = Graph->Nodes[NoInEdgeNodes[j]];
 
 
-      if (!NodesAreDCCCompatible(Graph,UpstreamNode,DownstreamNode));
+      if (!NodesAreDCCCompatible(Graph,UpstreamNode,DownstreamNode))
         continue;
 
 
@@ -3159,6 +3159,9 @@ int * GetBoundedSearchRegions
       dcc_ids_issued++;
 
   }
+
+
+  fprintf(stdout,"At the end of the loop, we have %d live dcc_ids\n",num_live_dcc_ids);
 
 
   // Now we can go through all of the hits in each of our
@@ -3437,6 +3440,19 @@ P7_DOMAIN ** FindSubHits
   int nucl_end   = SearchRegion[3];
 
 
+  // We'll pull in a few more HMM positions, since
+  // we're interested in having overlaps anyways
+  hmm_start = intMax(hmm_start-4,1);
+  hmm_end   = intMin(hmm_end  +4,Graph->Model->M);
+
+
+  // DEBUGGING
+  fprintf(stdout,"\n");
+  fprintf(stdout,"  Searching sub-model (positions %d..%d) against\n",hmm_start,hmm_end);
+  fprintf(stdout,"     genomic sequence window %d..%d\n",nucl_start,nucl_end);
+  fprintf(stdout,"\n");
+
+
   int sub_hmm_len  = 1 + hmm_end - hmm_start;
   int min_exon_len = 5;
 
@@ -3449,7 +3465,7 @@ P7_DOMAIN ** FindSubHits
 
   // Required for alidisplay generation
   OSubModel->name = malloc(9*sizeof(char));
-  strcpy(OSubModel->name,"SubModel");
+  strcpy(OSubModel->name,"SubModel\0");
 
 
   // Grab the nucleotides we're searching our sub-model against
@@ -3457,12 +3473,15 @@ P7_DOMAIN ** FindSubHits
   int nucl_seq_len   = abs(nucl_end-nucl_start)+1;
 
 
+  fprintf(stdout,"  Thinking about doing some computer stuff...\n");
+
+
   // Create a whole mess of objects that we'll need to get our
   // our sub-model alignments to fit into an alidisplay...
-  ESL_SQ   * ORFAminos      = esl_sq_Create();
-  ESL_SQ   * ORFNucls       = esl_sq_Create();
-  P7_GMX   * ViterbiMatrix  = p7_gmx_Create(SubModel->M,1024);
-  P7_TRACE * Trace          = p7_trace_Create();
+  ESL_SQ   * ORFAminoSeq;
+  ESL_DSQ  * DigitalORFAminos;
+  P7_GMX   * ViterbiMatrix = p7_gmx_Create(SubModel->M,1024);
+  P7_TRACE * Trace         = p7_trace_Create();
   float viterbi_score;
 
 
@@ -3473,37 +3492,65 @@ P7_DOMAIN ** FindSubHits
   float * SubHitScores = malloc(max_sub_hits * sizeof(float));
 
 
+  // We'll build up char arrays of each ORF (and its coding nucleotides)
+  // that the get converted into the ESL_SQs ORFAminos and ORFNucls
+  int orf_str_cap = 400;
+  char * AminoStr = malloc(    orf_str_cap * sizeof(char));
+  char * NuclStr  = malloc(3 * orf_str_cap * sizeof(char));
+
+
   // Loop over each full reading frame
   for (int frame=0; frame<3; frame++) {
 
     int orf_len = 0;
     int frame_start = 1 + frame;
 
+    fprintf(stdout,"Looking at frame %d\n",frame); // DEBUGGING
 
     // As we walk through the reading frame,
     // we'll build up ORFs and search them
     // against our sub-model
-    for (int frame_end = frame_start; frame_end+2 <= nucl_seq_len; frame_end += 3) {
+    for (int frame_end = frame_start; frame_end+2 < nucl_seq_len; frame_end += 3) {
 
 
       // Translate and add to the current frame
       int next_amino_index = esl_gencode_GetTranslation(gcode,&(SubNucls[frame_end]));
-      esl_sq_CAddResidue(ORFAminos,AMINO_CHARS[next_amino_index]);
+      if (next_amino_index < 21) {
 
-      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end  ]]);
-      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end+1]]);
-      esl_sq_CAddResidue(ORFNucls,DNA_CHARS[SubNucls[frame_end+2]]);
+        AminoStr[   orf_len] = AMINO_CHARS[next_amino_index];
+        NuclStr[  3*orf_len] = DNA_CHARS[SubNucls[frame_end  ]];
+        NuclStr[1+3*orf_len] = DNA_CHARS[SubNucls[frame_end+1]];
+        NuclStr[2+3*orf_len] = DNA_CHARS[SubNucls[frame_end+2]];
 
-      orf_len++;
+        orf_len++;
+        if (orf_len == orf_str_cap-1) {
+
+          orf_str_cap *= 2;
+
+          char * NewAminoStr = malloc(  orf_str_cap*sizeof(char));
+          char * NewNuclStr  = malloc(3*orf_str_cap*sizeof(char));
+          for (int i=0; i<  orf_len; i++) NewAminoStr[i] = AminoStr[i];
+          for (int i=0; i<3*orf_len; i++) NewNuclStr[i]  = NuclStr[i];
+
+          free(AminoStr);
+          AminoStr = NewAminoStr;
+
+          free(NuclStr);
+          NuclStr = NewNuclStr;
+
+        }
+
+      }
 
 
       // Have we hit a stop codon? Are we at the end of the road?
-      if (next_amino_index > 21 || frame_end+5 >= nucl_seq_len) {
+      if (next_amino_index >= 21 || frame_end+2 >= nucl_seq_len) {
 
-        
-        // No point throwing a stop codon into the mix...
-        if (next_amino_index > 21) 
-          orf_len--;
+
+
+        // DEBUGGING
+        fprintf(stdout,">> Jumping into some nonsense!\n");
+        fprintf(stdout,"   %s\n   %s\n",AminoStr,NuclStr);
 
 
 
@@ -3511,32 +3558,48 @@ P7_DOMAIN ** FindSubHits
         if (orf_len >= min_exon_len) {
 
 
-          int dsq_err_code  = esl_sq_Digitize(SubModel->abc,ORFAminos);
+          // 0-out the ends of the strings
+          AminoStr[ orf_len] = 0;
+          NuclStr[3*orf_len] = 0;
+
+
+          ORFAminoSeq = esl_sq_CreateFrom("orf",AminoStr,NULL,NULL,NULL);
+          int dsq_err_code  = esl_sq_Digitize(SubModel->abc,ORFAminoSeq);
           if (dsq_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while digitizing ORF amino sequence\n\n");
           }
 
 
+          fprintf(stdout,"Running viterbi\n");
 
-          int vit_err_code  = p7_GViterbi(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,&viterbi_score);
+
+          int vit_err_code  = p7_GViterbi(ORFAminoSeq->dsq,orf_len,SubModel,ViterbiMatrix,&viterbi_score);
           if (vit_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while running Viterbi\n\n");
           }
           
 
+          // DEBUGGING
+          fprintf(stdout,"Running viterbi\n"); fflush(stdout);
 
-          p7_trace_Reuse(Trace);
-          int gtrace_err_code  = p7_GTrace(ORFAminos->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
+
+          int gtrace_err_code  = p7_GTrace(ORFAminoSeq->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
           if (gtrace_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
           }
-
-
           p7_trace_Index(Trace);
+
+
+          esl_sq_Textize(ORFAminoSeq);
+
+
+          // DEBUGGING
+          fprintf(stdout,"Making sense of Viterbi output\n"); fflush(stdout);
+
+
           for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
 
-
-            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminos,NULL); // Currently the translated version isn't playing nicely...
+            P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminoSeq,NULL);
             if (AD == NULL) {
               fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating P7_ALIDISPLAY\n\n");
             }
@@ -3551,6 +3614,7 @@ P7_DOMAIN ** FindSubHits
 
             // (but first... resize?)
             if (num_sub_hits == max_sub_hits) {
+              fprintf(stdout,"Resize!\n"); fflush(stdout); // DEBUGGING
               max_sub_hits *= 2;
               P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY));
               float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
@@ -3562,6 +3626,7 @@ P7_DOMAIN ** FindSubHits
               free(SubHitScores);
               SubHitADs = NewSubHitADs;
               SubHitScores = NewSubHitScores;
+              fprintf(stdout,"Resize done!\n"); fflush(stdout); // DEBUGGING
             }
 
 
@@ -3573,9 +3638,10 @@ P7_DOMAIN ** FindSubHits
             // represent genomic coordinates, let's make sure we
             // have the nucleotide sequence on-hand
             int ntseq_len = 3 * (1 + AD->sqto - AD->sqfrom);
-            AD->ntseq  = malloc(ntseq_len * sizeof(char));
+            AD->ntseq  = malloc((ntseq_len+1) * sizeof(char));
             for (int i=0; i<ntseq_len; i++)
-              AD->ntseq[i] = ORFNucls->seq[3 * (AD->sqfrom - 1) + i];
+              AD->ntseq[i] = NuclStr[3 * (AD->sqfrom - 1) + i];
+            AD->ntseq[ntseq_len] = 0;
 
 
             // We'll need to do some quick math to figure out exactly
@@ -3605,19 +3671,23 @@ P7_DOMAIN ** FindSubHits
 
           }
 
+
+          esl_sq_Reuse(ORFAminoSeq);
+          p7_trace_Reuse(Trace);
+
+
         }
 
 
-        // Reset and advance!
-        esl_sq_Reuse(ORFAminos);
-        esl_sq_Textize(ORFAminos);
-        esl_sq_Reuse(ORFNucls);
-        frame_start = frame_end + 3;
-        orf_len = 0;
+        // DEBUGGING
+        fprintf(stdout,"<< Nonsense achieved!\n");
 
+
+        // Reset and advance!
+        orf_len     = 0;
+        frame_start = frame_end + 3;
 
       }
-
 
     }
 
@@ -3625,9 +3695,9 @@ P7_DOMAIN ** FindSubHits
 
 
   // It takes a lot of fun to need this much cleanup ;)
-  esl_sq_Destroy(ORFAminos);
-  esl_sq_Destroy(ORFNucls);
-  free(SubNucls);
+  free(AminoStr);
+  free(NuclStr);
+  esl_sq_Destroy(ORFAminoSeq);
   p7_profile_Destroy(SubModel);
   p7_oprofile_Destroy(OSubModel);
   p7_gmx_Destroy(ViterbiMatrix);
@@ -3783,9 +3853,6 @@ P7_TOPHITS * SeekMissingExons
       fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 3],SearchRegionAggregate[i*4 + 4]);
     }
     fprintf(stderr,"\n");
-    DEBUG_OUT("'SeekMissingExons' Complete (early kill)",-1);
-    free(SearchRegionAggregate);
-    return NULL;
   }
 
 
@@ -3816,6 +3883,14 @@ P7_TOPHITS * SeekMissingExons
 
 
     // New sub-hit(s) alert!
+    if (DEBUGGING) {
+      fprintf(stderr,"%d additional sub-model hits discovered\n",num_new_sub_hits);
+      for (int i=0; i<num_new_sub_hits; i++) {
+        fprintf(stderr,"+ Sub-Hit %d\n",i+1);
+        fprintf(stderr,"  Model Range: %d..%d\n",NewSubHits[i]->ad->hmmfrom,NewSubHits[i]->ad->hmmto);
+        fprintf(stderr,"  Nucl. Range: %d..%d\n",(int)(NewSubHits[i]->ad->sqfrom),(int)(NewSubHits[i]->ad->sqto));
+      }
+    }
 
 
     // Resize?
@@ -3852,21 +3927,18 @@ P7_TOPHITS * SeekMissingExons
   //
   //         IMPORTANTLY, we're faking these in order to take advantage
   //         of some of the functions that are already available.
-  //         DO NOT ASSUME HMMER FUNCTIONS WILL WORK WITH THIS DATASTRUCTURE!
+  //         DO NOT ASSUME *ANY* HMMER FUNCTIONS WILL WORK WITH THIS DATASTRUCTURE!
   //
-  P7_TOPHITS * MissingHits = p7_tophits_Create();
+  P7_TOPHITS * MissingHits = malloc(sizeof(P7_TOPHITS));
+  MissingHits->N   = (uint64_t)num_sub_hits;
+  MissingHits->hit = malloc(num_sub_hits * sizeof(P7_HIT *));
 
   for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
 
-    P7_HIT * NewHit;
-    int hit_create_err  = p7_tophits_CreateNextHit(MissingHits,&NewHit);
-    if (hit_create_err != eslOK) {
-      fprintf(stderr,"\n  ERROR (SeekMissingExons): Failed while attempting P7_HIT allocation\n\n");
-    }
-
-    NewHit->ndom  = 1;
-    NewHit->dcl   = SubHits[sub_hit_id];
-    NewHit->score = SubHits[sub_hit_id]->bitscore;
+    MissingHits->hit[sub_hit_id]        = malloc(sizeof(P7_HIT));
+    MissingHits->hit[sub_hit_id]->ndom  = 1;
+    MissingHits->hit[sub_hit_id]->dcl   = SubHits[sub_hit_id];
+    MissingHits->hit[sub_hit_id]->score = SubHits[sub_hit_id]->bitscore;
 
   }
   free(SubHits);
@@ -3937,12 +4009,16 @@ void AddMissingExonsToGraph
   // but the annoying thing is that there's the whole dereferencing thing
   // to get *real* P7_DOMAINs from *actual* P7_HITs (but not my goofy ones)
   //
-  int new_splice_edge_cap = Graph->MissedHits->N * 2;
+  int new_splice_edge_cap = 4 * Graph->MissedHits->N;
   DOMAIN_OVERLAP ** NewSpliceEdges = (DOMAIN_OVERLAP **)malloc(new_splice_edge_cap*sizeof(DOMAIN_OVERLAP *));
 
   int num_missing_hits = (int)(Graph->MissedHits->N);
   int num_new_edges    = 0;
   for (int missed_hit_id = 0; missed_hit_id < num_missing_hits; missed_hit_id++) {
+
+
+    // DEBUGGING
+    fprintf(stdout,"Considering missed hit %d / %d\n",missed_hit_id+1,num_missing_hits);
 
 
     // Lucky us!  Cheap and easy access!
@@ -3954,6 +4030,7 @@ void AddMissingExonsToGraph
 
       int node_hit_id = Graph->Nodes[node_id]->hit_id;
       int node_dom_id = Graph->Nodes[node_id]->dom_id;
+
 
       P7_ALIDISPLAY * NodeAD = (&Graph->TopHits->hit[node_hit_id]->dcl[node_dom_id])->ad;
 
@@ -4015,6 +4092,9 @@ void AddMissingExonsToGraph
 
   }
 
+
+  // COULD IT BE -- DEBUGGING
+  fprintf(stdout,"\n  HOLY SHIT\n\n"); fflush(stdout);
 
 
   // Back at it again!
