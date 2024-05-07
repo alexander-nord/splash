@@ -2833,6 +2833,52 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: TestSubModel
+ *
+ */
+void TestSubModel
+(P7_PROFILE * Model, P7_OPROFILE * OModel, const char * TargetStr)
+{
+
+  P7_GMX   * ViterbiMatrix = p7_gmx_Create(Model->M,1024);
+  P7_TRACE * Trace         = p7_trace_Create();
+
+  ESL_SQ * TargetSeq = esl_sq_CreateFrom("target",TargetStr,NULL,NULL,NULL);
+  esl_sq_Digitize(Model->abc,TargetSeq);
+
+  float viterbi_score;
+  p7_GViterbi(TargetSeq->dsq,strlen(TargetStr),Model,ViterbiMatrix,&viterbi_score);
+  p7_GTrace(TargetSeq->dsq,strlen(TargetStr),Model,ViterbiMatrix,Trace);
+  p7_trace_Index(Trace);
+
+  P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OModel,TargetSeq,NULL);
+
+  fprintf(stdout,"\n\n");
+  fprintf(stdout," -- Sub-Model Test\n");
+  fprintf(stdout,"    Hit to Positions : %d..%d\n",AD->hmmfrom,AD->hmmto);
+  fprintf(stdout,"    Viterbi Score    : %f\n",viterbi_score);
+  fprintf(stdout,"\n\nTRACE DUMP\n\n");
+  p7_trace_Dump(stdout,Trace,Model,TargetSeq->dsq);
+  fprintf(stdout,"\n\n(%s)\n\n",Model->consensus);
+
+  // HARD DEBUGGING
+  if (1) exit(21);
+
+  p7_alidisplay_Destroy(AD);
+  esl_sq_Destroy(TargetSeq);
+  p7_gmx_Destroy(ViterbiMatrix);
+  p7_trace_Destroy(Trace);
+
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: ExtractSubProfile
  *
  *  Desc. :
@@ -2866,18 +2912,13 @@ P7_PROFILE * ExtractSubProfile
 
   // 1. TRANSITION SCORES
   //
-  for (int trans_type_id = 0; trans_type_id < p7P_NTRANS; trans_type_id++) {
-
-    int  sub_trans_base =  subM * trans_type_id;
-    int full_trans_base = fullM * trans_type_id;
+  for (int tt = 0; tt < p7P_NTRANS; tt++) { // "transition type"
 
     // Position 0, always playing pranks
-    SubModel->tsc[sub_trans_base] = FullModel->tsc[full_trans_base];
-
-    full_trans_base += hmm_start_pos-1; // Minus 1 because we're doing 1-indexing in the loop
+    SubModel->tsc[tt] = FullModel->tsc[tt];
 
     for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
-      SubModel->tsc[sub_trans_base+sub_model_pos] = FullModel->tsc[full_trans_base+sub_model_pos];
+      SubModel->tsc[sub_model_pos * p7P_NTRANS + tt] = FullModel->tsc[(sub_model_pos-1 + hmm_start_pos) * p7P_NTRANS + tt];
 
   }
 
@@ -2888,10 +2929,10 @@ P7_PROFILE * ExtractSubProfile
     for (int residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
 
       // Position 0 is a special little baby
-      SubModel->rsc[residue_id][0+nr] = FullModel->rsc[residue_id][0+nr];
+      SubModel->rsc[residue_id][nr] = FullModel->rsc[residue_id][nr];
     
       for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
-        SubModel->rsc[residue_id][p7P_NR * sub_model_pos + nr] = FullModel->rsc[residue_id][p7P_NR * (sub_model_pos + hmm_start_pos-1) + nr];
+        SubModel->rsc[residue_id][p7P_NR * sub_model_pos + nr] = FullModel->rsc[residue_id][p7P_NR * (sub_model_pos-1 + hmm_start_pos) + nr];
     
     }
   }
@@ -2910,6 +2951,7 @@ P7_PROFILE * ExtractSubProfile
   SubModel->consensus[0] = FullModel->consensus[0];
   for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
     SubModel->consensus[sub_model_pos] = FullModel->consensus[(sub_model_pos-1)+hmm_start_pos];
+  SubModel->consensus[subM] = 0;
 
 
   // 5. The REST!
@@ -2919,8 +2961,8 @@ P7_PROFILE * ExtractSubProfile
   SubModel->L          = FullModel->L;
   SubModel->max_length = FullModel->max_length;
   SubModel->nj         = FullModel->nj;
-  SubModel->roff       = FullModel->roff;
-  SubModel->eoff       = FullModel->eoff;
+  SubModel->roff       = -1;
+  SubModel->eoff       = -1;
   for (int i=0; i< p7_NOFFSETS; i++) SubModel->offs[i]    = FullModel->offs[i];
   for (int i=0; i< p7_NEVPARAM; i++) SubModel->evparam[i] = FullModel->evparam[i];
   for (int i=0; i< p7_NCUTOFFS; i++) SubModel->cutoff[i]  = FullModel->cutoff[i];
@@ -3464,6 +3506,11 @@ P7_DOMAIN ** FindSubHits
   // Required for alidisplay generation
   OSubModel->name = malloc(5*sizeof(char));
   strcpy(OSubModel->name,"OSM\0");
+
+
+  // DEBUGGING
+  TestSubModel(SubModel,OSubModel,"SDQVFIGFVLKQFEYIEVGQF\0");
+  //TestSubModel(Graph->Model,Graph->OModel,"SDQVFIGFVLKQFEYIEVGQF\0");
 
 
   // Grab the nucleotides we're searching our sub-model against
