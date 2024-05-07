@@ -5133,13 +5133,14 @@ void PrintSplicedAlignment
  */
 int ReportSplicedTopHits
 (
-  P7_TOPHITS  * ExonSetTopHits, 
-  P7_PIPELINE * ExonSetPipeline, 
-  TARGET_SEQ  * TargetNuclSeq, 
-  int         * ExonCoordSet,
-  int           exon_set_name_id, // just exon_set_id+1, for output
-  FILE        * ofp,
-  int           textw
+  SPLICE_GRAPH * Graph,
+  P7_TOPHITS   * ExonSetTopHits, 
+  P7_PIPELINE  * ExonSetPipeline, 
+  TARGET_SEQ   * TargetNuclSeq, 
+  int          * ExonCoordSet,
+  int            exon_set_name_id, // just exon_set_id+1, for output
+  FILE         * ofp,
+  int            textw
 )
 {
 
@@ -5176,7 +5177,10 @@ int ReportSplicedTopHits
   fprintf(ofp,"| splash - spliced alignment of some hits\n");
   fprintf(ofp,"|\n");
   fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
-  fprintf(ofp,"| = Model Positions  %d..%d\n",model_start,model_end);
+  fprintf(ofp,"| = Model Positions  %d..%d",model_start,model_end);
+  if (model_end == Graph->Model->M)
+    fprintf(ofp," <--(FULL MODEL COVERAGE)");
+  fprintf(ofp,"\n");
   fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
   fprintf(ofp,"|\n");
   fprintf(ofp,":\n\n");
@@ -5398,7 +5402,7 @@ void RunModelOnExonSets
     // acquired...
     //
     if (ExonSetTopHits->N)
-      ReportSplicedTopHits(ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[exon_set_id],exon_set_id+1,ofp,textw);
+      ReportSplicedTopHits(Graph,ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[exon_set_id],exon_set_id+1,ofp,textw);
 
 
 
