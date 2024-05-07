@@ -2123,6 +2123,7 @@ SPLICE_NODE * InitSpliceNode
 
   if (DEBUGGING) DEBUG_OUT("'InitSpliceNode' Complete",-1);
 
+
   return NewNode;
 
 }
@@ -3209,9 +3210,6 @@ int * GetBoundedSearchRegions
   }
 
 
-  fprintf(stdout,"At the end of the loop, we have %d live dcc_ids\n",num_live_dcc_ids);
-
-
   // Now we can go through all of the hits in each of our
   // "disconnected components" and determine a maximal 
   // search area
@@ -3791,7 +3789,9 @@ P7_DOMAIN ** FindSubHits
  *
  *  Function: IntegrateMissedHits
  *
- *  Desc. :
+ *  Desc. :  The goal of this function is to create a new array Graph->Nodes
+ *           that now includes any of the little hits that we found to patch
+ *           in holes in the original graph.
  *
  *  Inputs:  1.          Graph :
  *           2. NewSpliceEdges :
@@ -3839,6 +3839,9 @@ void IntegrateMissedHits
     if (NewSpliceEdges[new_edge_id] != NULL)
       ConnectNodesByEdge(NewSpliceEdges[new_edge_id],Graph);
   }
+
+
+  EvaluatePaths(Graph);
 
 
   if (DEBUGGING) DEBUG_OUT("'IntegrateMissedHits' Complete",-1);
@@ -4067,10 +4070,6 @@ void AddMissingExonsToGraph
   for (int missed_hit_id = 0; missed_hit_id < num_missing_hits; missed_hit_id++) {
 
 
-    // DEBUGGING
-    fprintf(stdout,"Considering missed hit %d / %d\n",missed_hit_id+1,num_missing_hits);
-
-
     // Lucky us!  Cheap and easy access!
     P7_ALIDISPLAY * MissedAD = Graph->MissedHits->hit[missed_hit_id]->dcl->ad;
 
@@ -4164,6 +4163,7 @@ void AddMissingExonsToGraph
 
 
   if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete",-1);
+
 
 }
 
@@ -5504,19 +5504,19 @@ void SpliceHits
 
 
 
-  // If we're debugging, it might be useful to get a (quite rough)
-  // picture of what our splice graph looks like.
-  //
-  if (DEBUGGING) DumpGraph(Graph);
-
-
-
   // If the graph doesn't currently have a complete path,
   // we'll see if we can find some holes to plug with small
   // (or otherwise missed) exons
   //
   if (Graph->has_full_path == 0)
     AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
+
+
+
+  // If we're debugging, it might be useful to get a quick
+  // picture of what our final splice graph looks like.
+  //
+  if (DEBUGGING) DumpGraph(Graph);
 
 
 
