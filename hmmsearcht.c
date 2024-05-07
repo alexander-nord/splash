@@ -2833,7 +2833,7 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: TestSubModel
+ *  DEBUGGING Function: TestSubModel
  *
  */
 void TestSubModel
@@ -2914,10 +2914,7 @@ P7_PROFILE * ExtractSubProfile
   //
   for (int tt = 0; tt < p7P_NTRANS; tt++) { // "transition type"
 
-    // Position 0, always playing pranks
-    SubModel->tsc[tt] = FullModel->tsc[tt];
-
-    for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+    for (int sub_model_pos = 0; sub_model_pos < subM; sub_model_pos++)
       SubModel->tsc[sub_model_pos * p7P_NTRANS + tt] = FullModel->tsc[(sub_model_pos-1 + hmm_start_pos) * p7P_NTRANS + tt];
 
   }
@@ -2950,8 +2947,13 @@ P7_PROFILE * ExtractSubProfile
   //
   SubModel->consensus[0] = FullModel->consensus[0];
   for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
-    SubModel->consensus[sub_model_pos] = FullModel->consensus[(sub_model_pos-1)+hmm_start_pos];
-  SubModel->consensus[subM] = 0;
+    SubModel->consensus[sub_model_pos] = FullModel->consensus[sub_model_pos+hmm_start_pos-1];
+  SubModel->consensus[subM+1] = 0;
+
+  //if (SubModel->cs) {
+    //free(SubModel->cs);
+    //SubModel->cs = NULL;
+  //}
 
 
   // 5. The REST!
@@ -3486,14 +3488,12 @@ P7_DOMAIN ** FindSubHits
   int nucl_end   = SearchRegion[3];
 
 
-  // We'll pull in a few more HMM positions, since
+  // We'll pull in a couple extra HMM positions, since
   // we're interested in having overlaps anyways
-  hmm_start = intMax(hmm_start-4,1);
-  hmm_end   = intMin(hmm_end  +4,Graph->Model->M);
+  hmm_start = intMax(hmm_start-2,1);
+  hmm_end   = intMin(hmm_end  +2,Graph->Model->M);
 
-
-  int sub_hmm_len  = 1 + hmm_end - hmm_start;
-  int min_exon_len = 5;
+  int sub_hmm_len = 1 + hmm_end - hmm_start;
 
 
   // Generate a sub-model and an optimized sub-model
@@ -3509,8 +3509,7 @@ P7_DOMAIN ** FindSubHits
 
 
   // DEBUGGING
-  TestSubModel(SubModel,OSubModel,"SDQVFIGFVLKQFEYIEVGQF\0");
-  //TestSubModel(Graph->Model,Graph->OModel,"SDQVFIGFVLKQFEYIEVGQF\0");
+  //TestSubModel(SubModel,OSubModel,"SDQVFIGFVLKQFEYIEVGQF\0");  // (remnant of HTT testing)
 
 
   // Grab the nucleotides we're searching our sub-model against
@@ -3592,7 +3591,7 @@ P7_DOMAIN ** FindSubHits
 
 
         // Is this ORF long enough to be worth considering as an exon?
-        if (orf_len >= min_exon_len) {
+        if (orf_len >= 5) {
 
 
           // 0-out the ends of the strings
@@ -3613,6 +3612,7 @@ P7_DOMAIN ** FindSubHits
           }
           
 
+          // Swell!
           int gtrace_err_code  = p7_GTrace(ORFAminoSeq->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
           if (gtrace_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
@@ -3636,13 +3636,17 @@ P7_DOMAIN ** FindSubHits
             }
 
 
-            if (AD->hmmto - AD->hmmfrom < min_exon_len)
+            // If this is too short or low-scoring, we'll skip it
+            int ali_len = AD->hmmto - AD->hmmfrom + 1;
+            if (ali_len < sub_hmm_len / 3 || viterbi_score < -1.0 * (float)ali_len) {
+              p7_alidisplay_Destroy(AD);
               continue;
+            }
 
 
             // DEBUGGING
-            fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AminoStr);
-            p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
+            //fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
+            //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
 
 
             // Oh, boy! Let's add this alidisplay to our array!
@@ -3674,28 +3678,40 @@ P7_DOMAIN ** FindSubHits
             AD->hmmto   += hmm_start - 1;
 
 
-            // Before we adjust the 'sqfrom' and 'sqto' values to
-            // represent genomic coordinates, let's make sure we
-            // have the nucleotide sequence on-hand
-            int ntseq_len = 3 * (1 + AD->sqto - AD->sqfrom);
-            AD->ntseq  = malloc((ntseq_len+1) * sizeof(char));
-            for (int i=0; i<ntseq_len; i++)
-              AD->ntseq[i] = NuclStr[3 * (AD->sqfrom - 1) + i];
-            AD->ntseq[ntseq_len] = 0;
-
-
-            // We'll need to do some quick math to figure out exactly
-            // where this hit is in terms of nucleotide coordinates
-            if (Graph->revcomp) {
-              AD->sqfrom = (nucl_start + 1) - frame_start - 3*(AD->sqfrom - 1);
-              AD->sqto   = (nucl_start + 1) - frame_start - 3*(AD->sqto   - 1) - 2;
-            } else {
-              AD->sqfrom = (nucl_start - 1) + frame_start + 3*(AD->sqfrom - 1);
-              AD->sqto   = (nucl_start - 1) + frame_start + 3*(AD->sqto   - 1) + 2;
+            // Add the nucleotide sequence to the ALI_DISPLAY
+            AD->ntseq = malloc((3 * AD->N + 1) * sizeof(char));
+            
+            int nucl_read_pos = 3 * (AD->sqfrom - 1);
+            for (int i=0; i<AD->N; i++) {
+              if (AD->aseq[i] == '-') {
+                AD->ntseq[3*i  ] = '-';
+                AD->ntseq[3*i+1] = '-';
+                AD->ntseq[3*i+2] = '-';
+              } else {
+                AD->ntseq[3*i  ] = NuclStr[nucl_read_pos++];
+                AD->ntseq[3*i+1] = NuclStr[nucl_read_pos++];
+                AD->ntseq[3*i+2] = NuclStr[nucl_read_pos++];
+              }
             }
+            AD->ntseq[3*AD->N] = 0;
 
 
-            //viterbi_score = (1 + AD->hmmto - AD->hmmfrom) * (float)exp(viterbi_score);
+            // Compute the nucleotide offsets (within the extracted sequence)
+            // Obviously, some of these operations could be combined, but
+            // for the sake of making this intelligible I'm going to eat
+            // the extra operations.
+            //
+            int nucl_sq_start = (frame_start + 3 * (AD->sqfrom - 1)    )-1;
+            int nucl_sq_end   = (frame_start + 3 * (AD->sqto   - 1) + 2)-1;
+
+            // Convert to the full-sequence coordinates
+            if (Graph->revcomp) {
+              AD->sqfrom = nucl_start - nucl_sq_start;
+              AD->sqto   = nucl_start - nucl_sq_end;
+            } else {
+              AD->sqfrom = nucl_start + nucl_sq_start;
+              AD->sqto   = nucl_start + nucl_sq_end;
+            }
 
 
             // Welcome to the list, fella!
@@ -3709,6 +3725,7 @@ P7_DOMAIN ** FindSubHits
 
           esl_sq_Reuse(ORFAminoSeq);
           p7_trace_Reuse(Trace);
+          p7_gmx_Reuse(ViterbiMatrix);
 
 
         }
@@ -3723,9 +3740,6 @@ P7_DOMAIN ** FindSubHits
     }
 
   }
-
-
-  fprintf(stdout,"\nFREEDOM?!\n\n"); fflush(stdout);
 
 
   // It takes a lot of fun to need this much cleanup ;)
@@ -3939,7 +3953,8 @@ P7_TOPHITS * SeekMissingExons
     }
 
 
-    // Pop those shrimps on the barbie, as they say up there in Argentina
+    // Pop dem shrimps on the barbie, Guv! 
+    // (as they say way up there in Argentina)
     for (int new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
       SubHits[num_sub_hits++] = NewSubHits[new_sub_hit_id];
 
@@ -4032,7 +4047,7 @@ void AddMissingExonsToGraph
 
   
   if (Graph->MissedHits == NULL) {
-    if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete",-1);
+    if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete (no missed hits added)",-1);
     return;
   }
 
@@ -4126,10 +4141,6 @@ void AddMissingExonsToGraph
     }
 
   }
-
-
-  // COULD IT BE -- DEBUGGING
-  fprintf(stdout,"\n  HOLY SHIT\n\n"); fflush(stdout);
 
 
   // Back at it again!
