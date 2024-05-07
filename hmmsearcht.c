@@ -2860,6 +2860,10 @@ P7_PROFILE * ExtractSubProfile
   P7_PROFILE * SubModel = p7_profile_Create(subM,FullModel->abc);
 
 
+  SubModel->name = malloc(10*sizeof(char));
+  strcpy(SubModel->name,"SubModel\0");
+
+
   // 1. TRANSITION SCORES
   //
   for (int trans_type_id = 0; trans_type_id < p7P_NTRANS; trans_type_id++) {
@@ -3446,13 +3450,6 @@ P7_DOMAIN ** FindSubHits
   hmm_end   = intMin(hmm_end  +4,Graph->Model->M);
 
 
-  // DEBUGGING
-  fprintf(stdout,"\n");
-  fprintf(stdout,"  Searching sub-model (positions %d..%d) against\n",hmm_start,hmm_end);
-  fprintf(stdout,"     genomic sequence window %d..%d\n",nucl_start,nucl_end);
-  fprintf(stdout,"\n");
-
-
   int sub_hmm_len  = 1 + hmm_end - hmm_start;
   int min_exon_len = 5;
 
@@ -3463,9 +3460,10 @@ P7_DOMAIN ** FindSubHits
   P7_OPROFILE * OSubModel = p7_oprofile_Create(SubModel->M,SubModel->abc);
   int submodel_create_err = p7_oprofile_Convert(SubModel,OSubModel);
 
+
   // Required for alidisplay generation
-  OSubModel->name = malloc(9*sizeof(char));
-  strcpy(OSubModel->name,"SubModel\0");
+  OSubModel->name = malloc(5*sizeof(char));
+  strcpy(OSubModel->name,"OSM\0");
 
 
   // Grab the nucleotides we're searching our sub-model against
@@ -3473,13 +3471,9 @@ P7_DOMAIN ** FindSubHits
   int nucl_seq_len   = abs(nucl_end-nucl_start)+1;
 
 
-  fprintf(stdout,"  Thinking about doing some computer stuff...\n");
-
-
   // Create a whole mess of objects that we'll need to get our
   // our sub-model alignments to fit into an alidisplay...
   ESL_SQ   * ORFAminoSeq;
-  ESL_DSQ  * DigitalORFAminos;
   P7_GMX   * ViterbiMatrix = p7_gmx_Create(SubModel->M,1024);
   P7_TRACE * Trace         = p7_trace_Create();
   float viterbi_score;
@@ -3505,12 +3499,11 @@ P7_DOMAIN ** FindSubHits
     int orf_len = 0;
     int frame_start = 1 + frame;
 
-    fprintf(stdout,"Looking at frame %d\n",frame); // DEBUGGING
-
     // As we walk through the reading frame,
     // we'll build up ORFs and search them
     // against our sub-model
-    for (int frame_end = frame_start; frame_end+2 < nucl_seq_len; frame_end += 3) {
+    int frame_end = frame_start;
+    while (frame_end+2 < nucl_seq_len) {
 
 
       // Translate and add to the current frame
@@ -3523,6 +3516,8 @@ P7_DOMAIN ** FindSubHits
         NuclStr[2+3*orf_len] = DNA_CHARS[SubNucls[frame_end+2]];
 
         orf_len++;
+
+        // Resize?
         if (orf_len == orf_str_cap-1) {
 
           orf_str_cap *= 2;
@@ -3541,16 +3536,11 @@ P7_DOMAIN ** FindSubHits
         }
 
       }
+      frame_end += 3;
 
 
       // Have we hit a stop codon? Are we at the end of the road?
       if (next_amino_index >= 21 || frame_end+2 >= nucl_seq_len) {
-
-
-
-        // DEBUGGING
-        fprintf(stdout,">> Jumping into some nonsense!\n");
-        fprintf(stdout,"   %s\n   %s\n",AminoStr,NuclStr);
 
 
 
@@ -3570,34 +3560,28 @@ P7_DOMAIN ** FindSubHits
           }
 
 
-          fprintf(stdout,"Running viterbi\n");
-
-
           int vit_err_code  = p7_GViterbi(ORFAminoSeq->dsq,orf_len,SubModel,ViterbiMatrix,&viterbi_score);
           if (vit_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while running Viterbi\n\n");
           }
           
 
-          // DEBUGGING
-          fprintf(stdout,"Running viterbi\n"); fflush(stdout);
-
-
           int gtrace_err_code  = p7_GTrace(ORFAminoSeq->dsq,orf_len,SubModel,ViterbiMatrix,Trace);
           if (gtrace_err_code != eslOK) {
             fprintf(stderr,"\n  ERROR (FindSubHits): Failed while generating a generic P7_TRACE for the Viterbi matrix\n\n");
           }
-          p7_trace_Index(Trace);
 
 
-          esl_sq_Textize(ORFAminoSeq);
+          int trace_index_err_code  = p7_trace_Index(Trace);
+          if (trace_index_err_code != eslOK) {
+            fprintf(stderr,"\n  ERROR (FindSubHits): Failed while indexing a P7_TRACE\n\n");
+          }
 
 
-          // DEBUGGING
-          fprintf(stdout,"Making sense of Viterbi output\n"); fflush(stdout);
-
-
+          // For each of the domains in our P7_TRACE, see if
+          // they look like solid missed exons
           for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
+
 
             P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminoSeq,NULL);
             if (AD == NULL) {
@@ -3609,25 +3593,34 @@ P7_DOMAIN ** FindSubHits
               continue;
 
 
+            // DEBUGGING
+            fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AminoStr);
+            p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
+
+
             // Oh, boy! Let's add this alidisplay to our array!
 
 
             // (but first... resize?)
             if (num_sub_hits == max_sub_hits) {
-              fprintf(stdout,"Resize!\n"); fflush(stdout); // DEBUGGING
+              
               max_sub_hits *= 2;
-              P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY));
+              P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY *));
+              
               float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
+              
               for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
                 NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
                 NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
               }
               free(SubHitADs);
               free(SubHitScores);
+              
               SubHitADs = NewSubHitADs;
               SubHitScores = NewSubHitScores;
-              fprintf(stdout,"Resize done!\n"); fflush(stdout); // DEBUGGING
+              
             }
+            // Resize over -- back to our regularly-scheduled programming!
 
 
             AD->hmmfrom += hmm_start - 1;
@@ -3655,12 +3648,7 @@ P7_DOMAIN ** FindSubHits
             }
 
 
-            // As one last thing, we'll set the score to more closely
-            // correspond to other scores.  NOTE that this is not the
-            // true score (we'd need to have a null model score)!
-            // Instead (like I've done elsewhere...) we're approximating
-            // to get the methods fully sketched, after which we can refine.
-            viterbi_score = (1 + AD->hmmto - AD->hmmfrom) * (float)exp(viterbi_score);
+            //viterbi_score = (1 + AD->hmmto - AD->hmmfrom) * (float)exp(viterbi_score);
 
 
             // Welcome to the list, fella!
@@ -3679,19 +3667,18 @@ P7_DOMAIN ** FindSubHits
         }
 
 
-        // DEBUGGING
-        fprintf(stdout,"<< Nonsense achieved!\n");
-
-
         // Reset and advance!
         orf_len     = 0;
-        frame_start = frame_end + 3;
+        frame_start = frame_end;
 
       }
 
     }
 
   }
+
+
+  fprintf(stdout,"\nFREEDOM?!\n\n"); fflush(stdout);
 
 
   // It takes a lot of fun to need this much cleanup ;)
@@ -3709,6 +3696,7 @@ P7_DOMAIN ** FindSubHits
     free(SubHitADs);
     free(SubHitScores);
     if (DEBUGGING) DEBUG_OUT("'FindSubHits' Complete (albeit, no hits)",-1);
+    *final_num_sub_hits = 0;
     return NULL;
   }
 
@@ -3874,7 +3862,7 @@ P7_TOPHITS * SeekMissingExons
   for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
 
 
-    int num_new_sub_hits;
+    int num_new_sub_hits = 0;
     P7_DOMAIN ** NewSubHits = FindSubHits(Graph,TargetNuclSeq,&SearchRegionAggregate[(4*search_region_id)+1],gcode,&num_new_sub_hits);
 
 
