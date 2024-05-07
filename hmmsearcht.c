@@ -4888,13 +4888,14 @@ void PrintExon
   // If they're pranking us, prank 'em right back!
   if (EDI->textw < 1) EDI->textw = ali_len;
 
+  int adj_textw = EDI->textw - (EDI->name_str_len + 2*EDI->coord_str_len + 4);
 
   int model_pos = EDI->hmm_start;
   int nucl_pos  = ali_nucl_start;
-  for (int line_read_start = 0; line_read_start < ali_len; line_read_start += EDI->textw) {
+  for (int line_read_start = 0; line_read_start < ali_len; line_read_start += adj_textw) {
 
     
-    int line_read_end = line_read_start + EDI->textw;
+    int line_read_end = line_read_start + adj_textw;
     if (line_read_end > ali_len)
       line_read_end = ali_len;
 
@@ -5172,7 +5173,10 @@ int ReportSplicedTopHits
   int nucl_start  = ExonCoordSet[1];
   int nucl_end    = ExonCoordSet[3 + 4*(num_exons-1)];
 
-  fprintf(ofp,"\n\n+=====================================================+\n");
+  fprintf(ofp,"\n\n+");
+  for (int i=0; i<=textw; i++)
+    fprintf(ofp,"=");
+  fprintf(ofp,"+\n");
   fprintf(ofp,"|\n");
   fprintf(ofp,"| splash - spliced alignment of some hits\n");
   fprintf(ofp,"|\n");
@@ -5203,7 +5207,10 @@ int ReportSplicedTopHits
 
   fprintf(ofp,":\n");
   fprintf(ofp,"|\n");
-  fprintf(ofp,"+=====================================================+\n\n\n");
+  fprintf(ofp,"+");
+  for (int i=0; i<=textw; i++)
+    fprintf(ofp,"=");
+  fprintf(ofp,"+\n\n\n");
 
   return 0;
 

@@ -4,11 +4,18 @@ use strict;
 use POSIX;
 
 
+sub Max { my $A = shift; my $B = shift; return $A if ($A>$B); return $B; }
+sub Min { my $A = shift; my $B = shift; return $A if ($A<$B); return $B; }
+
+
 sub FamilySplash;
+sub BigBadSplash;
 sub DetermineTargetSeq;
 sub GenomeRangeFileToTargetFile;
 sub HelpAndDie;
+sub ReadChromosomeLengths;
 sub ParseCommandArguments;
+sub ConfirmInputsToSplashDir;
 sub ConfirmGenomeDir;
 sub ConfirmGenome;
 sub ConfirmRequiredTools;
@@ -31,8 +38,13 @@ HelpAndDie() if (@ARGV == 0);
 # What do they want us to even do?
 my %OPTIONS;
 my %SPECIES_TO_GENOME;
-my %GENOME_LIST; # So that we don't delete anything important
+my %GENOME_LIST;        # So that we don't delete anything important
 ParseCommandArguments();
+
+
+# How long is a given chromosome on a species' genome?
+my %SPECIES_CHR_TO_LEN; 
+ReadChromosomeLengths();
 
 
 # We survived commandline parsing, so let's build an
@@ -45,7 +57,7 @@ my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
 
 
 # Alright, let's figure this stuff out!
-if    ($OPTIONS{'meta-dir'}  ) { die "\n  Not yet supported\n\n";         }
+if    ($OPTIONS{'meta-dir'}  ) { BigBadSplash($OPTIONS{'protein-input'}); }
 elsif ($OPTIONS{'family'}    ) { FamilySplash($OPTIONS{'protein-input'}); }
 elsif ($OPTIONS{'single-seq'}) { die "\n  Not yet supported\n\n";         }
 else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
@@ -167,11 +179,14 @@ sub FamilySplash
 		{
 			$num_fam_errors++;
 			system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
-			system("cat $err_file_name >> $ERROR_FILE");
+			# system("cat $err_file_name >> $ERROR_FILE");
 
 			if ($OPTIONS{'err-kills'})
 			{
-				system("rm \"$target_file_name\"") unless ($GENOME_LIST{$target_file_name});
+				unless ($GENOME_LIST{$target_file_name}) {
+					system("rm \"$target_file_name\"");
+					system("rm \"$target_file_name.ssi\"");
+				}
 				die "\n  ERROR: Failed during execution of command: $hmmsearcht_cmd\n\n";
 			}
 
@@ -183,14 +198,116 @@ sub FamilySplash
 
 
 		# If we created a target sequence file, kill it!
-		system("rm \"$target_file_name\"") unless ($GENOME_LIST{$target_file_name});
+		unless ($GENOME_LIST{$target_file_name}) {
+			system("rm \"$target_file_name\"");
+			system("rm \"$target_file_name.ssi\"");
+		}
 
 	}
+
+
+	# If this is being run as part of a larger test,
+	# we'll want to collect the number of error-full and
+	# error-free runs.
+	return ($num_fam_victories,$num_fam_errors);
 
 
 }
 
 
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: BigBadSplash
+#
+sub BigBadSplash
+{
+	
+	my $protein_meta_dir_name = shift;
+
+	# We're going to want to be able to parallelize this,
+	# so we'll accumulate a list of directories and then
+	# proceed from there
+	my @FamilyDirs;
+
+	opendir(my $ProteinMetaDir,$protein_meta_dir_name)
+		|| die "\n  ERROR:  Failed to open protein meta-directory '$protein_meta_dir_name'\n\n";
+	while (my $family = readdir($ProteinMetaDir)) 
+	{
+
+		$family =~ s/\/$//;
+		my $family_dir_name = $protein_meta_dir_name.$family.'/';
+		next if (!(-d $family_dir_name));
+
+		push(@FamilyDirs,$family_dir_name);
+
+	}
+	closedir($ProteinMetaDir);
+
+
+	my $num_cpus = $OPTIONS{'num-cpus'};
+	my $num_fams = scalar(@FamilyDirs);
+	if ($num_cpus > $num_fams) {
+		$num_cpus = $num_fams;
+	}
+
+
+	my $thread_id = 0;
+	my $active_threads = 1;
+	my $pid = 0;
+	while ($active_threads < $num_cpus) 
+	{
+		if ($pid = fork)
+		{
+			die "\n  ERROR: Fork failed\n\n" if (not defined $pid);
+			$active_threads++;
+		}
+		else
+		{
+			$thread_id = $active_threads;
+			last;
+		}
+	}
+
+
+	my $start_fam_id =  $thread_id    * int($num_fams/$num_cpus);
+	my   $end_fam_id = ($thread_id+1) * int($num_fams/$num_cpus);
+	if ($end_fam_id > $num_fams) {
+		$end_fam_id = $num_fams;
+	}
+
+
+	my $total_victories = 0; # "Non-errors" probably works better...
+	my $total_errors    = 0; # How many times did hmmsearcht exit with non-0?
+	for (my $fam_id = $start_fam_id; $fam_id < $end_fam_id; $fam_id++) 
+	{
+
+		my $family_dir_name = $FamilyDirs[$fam_id];
+		$family_dir_name =~ /\/([^\/]+)\/$/;
+
+		my $family = $1;
+
+		my ($num_fam_victories,$num_fam_errors) = FamilySplash($FamilyDirs[$fam_id]);
+
+		$total_victories += $num_fam_victories;
+		$total_errors    += $num_fam_errors;
+
+	}
+
+
+	# End of the real work!
+	exit(0) if ($thread_id);
+	while (wait() != -1) {}
+
+
+}
 
 
 
@@ -315,9 +432,27 @@ sub GenomeRangeFileToTargetFile
 	#my $range = $RangeFileData{'range'};
 
 
+	# What's the range once we pull in some extra nucleotides?
+	my $range = 0;
+	if ($RangeFileData{'range'}) {
+
+		$RangeFileData{'range'} =~ /^(\d+)\.\.(\d+)$/;
+		my $range_start = $1;
+		my $range_end   = $2;
+
+		if ($OPTIONS{'num-extra-nucls'}) {
+			$range_start = Max($range_start-$OPTIONS{'num-extra-nucls'},1                                     );
+			$range_end   = Min(  $range_end+$OPTIONS{'num-extra-nucls'},$SPECIES_CHR_TO_LEN{$species.'|'.$chr});
+		}
+
+		$range = $range_start.'..'.$range_end;
+
+	}
+
+
 	# Put together the sfetch command
 	my $sfetch_cmd = "$SFETCH -o $target_file_name";
-	$sfetch_cmd = $sfetch_cmd." -c $RangeFileData{'range'}" if ($RangeFileData{'range'});
+	$sfetch_cmd = $sfetch_cmd." -c $range" if ($range);
 	$sfetch_cmd = $sfetch_cmd." $genome $chr 1>/dev/null";
 
 
@@ -358,12 +493,13 @@ sub HelpAndDie
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
 	print "            :  ./TestSplash.pl {OPT.S} [gene]\n";
-	print "            '---------------------------------------------\n";
+	print "            '-------------------------------------------------------\n";
 	print "\n";
-	print "  Use Case 2:  Search using a specific file as input\n";
+	print "\n";
+	print "  Use Case 2:  Search ALL GENES in an 'inputs-to-splash' directory\n";
 	print "            :\n";
-	print "            :  ./TestSplash.pl {OPT.S} [file.fa]\n";
-	print "            '---------------------------------------------\n";
+	print "            :  ./TestSplash.pl {OPT.S} [path/to/inputs-to-splash]\n";
+	print "            '-------------------------------------------------------\n";
 	print "\n";
 	print "\n";
 	print "  OPT.S: --full-genome : Force use of full genome as target sequence.\n";
@@ -371,6 +507,44 @@ sub HelpAndDie
 	print "                         (by default we log the error and continue)\n";
 	print "\n";
 	die   "\n";
+}
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: ReadChromosomeLengths
+#
+sub ReadChromosomeLengths
+{
+	foreach my $species (sort keys %SPECIES_TO_GENOME) {
+
+		my $genome = $SPECIES_TO_GENOME{$species};
+
+		my $seqstat_file_name = $genome.'.seqstat.out';
+		if (!(-e $seqstat_file_name) && system("$SEQSTAT -a \"$genome\" > \"$seqstat_file_name\"")) {
+			die "\n  ERROR:  Failed to locate/create expected seqstat file ($seqstat_file_name)\n\n";
+		}
+
+		open(my $SeqstatFile,'<',$seqstat_file_name)
+			|| die "\n  ERROR:  Failed to open seqstat file '$seqstat_file_name'\n\n";
+		while (my $line = <$SeqstatFile>) {
+			$line =~ s/\n|\r//g;
+			if ($line =~ /^=\s+(\S+)\s+(\d+)\s*$/) {
+				my $chr = $1;
+				my $len = $2;
+				$SPECIES_CHR_TO_LEN{$species.'|'.$chr} = $len;
+			}
+		}
+		close($SeqstatFile);
+
+	}
 }
 
 
@@ -399,6 +573,10 @@ sub ParseCommandArguments
 	$OPTIONS{'output-dir'} = $out_dir_name.'/';
 
 
+	# How many CPUs do we want?
+	$OPTIONS{'num-cpus'} = 1;
+
+
 	# Unless specified, we're looking for data in this directory
 	$OPTIONS{'inputs-dir'} = '../inputs-to-splash/';
 	$OPTIONS{'genome-dir'} = '../inputs-to-splash/genomes/';
@@ -423,6 +601,19 @@ sub ParseCommandArguments
 		{
 			$OPTIONS{'err-kills'} = 1; # First failed run terminates script
 		}
+		elsif (lc($Arg) =~ /^-?-?cpus$/ || lc($Arg) =~ /^-?-n$/)
+		{
+			$arg_id++;
+			my $num_cpus = $ARGV[$arg_id];
+			if ($num_cpus !~ /\D/) 
+			{
+				$OPTIONS{'num-cpus'} = int($num_cpus);
+			} 
+			else
+			{
+				die "\n  ERROR:  Apparent request for multiple CPUs was not followed by an integer? ($ARGV[$arg_id-1],$ARGV[$arg_id])\n\n";
+			}
+		}
 		elsif ($arg_id == $num_args-1 && !$OPTIONS{'protein-input'})
 		{
 			if (-e $Arg) 
@@ -437,11 +628,10 @@ sub ParseCommandArguments
 			}
 			elsif (-d $Arg)
 			{
-				# For now, we're going to assume this is a directory full of
-				# sub-directories specific to protein families (or maybe some
-				# other configuration), but for now we'll just call it a meta-dir
-				# and leave the work of understanding what that means for later
-				$OPTIONS{'protein-input'} = $Arg;
+				# This is (assumed to be) a path to an 'inputs-to-splash'
+				# directory.  Verify!
+				# If so, 'protein-input' now names the 'protein-data' path
+				$OPTIONS{'protein-input'} = ConfirmInputsToSplashDir($Arg);
 				$OPTIONS{'meta-dir'}   = 1;
 				$OPTIONS{'family'}     = 0;
 				$OPTIONS{'single-seq'} = 0;
@@ -522,6 +712,38 @@ sub BuildSpeciesToGenomeMap
 
 ###########################################################################
 #
+#  Subroutine: ConfirmInputsToSplashDir
+#
+sub ConfirmInputsToSplashDir
+{
+	my $dir_name = shift;
+	$dir_name = $dir_name.'/' if ($dir_name !~ /\/$/);
+
+	if (!(-d $dir_name)) {
+		die "\n  ERROR:  Presumed 'inputs-to-splash' directory was not as expected? ($dir_name)\n\n";
+	}
+
+	my $genome_dir_name = $dir_name.'genomes/';
+	if (!(-d $genome_dir_name)) {
+		die "\n  ERROR:  Expected genome directory '$genome_dir_name' (ConfirmInputsToSplashDir)\n\n";
+	}
+
+	my $protein_meta_dir_name = $dir_name.'protein-data/';
+	if (!(-d $protein_meta_dir_name)) {
+		die "\n  ERROR:  Expected protein family meta-directory '$protein_meta_dir_name' (ConfirmInputsToSplashDir)\n\n";
+	}
+
+	# Looks good enough to consider moving forward!
+	$OPTIONS{'genome-dir'} = $genome_dir_name;
+	return $protein_meta_dir_name;
+
+}
+
+
+
+
+###########################################################################
+#
 #  Subroutine: ConfirmGenomeDir
 #
 sub ConfirmGenomeDir
@@ -586,6 +808,7 @@ sub ConfirmGenome
 	if (!(-e $seqstat_file_name) && system("$SEQSTAT -a \"$genome\" > \"$seqstat_file_name\"")) {
 		die "\n  ERROR:  Failed to aggregate sequence statistics for genomic file '$genome'\n\n";
 	}
+
 
 	return $genome; # Looks like a genome to me!
 
