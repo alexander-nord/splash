@@ -1,0 +1,51 @@
+
+[1.] For overextension issues, OTOS mouse and rat are great examples
+     where there should *clearly* be a small intermediate exon, but
+     we don't find it
+
+[2.] As an hmmsearcht issue, if we look at mouse OBSCN isoform 3, there's
+     a hit with following metadata:
+
+        #    score  bias  c-Evalue  i-Evalue hmmfrom  hmm to      alifrom    ali to      envfrom    env to     acc
+      ---   ------ ----- --------- --------- ------- -------    --------- ---------    --------- ---------    ----
+        2 !   31.1   0.0   2.4e-10   2.2e-08     140     309 ..    141312    141088 ..    141348    141052 .. 0.20
+
+     And this at the end of the alignment:
+
+           mus_musculus.3    218  g  k  i  l  v  q  v  p  p  r  f  v  n  k  v  r  a  t  p  f  v  e  g  e  d  a  243   
+                                                                                                               
+                  orf2249      -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -       -
+  chr11/58885161-59027201      - ------------------------------------------------------------------------------      -
+                                  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  PP
+
+           mus_musculus.3    244  q  i  t  c  t  v  e  g  a  p  y  p  q  i  r  w  y  k  d  g  t  l  l  a  p  g  269   
+                                                                                                               
+                  orf2249      -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -       -
+  chr11/58885161-59027201      - ------------------------------------------------------------------------------      -
+                                  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  PP
+
+           mus_musculus.3    270  n  r  y  r  m  l  n  e  p  r  s  g  v  l  v  l  v  i  q  a  a  s  k  e  d  l  295   
+                                                                                                               
+                  orf2249      -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -  -       -
+  chr11/58885161-59027201      - ------------------------------------------------------------------------------      -
+                                  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  PP
+
+           mus_musculus.3    296  g  h  y  e  c  e  l  v  n  r  l  g  s  t  309   
+                                                                         t 
+                  orf2249    318  -  -  -  -  -  -  -  -  -  -  -  -  -  T  318   
+  chr11/58885161-59027201 141090 ---------------------------------------ACC 141088
+                                  .  .  .  .  .  .  .  .  .  .  .  .  .  3  PP
+
+
+     -----------------------------------------------------------------------
+
+     This is *clearly* a major issue.  I think what I'm going to do is add
+     a catch where we won't create a DOMAIN_OVERLAP for any domain that's
+     more than 25% gaps.
+
+     I would assume that's (a.) rare, and (b.) whatever gets thrown out will
+     be recovered on the back-end with the Viterbi search.
+
+     --> UPDATE: We're going with a 10-position poll (>5 gaps and you're out!)
+
+
