@@ -197,6 +197,10 @@ typedef struct _target_seq {
   ESL_DSQ * Seq;
   const ESL_ALPHABET * abc;
 
+  // What's the chromosome (or, more generally, sequence name?)
+  // NOTE that this is a borrowed pointer, so we don't want to free it!
+  char * SeqName;
+
   // NOTE that start is always less than end (even if revcomp)
   int64_t start;
   int64_t end;
@@ -789,6 +793,172 @@ void GetMinAndMaxCoords
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: SetTargetSeqRange
+ *
+ *  Desc.: Scan 'TopHits' to determine a bounded search range that we're
+ *         inclined to consider the coding region for the input protein.
+ *
+ */
+void SetTargetSeqRange
+(TARGET_SEQ * TargetNuclSeq, P7_TOPHITS * TopHits)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'SetTargetSeqRange'",1);
+
+  // Our first goal is to come up with a sorting of each hit's
+  // best domain's score.  Once we have those scores, we can
+  // take a quick poll of the (say) 10 best domains to determine
+  // where they're (generally) pointing us.
+  //
+  int num_hits = (int)(TopHits->N);
+  float * HitScores = malloc(num_hits * sizeof(float));
+  for (int hit_id = 0; hit_id < num_hits; hit_id++) {
+    int best_domain   = TopHits->hit[hit_id]->best_domain;
+    HitScores[hit_id] = (&TopHits->hit[hit_id]->dcl[best_domain])->envsc;
+  }
+  int * HitScoreSort = FloatHighLowSortIndex(HitScores,num_hits);
+  
+
+  // Sorry, but I only needed you to sort the hits
+  free(HitScores);
+
+
+  // Now, let's get polling!
+  int num_polled_hits      = intMin(10,num_hits);
+  char ** PolledHitTargets = malloc(num_polled_hits*sizeof(char *));
+  int   * TargetVotes      = malloc(num_polled_hits*sizeof(int));
+
+  int num_targets = 0;
+  for (int sort_id = 0; sort_id<num_polled_hits; sort_id++) {
+
+    // The higher-scoring hits get more voting power
+    int vote_power = 1 + (num_polled_hits-sort_id)/2;
+
+    int hit_id = HitScoreSort[sort_id];
+    char * PolledHitTarget = TopHits->hit[hit_id]->name;
+
+    int new_target = 1;
+    for (int i=0; i<num_targets; i++) {
+      if (!strcmp(PolledHitTargets[i],PolledHitTarget)) {
+        TargetVotes[i] += vote_power;
+        new_target = 0;
+        break;
+      }
+    }
+
+    if (new_target) {
+      PolledHitTargets[num_targets] = PolledHitTarget;
+      TargetVotes[num_targets] = vote_power;
+      num_targets++;
+    }
+
+  }
+
+
+  // Who wins the vote?
+  int poll_winner_id = 0;
+  int poll_winner_votes = TargetVotes[0];
+  for (int poll_id=1; poll_id<num_targets; poll_id++) {
+    if (TargetVotes[poll_id] > poll_winner_votes) {
+      poll_winner_votes = TargetVotes[poll_id];
+      poll_winner_id = poll_id;
+    }
+  }
+
+
+  // Winner winner!
+  TargetNuclSeq->SeqName = PolledHitTargets[poll_winner_id];
+  free(TargetVotes);
+  free(PolledHitTargets);
+
+
+  // Now that we know our preferred chromosome, define a coding region!
+  // First, what we'll do is define a hard maximum search area defined
+  // by the highest-scoring hit to this sequence.
+  int64_t min_coord;
+  int64_t max_coord;
+  int64_t min_cap;
+  int64_t max_cap;
+  for (int sort_id = 0; sort_id<num_hits; sort_id++) {
+
+    int hit_id = HitScoreSort[sort_id];
+
+    if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
+      continue;
+
+    int best_domain    = TopHits->hit[hit_id]->best_domain;
+    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[best_domain])->ad;
+
+    min_coord = AD->sqfrom;
+    if (AD->sqto < min_coord)
+      min_coord = AD->sqto;
+
+    max_coord = AD->sqfrom;
+    if (AD->sqto > max_coord)
+      max_coord = AD->sqfrom;
+
+    min_cap = min_coord - 300000;
+    max_cap = max_coord + 300000;
+
+    break;
+
+  }
+  free(HitScoreSort);
+
+
+  // Now that we know the absolute min/max of the search zone,
+  // we can check all hits to define the actual search zone.
+  //
+  for (int hit_id = 0; hit_id < num_hits; hit_id++) {
+
+    if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
+      continue;
+
+    for (int dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
+  
+      P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+
+      // New minimum?
+      if (AD->sqto < min_coord && AD->sqto > min_cap)
+        min_coord = AD->sqto;
+      
+      if (AD->sqfrom < min_coord && AD->sqfrom > min_cap)
+        min_coord = AD->sqfrom;
+      
+
+      // New maximum?
+      if (AD->sqto > max_coord && AD->sqto < max_cap)
+        max_coord = AD->sqto;
+      
+      if (AD->sqfrom > max_coord && AD->sqfrom < max_cap)
+        max_coord = AD->sqfrom;
+
+    }
+
+  }
+
+
+  TargetNuclSeq->start = min_coord;
+  TargetNuclSeq->end   = max_coord;
+
+
+  if (DEBUGGING) DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: GetTargetNuclSeq
  *
  *  Desc. :  Given a sequence file and a collection of translated search hits, extract a
@@ -811,9 +981,16 @@ TARGET_SEQ * GetTargetNuclSeq
   if (DEBUGGING) DEBUG_OUT("Starting 'GetTargetNuclSeq'",1);
 
   TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
-  GetMinAndMaxCoords(TopHits,TargetNuclSeq);
 
+  // This is somewhat deprecated.  Works well on constrained inputs,
+  // but for anything approaching chromosome-scale we need to use
+  // 'SetTargetSeqRange' (to account for hits to areas that aren't
+  // coding regions)
+  //
+  // GetMinAndMaxCoords(TopHits,TargetNuclSeq);
+  SetTargetSeqRange(TargetNuclSeq,TopHits);
   TargetNuclSeq->abc = GenomicSeqFile->abc;
+
 
   ESL_SQFILE * TmpSeqFile;
   esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
@@ -1886,6 +2063,49 @@ int HighNTermGapContent
 
 
 
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: OutsideSearchArea
+ *
+ */
+int OutsideSearchArea
+(P7_HIT * Hit, TARGET_SEQ * TargetNuclSeq)
+{
+  
+  if (strcmp(TargetNuclSeq->SeqName,Hit->name))
+    return 1;
+
+  for (int dom_id=0; dom_id<Hit->ndom; dom_id++) {
+
+    int64_t sqfrom = (&Hit->dcl[dom_id])->ad->sqfrom;
+    if (sqfrom < TargetNuclSeq->start) return 1;
+    if (sqfrom > TargetNuclSeq->end  ) return 1;
+
+    int64_t sqto = (&Hit->dcl[dom_id])->ad->sqto;
+    if (sqto < TargetNuclSeq->start) return 1;
+    if (sqto > TargetNuclSeq->end  ) return 1;
+
+  }
+
+  // Nice work coloring inside the lines, hit!
+  return 0;
+
+}
+
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: GatherViableSpliceEdges
@@ -1927,24 +2147,23 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
     int num_upstream_doms = UpstreamHit->ndom;
 
 
+    // Is this hit inside the valid search area?
+    if (OutsideSearchArea(UpstreamHit,TargetNuclSeq))
+      continue;
+
+
     // For each hit, gather all of the indices of other hits that
     // could potentially be downstream exons.
     for (int downstream_hit_id=0; downstream_hit_id < (int)(TopHits->N); downstream_hit_id++) {
 
 
-      // We only consider splicing when the two hits come 
-      // from the same sequence.  Further, because of how
-      // we determine splice viability (specifically, by
-      // checking compatibility of amino acid start/end
-      // coordinates), this wouldn't be a trivial check to
-      // remove to allow for splicing across sequences.
-      if (strcmp(UpstreamHit->name,TopHits->hit[downstream_hit_id]->name))
-        continue;
-
-
-      // Now that we know these are valid to check, check 'em!
       P7_HIT * DownstreamHit  = TopHits->hit[downstream_hit_id];
       int num_downstream_doms = DownstreamHit->ndom;
+
+
+      // Is the downstream hit chill?
+      if (OutsideSearchArea(DownstreamHit,TargetNuclSeq))
+        continue;
 
 
       for (int upstream_dom_id = 0; upstream_dom_id < num_upstream_doms; upstream_dom_id++) {
@@ -4136,6 +4355,7 @@ P7_TOPHITS * SeekMissingExons
   for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
 
     MissingHits->hit[sub_hit_id]        = malloc(sizeof(P7_HIT));
+    MissingHits->hit[sub_hit_id]->name  = TargetNuclSeq->SeqName;
     MissingHits->hit[sub_hit_id]->ndom  = 1;
     MissingHits->hit[sub_hit_id]->dcl   = SubHits[sub_hit_id];
     MissingHits->hit[sub_hit_id]->score = SubHits[sub_hit_id]->bitscore;
@@ -4185,7 +4405,7 @@ void AddMissingExonsToGraph
 
   
 
-  // As I note in 'FindMissingExons' (but is worth emphasizing),
+  // As I note in 'SeekMissingExons' (but is worth emphasizing),
   // this datastructure is basically a cheap way to pass around
   // the new hits that we find.
   //
