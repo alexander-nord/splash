@@ -3123,7 +3123,7 @@ int * GetBoundedSearchRegions
   int num_no_in_edge   = 0;
 
 
-  for (int node_id = 1; node_id < Graph->num_nodes; node_id++) {
+  for (int node_id = 1; node_id <= Graph->num_nodes; node_id++) {
 
     SPLICE_NODE * Node = Graph->Nodes[node_id];
 
@@ -3134,6 +3134,7 @@ int * GetBoundedSearchRegions
       NoInEdgeNodes[num_no_in_edge++] = node_id;
 
   }
+
 
 
   // This could *surely* be optimized, but I think it's going to
@@ -3357,6 +3358,7 @@ int * GetBoundedSearchRegions
       int node_id = NoInEdgeNodes[i];
 
       DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
+      fprintf(stderr,"\n--> Node %d (%d)\n",node_id,DomPtr->ad->hmmfrom);
       if (DomPtr->ad->hmmfrom < upstreamest_model_pos) {
         upstreamest_model_pos = DomPtr->ad->hmmfrom;
         upstreamest_nucl_pos  = DomPtr->ad->sqfrom;
@@ -3366,10 +3368,13 @@ int * GetBoundedSearchRegions
 
     // Could just use literals, but in case I change
     // something I'll variable-ize this.
+    fprintf(stderr,"%d/%d\n",upstreamest_model_pos,upstreamest_nucl_pos);
     if (upstreamest_model_pos > 5 && upstreamest_model_pos < 50 && upstreamest_nucl_pos != -1) {
+
       TermSearchRegions[4*num_term_searches+1] = 1;
       TermSearchRegions[4*num_term_searches+2] = upstreamest_model_pos;
       TermSearchRegions[4*num_term_searches+4] = upstreamest_nucl_pos;
+
       if (Graph->revcomp) {
         TermSearchRegions[4*num_term_searches+3] = intMin(upstreamest_nucl_pos+10000,(int)(TargetNuclSeq->end));
       } else {
@@ -3377,7 +3382,7 @@ int * GetBoundedSearchRegions
       }
 
       // If this search region is too small, skip it
-      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 150)
+      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 50)
         num_term_searches++;
 
     }
@@ -3407,9 +3412,11 @@ int * GetBoundedSearchRegions
 
     int n_term_gap_size = Graph->Model->M - downstreamest_model_pos;
     if (n_term_gap_size > 5 && n_term_gap_size < 50 && downstreamest_nucl_pos != -1) {
+
       TermSearchRegions[4*num_term_searches+1] = downstreamest_model_pos;
       TermSearchRegions[4*num_term_searches+2] = Graph->Model->M;
       TermSearchRegions[4*num_term_searches+3] = downstreamest_nucl_pos;
+
       if (Graph->revcomp) {
         TermSearchRegions[4*num_term_searches+4] = intMax(downstreamest_nucl_pos-10000,(int)(TargetNuclSeq->start));
       } else {
@@ -3417,7 +3424,7 @@ int * GetBoundedSearchRegions
       }
 
       // If this search region is too small, skip it
-      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 150)
+      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 50)
         num_term_searches++;
 
     }
@@ -4263,7 +4270,66 @@ void AddMissingExonsToGraph
       }
 
 
-      // A little wasteful, but better than writing this twice, am I right?!
+      // Time to resize?
+      if (num_new_edges == new_splice_edge_cap) {
+
+        new_splice_edge_cap *= 2;
+
+        DOMAIN_OVERLAP ** MoreNewEdges = (DOMAIN_OVERLAP **)malloc(new_splice_edge_cap*sizeof(DOMAIN_OVERLAP *));
+        for (int i=0; i<num_new_edges; i++)
+          MoreNewEdges[i] = NewSpliceEdges[i];
+
+        free(NewSpliceEdges);
+        NewSpliceEdges = MoreNewEdges;
+
+      }
+
+    }
+
+
+    // It's possible we might want to splice two missed exons together
+    // (see A1BG human isoform 1)
+    for (int mhi2=missed_hit_id+1; mhi2<num_missing_hits; mhi2++) {
+
+      P7_ALIDISPLAY * MAD2 = Graph->MissedHits->hit[mhi2]->dcl->ad;
+
+      if (HitsAreSpliceCompatible(MissedAD,MAD2)) {
+
+        NewSpliceEdges[num_new_edges] = (DOMAIN_OVERLAP *)malloc(sizeof(DOMAIN_OVERLAP));
+        DOMAIN_OVERLAP * Edge         = NewSpliceEdges[num_new_edges];
+
+        Edge->upstream_hit_id   = missed_hit_id;
+        Edge->upstream_dom_id   = 0;
+        Edge->downstream_hit_id = mhi2;
+        Edge->downstream_dom_id = 0;
+
+        Edge->UpstreamTopHits   = Graph->MissedHits;
+        Edge->UpstreamDisplay   = MissedAD;
+        Edge->DownstreamTopHits = Graph->MissedHits;
+        Edge->DownstreamDisplay = MAD2;
+
+        num_new_edges++;
+
+      } else if (HitsAreSpliceCompatible(MAD2,MissedAD)) {
+
+        NewSpliceEdges[num_new_edges] = (DOMAIN_OVERLAP *)malloc(sizeof(DOMAIN_OVERLAP));
+        DOMAIN_OVERLAP * Edge         = NewSpliceEdges[num_new_edges];
+
+        Edge->upstream_hit_id   = mhi2;
+        Edge->upstream_dom_id   = 0;
+        Edge->downstream_hit_id = missed_hit_id;
+        Edge->downstream_dom_id = 0;
+
+        Edge->UpstreamTopHits   = Graph->MissedHits;
+        Edge->UpstreamDisplay   = MAD2;
+        Edge->DownstreamTopHits = Graph->MissedHits;
+        Edge->DownstreamDisplay = MissedAD;
+
+        num_new_edges++;
+
+      }
+
+      // Time to resize?
       if (num_new_edges == new_splice_edge_cap) {
 
         new_splice_edge_cap *= 2;
@@ -4280,6 +4346,7 @@ void AddMissingExonsToGraph
     }
 
   }
+
 
 
   // Back at it again!
