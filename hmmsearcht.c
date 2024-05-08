@@ -197,6 +197,7 @@ typedef struct _target_seq {
   ESL_DSQ * Seq;
   const ESL_ALPHABET * abc;
 
+  // NOTE that start is always less than end (even if revcomp)
   int64_t start;
   int64_t end;
 
@@ -818,10 +819,27 @@ TARGET_SEQ * GetTargetNuclSeq
   esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
   esl_sqfile_OpenSSI(TmpSeqFile,NULL);
 
+
+  ESL_SQ * SeqInfo = esl_sq_Create();
+  esl_sqio_FetchInfo(TmpSeqFile,TopHits->hit[0]->name,SeqInfo);
+
+
+  // In case there's a terminal search region we need to consider,
+  // pull in a bit of extra sequence
+  TargetNuclSeq->start -= 10000;
+  if (TargetNuclSeq->start < 0)
+    TargetNuclSeq->start = 1;
+  
+  TargetNuclSeq->end += 10000;
+  if (TargetNuclSeq->end > SeqInfo->L)
+    TargetNuclSeq->end = SeqInfo->L;
+
+
   TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
   int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
 
   esl_sqfile_Close(TmpSeqFile);
+  esl_sq_Destroy(SeqInfo);
 
   if (fetch_err_code != eslOK) {
     fprintf(stderr,"\n  ERROR: Failed to fetch target subsequence (is there an .ssi index for the sequence file?)\n\n");
@@ -1669,6 +1687,7 @@ void SketchSpliceEdge
   Edge->ntalpha = TargetNuclSeq->abc;
 
 
+  // Big ol' DEBUGGING dump
   if (DEBUGGING && 0) {
     fprintf(stderr,"\n");
     fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
@@ -1680,6 +1699,8 @@ void SketchSpliceEdge
     fprintf(stderr,"                                   : ");
     for (int i=3; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+3; i++)
       fprintf(stderr,"%c",DNA_CHARS[Edge->DownstreamNucls[i]]);
+    fprintf(stderr,"\n");
+    fprintf(stderr,"                      : Model Pos.s: %d..%d\n",Edge->amino_start,Edge->amino_end);
     fprintf(stderr,"\n\n");
   }
 
@@ -1730,12 +1751,15 @@ int HitsAreSpliceCompatible
   int amino_start_2 = Downstream->hmmfrom;
   int amino_end_2   = Downstream->hmmto;
 
+
+
   // If the upstream ain't upstream, then obviously we can't treat
   // these as splice-compatible!
   if (!(amino_start_1 < amino_start_2 && amino_end_1 < amino_end_2)) {
     if (DEBUGGING) DEBUG_OUT("'HitsAreSpliceCompatible' Complete",-1);
     return 0;
   }
+
 
   // Do we have overlap OR sufficient proximity to consider
   // extending?
@@ -2862,7 +2886,10 @@ void TestSubModel
   fprintf(stdout,"\n\n(%s)\n\n",Model->consensus);
 
   // HARD DEBUGGING
-  if (1) exit(21);
+  if (0) {
+    fprintf(stdout,"--- Program terminating (TestSubModel kill active) ---\n\n");
+    exit(21);
+  }
 
   p7_alidisplay_Destroy(AD);
   esl_sq_Destroy(TargetSeq);
@@ -3082,7 +3109,7 @@ int NodesAreDCCCompatible
  *
  */
 int * GetBoundedSearchRegions
-(SPLICE_GRAPH * Graph)
+(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
@@ -3209,11 +3236,12 @@ int * GetBoundedSearchRegions
   }
 
 
+
   // Now we can go through all of the hits in each of our
   // "disconnected components" and determine a maximal 
   // search area
-  int * SearchRegionAggregate = malloc((1 + 4 * num_live_dcc_ids) * sizeof(int));
-  SearchRegionAggregate[0] = num_live_dcc_ids;
+  int * MidSearchRegions = malloc((1 + 4 * num_live_dcc_ids) * sizeof(int));
+  MidSearchRegions[0] = num_live_dcc_ids;
 
 
   // Once again, there is plenty of room for optimization,
@@ -3299,20 +3327,126 @@ int * GetBoundedSearchRegions
     //
     // 3. Log it!
     //
-    SearchRegionAggregate[4*meta_dcc_id + 1] = dcc_hmm_start;
-    SearchRegionAggregate[4*meta_dcc_id + 2] = dcc_hmm_end;
-    SearchRegionAggregate[4*meta_dcc_id + 3] = dcc_nucl_start;
-    SearchRegionAggregate[4*meta_dcc_id + 4] = dcc_nucl_end;
+    MidSearchRegions[4*meta_dcc_id + 1] = dcc_hmm_start;
+    MidSearchRegions[4*meta_dcc_id + 2] = dcc_hmm_end;
+    MidSearchRegions[4*meta_dcc_id + 3] = dcc_nucl_start;
+    MidSearchRegions[4*meta_dcc_id + 4] = dcc_nucl_end;
+
+  }
+  free(DisConnCompOuts);
+  free(DisConnCompIns);
+  free(LiveDCCIDs);
+
+
+
+  // We also want to find terminal regions that would
+  // be worth searching.
+  // At most, there will be two search regions (N-,C-terminal).
+  //
+  int * TermSearchRegions = malloc(9*sizeof(int));
+  int   num_term_searches = 0;
+
+  // Start with the N-terminal scan
+  if (Graph->num_n_term == 0) {
+
+    int upstreamest_nucl_pos  = -1;
+    int upstreamest_model_pos = Graph->Model->M;
+
+    for (int i=0; i<num_no_in_edge; i++) {
+
+      int node_id = NoInEdgeNodes[i];
+
+      DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
+      if (DomPtr->ad->hmmfrom < upstreamest_model_pos) {
+        upstreamest_model_pos = DomPtr->ad->hmmfrom;
+        upstreamest_nucl_pos  = DomPtr->ad->sqfrom;
+      }
+
+    }
+
+    // Could just use literals, but in case I change
+    // something I'll variable-ize this.
+    if (upstreamest_model_pos > 5 && upstreamest_model_pos < 50 && upstreamest_nucl_pos != -1) {
+      TermSearchRegions[4*num_term_searches+1] = 1;
+      TermSearchRegions[4*num_term_searches+2] = upstreamest_model_pos;
+      TermSearchRegions[4*num_term_searches+4] = upstreamest_nucl_pos;
+      if (Graph->revcomp) {
+        TermSearchRegions[4*num_term_searches+3] = intMin(upstreamest_nucl_pos+10000,(int)(TargetNuclSeq->end));
+      } else {
+        TermSearchRegions[4*num_term_searches+3] = intMax(upstreamest_nucl_pos-10000,(int)(TargetNuclSeq->start));
+      }
+
+      // If this search region is too small, skip it
+      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 150)
+        num_term_searches++;
+
+    }
+
 
   }
 
 
 
+  // Any interest in a C-terminal search region?
+  if (Graph->num_c_term == 0) {
+
+    int downstreamest_nucl_pos  = -1;
+    int downstreamest_model_pos =  1;
+
+    for (int i=0; i<num_no_out_edge; i++) {
+
+      int node_id = NoOutEdgeNodes[i];
+
+      DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
+      if (DomPtr->ad->hmmto > downstreamest_model_pos) {
+        downstreamest_model_pos = DomPtr->ad->hmmto;
+        downstreamest_nucl_pos  = DomPtr->ad->sqto;
+      }
+
+    }
+
+    int n_term_gap_size = Graph->Model->M - downstreamest_model_pos;
+    if (n_term_gap_size > 5 && n_term_gap_size < 50 && downstreamest_nucl_pos != -1) {
+      TermSearchRegions[4*num_term_searches+1] = downstreamest_model_pos;
+      TermSearchRegions[4*num_term_searches+2] = Graph->Model->M;
+      TermSearchRegions[4*num_term_searches+3] = downstreamest_nucl_pos;
+      if (Graph->revcomp) {
+        TermSearchRegions[4*num_term_searches+4] = intMax(downstreamest_nucl_pos-10000,(int)(TargetNuclSeq->start));
+      } else {
+        TermSearchRegions[4*num_term_searches+4] = intMin(downstreamest_nucl_pos+10000,(int)(TargetNuclSeq->end));
+      }
+
+      // If this search region is too small, skip it
+      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 150)
+        num_term_searches++;
+
+    }
+
+  }
+
+
+  // I cast thee out!
   free(NoOutEdgeNodes);
   free(NoInEdgeNodes);
-  free(DisConnCompOuts);
-  free(DisConnCompIns);
-  free(LiveDCCIDs);
+
+
+  int * SearchRegionAggregate = malloc((1+(4*(num_live_dcc_ids+num_term_searches)))*sizeof(int));
+  
+  SearchRegionAggregate[0] = num_live_dcc_ids + num_term_searches;
+  for (int i=0; i<num_live_dcc_ids; i++) {
+    SearchRegionAggregate[4*i+1] = MidSearchRegions[4*i+1];
+    SearchRegionAggregate[4*i+2] = MidSearchRegions[4*i+2];
+    SearchRegionAggregate[4*i+3] = MidSearchRegions[4*i+3];
+    SearchRegionAggregate[4*i+4] = MidSearchRegions[4*i+4];
+  }
+  for (int i=0; i<num_term_searches; i++) {
+    SearchRegionAggregate[4*(i+num_live_dcc_ids)+1] = TermSearchRegions[4*i+1];
+    SearchRegionAggregate[4*(i+num_live_dcc_ids)+2] = TermSearchRegions[4*i+2];
+    SearchRegionAggregate[4*(i+num_live_dcc_ids)+3] = TermSearchRegions[4*i+3];
+    SearchRegionAggregate[4*(i+num_live_dcc_ids)+4] = TermSearchRegions[4*i+4];
+  }
+  free(MidSearchRegions);
+  free(TermSearchRegions);
 
 
   if (DEBUGGING) DEBUG_OUT("'GetBoundedSearchRegions' Complete",-1);
@@ -3505,8 +3639,15 @@ P7_DOMAIN ** FindSubHits
   strcpy(OSubModel->name,"OSM\0");
 
 
+  
   // DEBUGGING
-  //TestSubModel(SubModel,OSubModel,"SDQVFIGFVLKQFEYIEVGQF\0");  // (remnant of HTT testing)
+  //
+  // Note that this is primarily intended to work when there's
+  // a particular (tester-known) sequence that we want to confirm
+  // would score well under the model.
+  //
+  //TestSubModel(SubModel,OSubModel,"PPNPSLMSIFRK\0");
+
 
 
   // Grab the nucleotides we're searching our sub-model against
@@ -3642,8 +3783,8 @@ P7_DOMAIN ** FindSubHits
 
 
             // DEBUGGING
-            //fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
-            //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
+            fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
+            p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
 
 
             // Oh, boy! Let's add this alidisplay to our array!
@@ -3887,7 +4028,7 @@ P7_TOPHITS * SeekMissingExons
   // the model, the starting coordinate on the genome, and the ending
   // coordinate on the genome.
   //
-  int * SearchRegionAggregate = GetBoundedSearchRegions(Graph);
+  int * SearchRegionAggregate = GetBoundedSearchRegions(Graph,TargetNuclSeq);
   int   num_search_regions    = SearchRegionAggregate[0];
 
   if (SearchRegionAggregate == NULL) {
@@ -5209,9 +5350,10 @@ int ReportSplicedTopHits
     fprintf(ofp,"| splash - spliced alignment of some hits\n");
     fprintf(ofp,"|\n");
     fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
-    fprintf(ofp,"| = Model Positions  %d..%d\n",model_start,model_end);
+    fprintf(ofp,"| = Model Positions  %d..%d",model_start,model_end);
+    if (full_coverage) fprintf(ofp,"  (* Full Model)");
+    fprintf(ofp,"\n");
     fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
-    if (full_coverage)   fprintf(ofp,"| + Covers Full Model\n");
     if (num_found_exons) fprintf(ofp,"| + Includes Missed Exons\n");
     fprintf(ofp,"|\n");
     fprintf(ofp,":\n");
