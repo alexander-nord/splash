@@ -4196,8 +4196,16 @@ int * GetExonSetFromStartNode
 
   // In case we use *every* node
   // BestPathCoords[0] is the number of nodes along the
-  //  path (Min:1,Max:num_nodes)
-  int * BestPathCoords  = malloc((4*Graph->num_nodes + 1)*sizeof(int));
+  // path (Min:1,Max:num_nodes)
+  //
+  // Each "entry" consists of
+  //    [1.] The start position in the profile
+  //    [2.] The start position in the genome
+  //    [3.] The   end position in the profile
+  //    [4.] The   end position in the genome
+  //    [5.] The corresponding node's ID
+  //
+  int * BestPathCoords  = malloc((5*Graph->num_nodes + 1)*sizeof(int));
   int num_path_elements = 0;
 
 
@@ -4217,6 +4225,8 @@ int * GetExonSetFromStartNode
     BestPathCoords[++num_path_elements] = Node->OutEdges[Node->best_out_edge]->upstream_spliced_nucl_end;
     BestPathCoords[++num_path_elements] = Node->OutEdges[Node->best_out_edge]->upstream_exon_terminus;
 
+    BestPathCoords[++num_path_elements] = Node->node_id;
+
     Node = Node->DownstreamNodes[Node->best_out_edge];
 
     BestPathCoords[++num_path_elements] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
@@ -4233,9 +4243,10 @@ int * GetExonSetFromStartNode
     BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqto;
     BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->hmmto;
   }
+  BestPathCoords[++num_path_elements] = Node->node_id;
 
 
-  BestPathCoords[0] = num_path_elements/4;
+  BestPathCoords[0] = num_path_elements/5;
 
 
   if (DEBUGGING) DEBUG_OUT("'GetExonSetFromStartNode' Complete",-1);
@@ -4385,7 +4396,7 @@ ESL_DSQ * GrabExonCoordSetNucls
 
   int num_nucls = 0;
   for (int exon_id = 0; exon_id < num_exons; exon_id++)
-    num_nucls += abs(ExonCoordSet[exon_id*4 + 1] - ExonCoordSet[exon_id*4 + 3]) + 1;
+    num_nucls += abs(ExonCoordSet[exon_id*5 + 1] - ExonCoordSet[exon_id*5 + 3]) + 1;
 
   ESL_DSQ * ExonSetNucls = malloc((num_nucls+1) * sizeof(ESL_DSQ));
   *coding_region_len = num_nucls;
@@ -4394,8 +4405,8 @@ ESL_DSQ * GrabExonCoordSetNucls
   int nucl_placer = 1;
   for (int exon_id = 0; exon_id < num_exons; exon_id++) {
 
-    int range_start = ExonCoordSet[exon_id*4 + 1];
-    int range_end   = ExonCoordSet[exon_id*4 + 3];
+    int range_start = ExonCoordSet[exon_id*5 + 1];
+    int range_end   = ExonCoordSet[exon_id*5 + 3];
     ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
 
 
@@ -4456,14 +4467,14 @@ void DumpExonSets
     fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
     for (int i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
-      fprintf(stderr,"%d-%d",ExonCoords[i*4 + 1],ExonCoords[i*4 + 3]);
+      fprintf(stderr,"%d-%d",ExonCoords[i*5 + 1],ExonCoords[i*5 + 3]);
     }
 
 
     fprintf(stderr,":Aminos__");
     for (int i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
-      fprintf(stderr,"%d-%d",ExonCoords[i*4 + 2],ExonCoords[i*4 + 4]);
+      fprintf(stderr,"%d-%d",ExonCoords[i*5 + 2],ExonCoords[i*5 + 4]);
     }
 
 
@@ -4700,7 +4711,7 @@ void GetALSBlockLengths
 
   int max_coord = 0;
   for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
-    int set_max = intMax(intMax(ExonCoordSet[(exon_id*4)+1],ExonCoordSet[(exon_id*4)+3]),intMax(ExonCoordSet[(exon_id*4)+2],ExonCoordSet[(exon_id*4)+4]));
+    int set_max = intMax(intMax(ExonCoordSet[(exon_id*5)+1],ExonCoordSet[(exon_id*5)+3]),intMax(ExonCoordSet[(exon_id*5)+2],ExonCoordSet[(exon_id*5)+4]));
     max_coord = intMax(max_coord,set_max);
   }
 
@@ -5078,10 +5089,10 @@ void PrintSplicedAlignment
   for (int exon_id = 0; exon_id < num_exons; exon_id++) {
 
     EDI->exon_id     = exon_id + 1;
-    EDI->hmm_start   = ExonCoordSet[(4*exon_id)+2];
-    EDI->hmm_end     = ExonCoordSet[(4*exon_id)+4];
-    EDI->nucl_start  = ExonCoordSet[(4*exon_id)+1];
-    EDI->nucl_end    = ExonCoordSet[(4*exon_id)+3];
+    EDI->hmm_start   = ExonCoordSet[(5*exon_id)+2];
+    EDI->hmm_end     = ExonCoordSet[(5*exon_id)+4];
+    EDI->nucl_start  = ExonCoordSet[(5*exon_id)+1];
+    EDI->nucl_end    = ExonCoordSet[(5*exon_id)+3];
 
     if (exon_id == 0) EDI->Nterm = 1;
     else              EDI->Nterm = 0;
@@ -5169,9 +5180,9 @@ int ReportSplicedTopHits
 
   int num_exons   = ExonCoordSet[0];
   int model_start = ExonCoordSet[2];
-  int model_end   = ExonCoordSet[4 + 4*(num_exons-1)];
+  int model_end   = ExonCoordSet[4 + 5*(num_exons-1)];
   int nucl_start  = ExonCoordSet[1];
-  int nucl_end    = ExonCoordSet[3 + 4*(num_exons-1)];
+  int nucl_end    = ExonCoordSet[3 + 5*(num_exons-1)];
 
   fprintf(ofp,"\n\n+");
   for (int i=0; i<=textw; i++)
@@ -5257,7 +5268,7 @@ void CheckHitsMatchExonCoords
   ExonCoordSet[1]   += start_pos_diff * strand;
 
   // If this is ZERO, then NOTHING should happen!
-  int final_exon_index = 4 * (ExonCoordSet[0]-1);
+  int final_exon_index = 5 * (ExonCoordSet[0]-1);
   int end_pos_diff     = ExonCoordSet[final_exon_index+4] - hit_hmmto;
   ExonCoordSet[final_exon_index + 4]  = hit_hmmto;
   ExonCoordSet[final_exon_index + 3] -= end_pos_diff * strand;
