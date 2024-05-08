@@ -3783,8 +3783,8 @@ P7_DOMAIN ** FindSubHits
 
 
             // DEBUGGING
-            fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
-            p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
+            //fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
+            //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
 
 
             // Oh, boy! Let's add this alidisplay to our array!
