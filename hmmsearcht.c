@@ -4734,6 +4734,140 @@ void DumpExonSets
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: CheckTerminusProximity
+ *
+ *  Desc. : If we're within spitting distance of the ends of the model,
+ *          just extend.
+ *
+ *          NOTE: It seems like in some cases the fwd/bck pipeline is
+ *                dead-set on cutting off the final couple of aminos
+ *                (Examples: A1BG:{human1,human2,rat1}).
+ *
+ *                It seems that this check *can* get us the right
+ *                mapping coordinates for a full-model hit, but only 
+ *                as output from "DumpExonSets," since I can't force
+ *                the model to not cut off those last aminos
+ *                (without getting into stuff that I'm *not* messing with).
+ *
+ *                Because having this on might risk creating discrepancies
+ *                between our bookkeeping and the real coordinates of the
+ *                alignment produced by running the full pipeline,
+ *                I'm going to turn it off.
+ *
+ *                BUT I'll leave it here in case it's ever useful. 
+ *
+ */
+void CheckTerminusProximity
+(
+  int * ExonCoordSet, 
+  TARGET_SEQ * TargetNuclSeq, 
+  SPLICE_GRAPH * Graph,
+  ESL_GENCODE * gcode
+)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'CheckTerminusProximity'",1);
+
+  // The formal definition of "spitting distance"
+  int max_ext_dist = 5;
+
+
+  int num_exons = ExonCoordSet[0];
+
+  int nucl_start = ExonCoordSet[1];
+  int hmm_start  = ExonCoordSet[2];
+
+  int nucl_end = ExonCoordSet[5*(num_exons-1)+3];
+  int hmm_end  = ExonCoordSet[5*(num_exons-1)+4];
+
+
+  int revcomp = 0;
+  if (nucl_start > nucl_end)
+    revcomp = 1;
+
+
+  // Might we consider extending to the model's N-terminus?
+  if (hmm_start <= max_ext_dist && hmm_start != 1) {
+
+    int ext_len = hmm_start-1;
+
+    int ext_nucl_end = nucl_start;
+    int ext_nucl_start;
+    if (revcomp) {
+      ext_nucl_start = ext_nucl_end + 3*ext_len;
+      ext_nucl_end++;
+    } else {
+      ext_nucl_start = ext_nucl_end - 3*ext_len;
+      ext_nucl_end--;
+    }
+
+    ESL_DSQ * NExtSeq = GrabNuclRange(TargetNuclSeq,ext_nucl_start,ext_nucl_end);
+    int unusual_codon = 0;
+    for (int i=0; i<ext_len; i++) {
+      int n_ext_amino = esl_gencode_GetTranslation(gcode,&NExtSeq[3*i+1]);
+      if (n_ext_amino < 0 || n_ext_amino > 20) {
+        unusual_codon = 1;
+        break;
+      }
+    }
+    free(NExtSeq);
+
+    if (!unusual_codon) {
+      ExonCoordSet[1] = ext_nucl_start;
+      ExonCoordSet[2] = 1;
+    }
+
+  }
+
+
+
+  // How about that C-terminus?
+  if (Graph->Model->M - hmm_end <= max_ext_dist && hmm_end != Graph->Model->M) {
+
+    int ext_len = Graph->Model->M - hmm_end;
+
+    int ext_nucl_start = nucl_end;
+    int ext_nucl_end;
+    if (revcomp) {
+      ext_nucl_end = ext_nucl_start - 3*ext_len;
+      ext_nucl_start--;
+    } else {
+      ext_nucl_end = ext_nucl_start + 3*ext_len;
+      ext_nucl_start++;
+    }
+
+    ESL_DSQ * CExtSeq = GrabNuclRange(TargetNuclSeq,ext_nucl_start,ext_nucl_end);
+    int unusual_codon = 0;
+    for (int i=0; i<ext_len; i++) {
+      int c_ext_amino = esl_gencode_GetTranslation(gcode,&CExtSeq[3*i+1]);
+      if (c_ext_amino < 0 || c_ext_amino > 20) {
+        unusual_codon = 1;
+        break;
+      }
+    }
+    free(CExtSeq);
+
+    if (!unusual_codon) {
+      ExonCoordSet[5*(num_exons-1)+3] = ext_nucl_end;
+      ExonCoordSet[5*(num_exons-1)+4] = Graph->Model->M;
+    }
+
+  }
+
+
+  if (DEBUGGING) DEBUG_OUT("'CheckTerminusProximity' Complete",-1);
+
+}
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: GetSplicedExonCoordSets
  *
  *  Desc. :
@@ -4798,7 +4932,6 @@ int ** GetSplicedExonCoordSets
   for (int conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
     ExonCoordSets[conn_comp_id] = GetExonSetFromStartNode(Graph,StartNodes[conn_comp_id]);
   free(StartNodes);
-
 
   if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
 
@@ -5554,6 +5687,18 @@ void RunModelOnExonSets
 
   int num_exon_sets;
   int ** ExonCoordSets = GetSplicedExonCoordSets(Graph,&num_exon_sets);
+
+
+  // Are any of our coordinate sets obnoxiously close to
+  // either end of the model?
+  //
+  // NOTE: I'm turning this off.  It *would* be useful if I could
+  //       override the fwd/bck pipeline / force full-model alignment,
+  //       but I can't, so I'm not going to risk messing up my
+  //       bookkeeping.
+  //
+  //for (int i=0; i<num_exon_sets; i++)
+  //CheckTerminusProximity(ExonCoordSets[i],TargetNuclSeq,Graph,gcode);
 
 
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);

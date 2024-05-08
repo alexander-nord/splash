@@ -49,3 +49,52 @@
      --> UPDATE: We're going with a 10-position poll (>5 gaps and you're out!)
 
 
+[3.] GPX5: Frameshift alert!  Not sure how to catch this, but might be worth
+     making sure I know how these are clearing Mirage2's mapping pipeline and
+     see if I can block them at that point...
+
+     Alignments for each domain:
+     == domain 1  score: 47.3 bits;  conditional E-value: 6.5e-16
+         rattus_norvegicus.1   27  k  m  k  m  d  c  y  k  d  v  k  g  t  i  y  n  y  e  a  l  s  l  n  g  k  e  r  i  54  
+                                      +  +  m  d  c  y  k  d  v  k  g  t  i  y  n  y  e           l     g  +  +       
+                      orf117   49  F  F  Q  M  D  C  Y  K  D  V  K  G  T  I  Y  N  Y  E  L  C  L  L  M  G  R  N  A  F  76  
+     chr17/45503683-45522734 6745 TTCTTCCAGATGGACTGCTACAAAGATGTGAAAGGCACCATCTACAACTACGAGCTCTGTCTCTTAATGGGAAGGAACGCATTT 6828
+                                   3  6  8  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  PP
+
+         rattus_norvegicus.1   55  p  f  k  q  y  a  g  k  62  
+                                   p  f  k  q  y  a  g  k 
+                      orf117   77  P  F  K  Q  Y  A  G  K  84  
+     chr17/45503683-45522734 6829 CCATTCAAGCAGTATGCAGGAAAG 6852
+                                *  *  *  *  *  *  *  9  PP
+
+   >> orf118  
+      #    score  bias  c-Evalue  i-Evalue hmmfrom  hmm to      alifrom    ali to      envfrom    env to     acc
+    ---   ------ ----- --------- --------- ------- -------    --------- ---------    --------- ---------    ----
+      1 !   32.1   0.0   2.7e-11   2.1e-09      61      81 ..      6848      6910 ..      6818      6928 .. 0.29
+
+     Alignments for each domain:
+     == domain 1  score: 32.1 bits;  conditional E-value: 2.7e-11
+         rattus_norvegicus.1   61  g  k  h  v  l  f  v  n  v  a  t  y  c  g  l  t  i  q  y  p  e  81  
+                                         h  v  l  f  v  n  v  a  t  y  c  g  l  t  i  q  y  p    
+                      orf118   13  E  S  H  V  L  F  V  N  V  A  T  Y  C  G  L  T  I  Q  Y  P  G  33  
+     chr17/45503683-45522734 6848 GAAAGCCACGTCCTCTTTGTCAATGTGGCTACCTATTGTGGTCTGACAATTCAGTATCCTGGT 6910
+                                   6  7  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  9  5  PP
+
+
+[4.] In some cases, a hit might just... end? Below is the last line for a hit for the
+     primary A1BG isoform that ends at position 493, even though the model is 495 positions
+     and should extend the 2 extra aminos.
+
+     I'm going to see what happens if we just *extend*
+
+           homo_sapiens.1  482  s  e  l  s  d  p  v  e  l  l  v  a  493 
+                                s  e  l  s  d  p  v  e  l  l  v  a 
+                   orf379  144  S  E  L  S  D  P  V  E  L  L  V  A  155 
+  chr19/58342348-58358437 5042 TCGGAGCTCAGCGACCCTGTGGAGCTCCTGGTGGCA 5007
+                                *  *  *  *  *  *  *  *  *  *  *  9  PP
+
+
+     > UPDATE: I added a function (CheckTerminusProximity) to try to address this, but in
+               the cases where I've observed this the pipeline overrides my attempt to extend,
+	       so we're just going to have to accept these as 99%-model-length alignments.
+
