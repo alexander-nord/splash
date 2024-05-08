@@ -143,8 +143,7 @@ typedef struct {
 // Before we get to the fun stuff, let's just set up some
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
-
-
+static int ALEX_MODE = 1; // Print some extra metadata
 static int DEBUGGING = 1; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
@@ -5167,16 +5166,16 @@ int ReportSplicedTopHits
   p7_tophits_Threshold(ExonSetTopHits,ExonSetPipeline);
 
 
-  /*
-  fprintf(ofp,"\n\n");
-  fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
-  for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
-    fprintf(ofp,"  + Exon %d\n",exon_id+1);
-    fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*4+2],ExonCoordSet[exon_id*4+4]);
-    fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*4+1],ExonCoordSet[exon_id*4+3]);
-  }
-  fprintf(ofp,"\n\n");
-  */
+  //DEBUGGING
+  //fprintf(stderr,"\n\n");
+  //fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
+  //for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
+  //fprintf(ofp,"  + Exon %d\n",exon_id+1);
+  //fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*5+2],ExonCoordSet[exon_id*5+4]);
+  //fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*5+1],ExonCoordSet[exon_id*5+3]);
+  //}
+  //fprintf(ofp,"\n\n");
+
 
   int num_exons   = ExonCoordSet[0];
   int model_start = ExonCoordSet[2];
@@ -5184,23 +5183,44 @@ int ReportSplicedTopHits
   int nucl_start  = ExonCoordSet[1];
   int nucl_end    = ExonCoordSet[3 + 5*(num_exons-1)];
 
-  fprintf(ofp,"\n\n+");
-  for (int i=0; i<=textw; i++)
-    fprintf(ofp,"=");
-  fprintf(ofp,"+\n");
-  fprintf(ofp,"|\n");
-  fprintf(ofp,"| splash - spliced alignment of some hits\n");
-  fprintf(ofp,"|\n");
-  fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
-  fprintf(ofp,"| = Model Positions  %d..%d",model_start,model_end);
-  if (model_end == Graph->Model->M)
-    fprintf(ofp," <--(FULL MODEL COVERAGE)");
-  fprintf(ofp,"\n");
-  fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
-  fprintf(ofp,"|\n");
-  fprintf(ofp,":\n\n");
+
+  // If Alex is running this, he probably wants to
+  // make the output as cluttered as possible (and
+  // we all love that about him... right?).
+  //
+  if (ALEX_MODE) {
+
+    int full_coverage = 0;
+    if (model_start == 1 && model_end == Graph->Model->M) 
+      full_coverage = 1;
+
+    int num_found_exons = 0;
+    for (int exon_id=0; exon_id<num_exons; exon_id++) {
+      int node_id = ExonCoordSet[5 + 5*exon_id];
+      if (Graph->Nodes[node_id]->was_missed)
+        num_found_exons++;
+    }
+
+    fprintf(ofp,"\n\n+");
+    for (int i=0; i<=textw; i++)
+      fprintf(ofp,"=");
+    fprintf(ofp,"+\n");
+    fprintf(ofp,"|\n");
+    fprintf(ofp,"| splash - spliced alignment of some hits\n");
+    fprintf(ofp,"|\n");
+    fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
+    fprintf(ofp,"| = Model Positions  %d..%d\n",model_start,model_end);
+    fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
+    if (full_coverage)   fprintf(ofp,"| + Covers Full Model\n");
+    if (num_found_exons) fprintf(ofp,"| + Includes Missed Exons\n");
+    fprintf(ofp,"|\n");
+    fprintf(ofp,":\n");
+  
+  }
 
 
+  // Give the standard metadata
+  fprintf(ofp,"\n\n");
   p7_tophits_Targets(ofp, ExonSetTopHits, ExonSetPipeline, textw); 
   fprintf(ofp,"\n\n");
   
@@ -5216,12 +5236,18 @@ int ReportSplicedTopHits
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
 
-  fprintf(ofp,":\n");
-  fprintf(ofp,"|\n");
-  fprintf(ofp,"+");
-  for (int i=0; i<=textw; i++)
-    fprintf(ofp,"=");
-  fprintf(ofp,"+\n\n\n");
+
+  // You thought Alex was done making a mess of things?! HA!
+  if (ALEX_MODE) {
+    fprintf(ofp,":\n");
+    fprintf(ofp,"|\n");
+    fprintf(ofp,"+");
+    for (int i=0; i<=textw; i++)
+      fprintf(ofp,"=");
+    fprintf(ofp,"+\n");
+  }
+  fprintf(ofp,"\n\n");
+
 
   return 0;
 
