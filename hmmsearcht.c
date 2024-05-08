@@ -144,7 +144,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
