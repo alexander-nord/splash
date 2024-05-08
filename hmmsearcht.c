@@ -6095,8 +6095,13 @@ void SpliceHits
 )
 {
 
-
   if (DEBUGGING) DEBUG_OUT("Starting 'SpliceHits'",1);
+
+
+  // Start the timer!  You're on the clock, splash!
+  //
+  ESL_STOPWATCH * Timer = esl_stopwatch_Create();
+  esl_stopwatch_Start(Timer);
 
 
   // Very first thing we want to do is make sure that our hits are
@@ -6158,6 +6163,18 @@ void SpliceHits
     DEBUG_OUT("'SpliceHits' Complete",-1);
     fprintf(stderr,"\n\n");
   }
+
+
+  // Very last thing we'll do -- how long were we working on
+  // the splash-related stuff?
+  esl_stopwatch_Stop(Timer);
+  if (ALEX_MODE) {
+    fprintf(stderr,"  Time spent splashing\n  : ");
+    esl_stopwatch_Display(stderr,Timer,NULL);
+    fprintf(stderr,"\n\n");
+  }
+  esl_stopwatch_Destroy(Timer);
+
 
 }
 /*
