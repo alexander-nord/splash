@@ -7,6 +7,7 @@ use POSIX;
 sub RecordMappings;
 sub RecordSeqs;
 sub WriteSeqToFile;
+sub CleanUpEmptyGeneDirs;
 
 
 
@@ -67,6 +68,14 @@ while (my $species = readdir($AllSpeciesDir)) {
 
 }
 closedir($AllSpeciesDir);
+
+
+
+# If there were genes where all mappings were derived from
+# non-FastMap2 methods, we'll want to be sure to clear out those
+# directories
+CleanUpEmptyGeneDirs($out_dir_name);
+
 
 
 1;
@@ -317,6 +326,63 @@ sub WriteSeqToFile
 	close($SeqFile);
 
 }
+
+
+
+
+
+
+
+############################################################################
+#
+#  Subroutine: CleanUpEmptyGeneDirs
+#
+sub CleanUpEmptyGeneDirs
+{
+	my $out_dir_name = shift;
+
+	open(my $OutDir,$out_dir_name)
+		|| die "\n  ERROR:  Failed to open output directory $out_dir_name for cleanup check\n\n";
+
+	while (my $gene_dir_name = readdir($OutDir)) {
+
+		next if ($gene_dir_name =~ /^\./);
+		$gene_dir_name = $gene_dir_name.'/' if ($gene_dir_name !~ /\/$/);
+		$gene_dir_name = $out_dir_name.$gene_dir_name;
+
+		# I think everything in the output directory should be
+		# a directory, but just in case...
+		next if (!(-d $gene_dir_name));
+
+		open(my $GeneDir,$gene_dir_name)
+			|| die "\n  ERROR:  Failed to open gene directory $gene_dir_name for cleanup check\n\n";
+
+		my $dir_is_empty = 1;
+		while (my $file = readdir($GeneDir)) {
+			next if ($file =~ /^\./);
+			$file = $gene_dir_name.$file;
+			if (-e $file) {
+				$dir_is_empty = 0;
+				last;
+			}
+		}
+
+		closedir($GeneDir);
+
+		system("rm -rf \"$gene_dir_name\"") if ($dir_is_empty);
+
+	}
+
+	closedir($OutDir);
+
+}
+
+
+
+
+
+
+
 
 
 
