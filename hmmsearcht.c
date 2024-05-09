@@ -143,7 +143,7 @@ typedef struct {
 // Before we get to the fun stuff, let's just set up some
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
-static int ALEX_MODE = 1; // Print some extra metadata
+static int ALEX_MODE = 1; // Print some extra metadata around hits
 static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
@@ -5510,7 +5510,8 @@ void PrintExon
   // We're officially well-positioned to print out this exon!
   // Before we start printing the alingment, let's give just
   // a kiss of metadata
-  fprintf(ofp,"\n  %s %s [ Exon Set %d / Exon %d ]\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
+  if (ALEX_MODE)
+    fprintf(ofp,"\n  %s %s [ Exon Set %d / Exon %d ]\n\n",EDI->NameBlank,EDI->CoordBlank,EDI->exon_set_id,EDI->exon_id);
 
 
   // I'm making the executive decision that this is what the
