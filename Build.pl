@@ -27,12 +27,12 @@ if (!(-d $hmmer_dir_name)) {
     system("autoconf");
     system("./configure");
 
-    chdir('easel/');
-    system("autoconf");
-    system("./configure");
-    system("make");
+    #chdir('easel/');
+    #system("autoconf");
+    #system("./configure");
+    #system("make");
+    #chdir('../');
 
-    chdir('../');
     system("cp ../$hmmsearcht_template src/");
     system("make");
     
