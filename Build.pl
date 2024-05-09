@@ -23,15 +23,9 @@ if (!(-d $hmmer_dir_name)) {
     chdir($hmmer_dir_name);
     system("git submodule init");
     system("git submodule update --remote");
-    system("cp ../alt-configure.ac configure.ac");
+    system("cp ../inc/alt-configure.ac configure.ac");
     system("autoconf");
     system("./configure");
-
-    #chdir('easel/');
-    #system("autoconf");
-    #system("./configure");
-    #system("make");
-    #chdir('../');
 
     system("cp ../$hmmsearcht_template src/");
     system("make");
