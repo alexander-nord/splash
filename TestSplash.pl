@@ -61,7 +61,6 @@ my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
 # Alright, let's figure this stuff out!
 if    ($OPTIONS{'meta-dir'}  ) { BigBadSplash($OPTIONS{'protein-input'}); }
 elsif ($OPTIONS{'family'}    ) { FamilySplash($OPTIONS{'protein-input'}); }
-elsif ($OPTIONS{'single-seq'}) { die "\n  Not yet supported\n\n";         }
 else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
 
 
@@ -88,8 +87,19 @@ sub AggregateAllResults
 {
 	my $all_fams_dir_name = shift;
 
-	$all_fams_dir_name =~ /^(\S+\/)[^\/]+\/$/;
-	my $final_results_file_name = $1.'Splash-Summary.out'; # Should be same as 'output-dir', but where's the fun?
+
+	# The big 'Summary' file will be written at the end of this
+	# subroutine, but we'll build up this CSV file as we go
+	# (containing info related to how successful we are at splicing
+	# hits to provide full-model coverage)
+	my $coverage_csv_file_name  = $OPTIONS{'output-dir'}.'Coverage.csv';
+	open(my $CoverageFile,'>',$coverage_csv_file_name)
+		|| die "\n  ERROR:  Failed to open coverage-describing output file '$coverage_csv_file_name'\n\n";
+
+	# The header for our coverage file
+	print $CoverageFile "Gene,Sequence-ID,Model-Length,Num-Exon-Sets,";
+	print $CoverageFile "Model-Coverage-of-Best-Exon-Set,Best-ES-Pct-Coverage,";
+	print $CoverageFile "Best-ES-Start-Pos,Best-ES-End-Pos,Time-in-Splash\n";
 
 
 	# We'll want to capture the splicing dinucleotides
@@ -100,6 +110,7 @@ sub AggregateAllResults
 	my %FivePrimeOne;
 	my %FivePrimeTwo;
 
+
 	# How many sequences had some splicing action?
 	# How many covered the full length of the model?
 	# How many (of each of the above) incorporated 'missed' exons?
@@ -109,21 +120,28 @@ sub AggregateAllResults
 	my $full_with_missed   = 0;
 
 
+	my @AllFamsList;
 	opendir(my $AllFamsDir,$all_fams_dir_name)
 		|| die "\n  ERROR:  Failed to open all-family meta-directory '$all_fams_dir_name'\n\n";
 	while (my $family = readdir($AllFamsDir)) 
-	{
-		
+	{		
 		next if ($family =~ /^\./);
 		$family =~ s/\/$//;
+		next if (!(-e $all_fams_dir_name.$family.'/summary.out'));
+		push(@AllFamsList,$family);
+	}
+	closedir($AllFamsDir);
+
+
+
+	foreach my $family (sort @AllFamsList) 
+	{
 
 		my $family_dir_name   = $all_fams_dir_name.$family.'/';
 		my $summary_file_name = $family_dir_name.'summary.out';
 
-		next if (!(-e $summary_file_name));
 
-
-		# Looks like we're on!
+		# Prepare to learn!
 		open(my $SummaryFile,'<',$summary_file_name)
 			|| die "\n  ERROR:  Failed to open summary file '$summary_file_name' for family '$family'\n\n";
 
@@ -146,17 +164,30 @@ sub AggregateAllResults
 		{
 
 			my $line = <$SummaryFile>;
-			next if ($line !~ /Input ID/);
+			$line = <$SummaryFile> while ($line !~ /Input ID/);
+
+
+			$line =~ /Input ID\s+: (\S+)/;
+			my $fam_input_name = $1;
+
 
 			# There was *something* reported -- that's a splicing!
 			$total_num_spliced++;
 
 
-			# For now we'll eat these, but they could
-			# be useful later...
-			$line = <$SummaryFile>; # Runtime
-			$line = <$SummaryFile>; # Model Length
+			# How long did we spend inside the *splash* zone?
+			$line = <$SummaryFile>;
+			$line =~ /Runtime\s+: (\S+)/;
+			my $fam_input_runtime = $1;
 
+
+			# Model length
+			$line = <$SummaryFile>;
+			$line =~ /Model Length\s+: (\d+)/;
+			my $model_length = $1;
+
+
+			# How many exon sets did we arrive at?
 			$line = <$SummaryFile>;
 			$line =~ /Num Exon Sets : (\d+)/;
 			my $num_exon_sets = $1;
@@ -168,6 +199,14 @@ sub AggregateAllResults
 				$full_coverage = 1;
 				$num_full_model++;
 			}
+
+
+			# Even if we know we had full coverage, we'll compile
+			# these bits of information independently
+			my $best_coverage_len = 0; # Model positions covered by an exon set
+			my $best_coverage_start;
+			my $best_coverage_end;
+			my $best_coverage_set_id; # Probably useless, but *whatever*
 
 
 			# Let's start running through our dang exon sets
@@ -183,8 +222,24 @@ sub AggregateAllResults
 				my $num_exons = $1;
 
 
-				$line = <$SummaryFile>; # Model range
-				$line = <$SummaryFile>; # Nucl. range
+				# Model positions covered by this exon set
+				$line = <$SummaryFile>;
+				$line =~ /Model Range\s+: (\d+)\.\.(\d+)/;
+				my $exon_set_model_start = $1;
+				my $exon_set_model_end   = $2;
+				my $exon_set_coverage    = 1 + ($exon_set_model_end - $exon_set_model_start);
+
+				if ($exon_set_coverage > $best_coverage_len)
+				{
+					$best_coverage_set_id = $exon_set_id;
+					$best_coverage_start  = $exon_set_model_start;
+					$best_coverage_end    = $exon_set_model_end;
+					$best_coverage_len    = $exon_set_coverage;
+				}
+
+
+				# Nucleotide range summary for this exon set
+				$line = <$SummaryFile>;
 
 
 				$line = <$SummaryFile>; # Missed exons?
@@ -248,6 +303,19 @@ sub AggregateAllResults
 			}
 
 
+			# Compute the percent of the model covered by our best
+			# exon set
+			my $best_coverage_pct = int(1000.0 * $best_coverage_len / $model_length) / 10.0;
+
+
+			# Hell yeah! We sure were given an input, did something with
+			# it, and then produced an output!  Way to go, us!
+			print $CoverageFile "$family,$fam_input_name,$model_length,";
+			print $CoverageFile "$num_exon_sets,$best_coverage_len,$best_coverage_pct\%,";
+			print $CoverageFile "$best_coverage_start,$best_coverage_end,";
+			print $CoverageFile "$fam_input_runtime\n";
+
+
 			# Wrap up this input with whether it made use of missed exons
 			if ($had_missed_exons)
 			{
@@ -263,7 +331,11 @@ sub AggregateAllResults
 
 
 	}
-	closedir($AllFamsDir);
+
+
+	# Coverage file is all sewn up!
+	close($CoverageFile);
+
 
 
 	# For percentages, we'll want these totals
@@ -281,6 +353,9 @@ sub AggregateAllResults
 
 
 
+	# Now that we've gathered all of these summary statistics,
+	# it's time to make the good news heard!
+	my $final_results_file_name = $OPTIONS{'output-dir'}.'Splash-Summary.out';
 	open(my $FinalResults,'>',$final_results_file_name)
 		|| die "\n  ERROR:  Failed to open final output file '$final_results_file_name'\n\n";
 
@@ -824,6 +899,7 @@ sub BigBadSplash
 		|| die "\n  ERROR:  Failed to open protein meta-directory '$protein_meta_dir_name'\n\n";
 	while (my $family = readdir($ProteinMetaDir)) 
 	{
+		next if ($family =~ /^\./);
 
 		$family =~ s/\/$//;
 		my $family_dir_name = $protein_meta_dir_name.$family.'/';
@@ -1236,17 +1312,7 @@ sub ParseCommandArguments
 		}
 		elsif ($arg_id == $num_args-1 && !$OPTIONS{'protein-input'})
 		{
-			if (-e $Arg) 
-			{
-				
-				# We're being directed to use a specific file
-				$OPTIONS{'protein-input'} = $Arg;
-				$OPTIONS{'single-seq'} = 1;
-				$OPTIONS{'meta-dir'}   = 0;
-				$OPTIONS{'family'}     = 0;
-
-			}
-			elsif (-d $Arg)
+			if (-d $Arg)
 			{
 				# This is (assumed to be) a path to an 'inputs-to-splash'
 				# directory.  Verify!
@@ -1254,7 +1320,6 @@ sub ParseCommandArguments
 				$OPTIONS{'protein-input'} = ConfirmInputsToSplashDir($Arg);
 				$OPTIONS{'meta-dir'}   = 1;
 				$OPTIONS{'family'}     = 0;
-				$OPTIONS{'single-seq'} = 0;
 			}
 			elsif (-d $OPTIONS{'inputs-dir'}.'protein-data/'.lc($Arg)) 
 			{
@@ -1262,7 +1327,6 @@ sub ParseCommandArguments
 				$OPTIONS{'protein-input'} = $OPTIONS{'inputs-dir'}.'protein-data/'.lc($Arg).'/';
 				$OPTIONS{'family'}     = 1;
 				$OPTIONS{'meta-dir'}   = 0;
-				$OPTIONS{'single-seq'} = 0;
 			}
 			else
 			{
