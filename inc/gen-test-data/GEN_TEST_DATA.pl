@@ -8,7 +8,7 @@ use POSIX;
 # Check that we're confident in the locations of the helper tools
 # before anything else
 my $Mirage_to_Splash  = 'MirageOutToSplashIn.pl';
-die "\n  ERROR:  Failed to loacte Mirage2 result parsing script ($Mirage_to_Splash)\n\n"
+die "\n  ERROR:  Failed to locate Mirage2 result parsing script ($Mirage_to_Splash)\n\n"
     if (!(-e $Mirage_to_Splash));
 my $genome_downloader = 'DownloadHMRGenomes.sh';
 die "\n  ERROR:  Failed to locate genome downloading script ($genome_downloader)\n\n"
