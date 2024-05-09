@@ -1188,14 +1188,14 @@ sub HelpAndDie
 	print "\n";
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
-	print "            :  ./TestValidity.pl {OPT.S} [gene]\n";
-	print "            '-------------------------------------------------------\n";
+	print "            :  ./Validate-Splash.pl {OPT.S} [gene]\n";
+	print "            '----------------------------------------------------------\n";
 	print "\n";
 	print "\n";
 	print "  Use Case 2:  Search ALL GENES in an 'inputs-to-splash' directory\n";
 	print "            :\n";
-	print "            :  ./TestValidity.pl {OPT.S} [path/to/inputs-to-splash]\n";
-	print "            '-------------------------------------------------------\n";
+	print "            :  ./Validate-Splash.pl {OPT.S} [path/to/inputs-to-splash]\n";
+	print "            '----------------------------------------------------------\n";
 	print "\n";
 	print "\n";
 	print "  OPT.S: --full-genome : Force use of full genome as target sequence.\n";
@@ -1259,7 +1259,7 @@ sub ParseCommandArguments
 {
 
 	# Default output directory name
-	my $default_out_dir_name = 'Splash-Test-Results';
+	my $default_out_dir_name = 'Splash-Validation-Output';
 	my $out_dir_name = $default_out_dir_name;
 	my $attempt = 1;
 	while (-d $out_dir_name) {

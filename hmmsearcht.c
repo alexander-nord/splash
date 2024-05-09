@@ -152,7 +152,8 @@ void DEBUG_OUT (const char * message, const int func_depth_change) {
     FUNCTION_DEPTH += func_depth_change;
   
   fprintf(stderr,"  SplDebug:");
-  for (int i=0; i<FUNCTION_DEPTH; i++) 
+  int debug_depth;
+  for (debug_depth=0; debug_depth<FUNCTION_DEPTH; debug_depth++) 
     fprintf(stderr,"  ");
   fprintf(stderr,"%s\n",message);
   fflush(stderr);
@@ -468,7 +469,9 @@ void DumpGraph(SPLICE_GRAPH * Graph)
     fprintf(stderr,"   |  * This graph has at least one full path through the HMM!\n");
   fprintf(stderr,"   |\n");
   fprintf(stderr,"   |\n");
-  for (int i=1; i<=Graph->num_nodes; i++) DumpNode(Graph->Nodes[i]);
+  int node_id;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++) 
+    DumpNode(Graph->Nodes[node_id]);
   fprintf(stderr,"   |\n");
   fprintf(stderr,"   |\n");
   fprintf(stderr,"   +=========================================================+\n");
@@ -522,14 +525,16 @@ void SPLICE_NODE_Destroy
 (SPLICE_NODE * Node)
 {
 
-  for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
+  int in_edge_id;
+  for (in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
     if (Node->InEdges[in_edge_id]) {
       DOMAIN_OVERLAP_Destroy(Node->InEdges[in_edge_id]);
       Node->InEdges[in_edge_id] = NULL;
     }
   }
 
-  for (int out_edge_id = 0; out_edge_id < Node->num_out_edges; out_edge_id++) {
+  int out_edge_id;
+  for (out_edge_id = 0; out_edge_id < Node->num_out_edges; out_edge_id++) {
     if (Node->OutEdges[out_edge_id]) {
       DOMAIN_OVERLAP_Destroy(Node->OutEdges[out_edge_id]);
       Node->OutEdges[out_edge_id] = NULL;
@@ -556,7 +561,8 @@ void SPLICE_GRAPH_Destroy
 
   
   // Wipe them nodes *OUT*
-  for (int node_id = 1; node_id <= Graph->num_nodes; node_id++)
+  int node_id;
+  for (node_id = 1; node_id <= Graph->num_nodes; node_id++)
     SPLICE_NODE_Destroy(Graph->Nodes[node_id]);
 
 
@@ -595,7 +601,8 @@ int * FloatHighLowSortIndex
   int * Read  = malloc(num_vals * sizeof(int));
   int * Tmp;
 
-  for (int i=0; i<num_vals; i++) {
+  int i;
+  for (i=0; i<num_vals; i++) {
     Write[i] = i;
     Read[i]  = i;
   }
@@ -672,7 +679,8 @@ int * FloatLowHighSortIndex
 {
   if (DEBUGGING) DEBUG_OUT("Starting 'FloatLowHighSortIndex'",1);
   int * SortIndex = FloatHighLowSortIndex(Vals,num_vals);
-  for (int i=0; i<num_vals/2; i++) {
+  int i;
+  for (i=0; i<num_vals/2; i++) {
     int tmp = SortIndex[i];
     SortIndex[i] = SortIndex[(num_vals-1)-i];
     SortIndex[(num_vals-1)-i] = tmp;
@@ -732,12 +740,14 @@ void GetMinAndMaxCoords
   }
 
 
+  int hit_id;
+  int dom_id;
   if (revcomp) {
 
-    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
+    for (hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
 
       Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
+      for (dom_id = 0; dom_id < Hit->ndom; dom_id++) {
 
         Dom = &(Hit->dcl[dom_id]);
 
@@ -753,10 +763,10 @@ void GetMinAndMaxCoords
 
   } else {
 
-    for (int hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
+    for (hit_id = 0; hit_id < (int)(TopHits->N); hit_id++) {
 
       Hit = TopHits->hit[hit_id];
-      for (int dom_id = 0; dom_id < Hit->ndom; dom_id++) {
+      for (dom_id = 0; dom_id < Hit->ndom; dom_id++) {
 
         Dom = &(Hit->dcl[dom_id]);
 
@@ -810,9 +820,10 @@ void SetTargetSeqRange
   // take a quick poll of the (say) 10 best domains to determine
   // where they're (generally) pointing us.
   //
+  int hit_id;
   int num_hits = (int)(TopHits->N);
   float * HitScores = malloc(num_hits * sizeof(float));
-  for (int hit_id = 0; hit_id < num_hits; hit_id++) {
+  for (hit_id = 0; hit_id < num_hits; hit_id++) {
     int best_domain   = TopHits->hit[hit_id]->best_domain;
     HitScores[hit_id] = (&TopHits->hit[hit_id]->dcl[best_domain])->envsc;
   }
@@ -828,8 +839,9 @@ void SetTargetSeqRange
   char ** PolledHitTargets = malloc(num_polled_hits*sizeof(char *));
   int   * TargetVotes      = malloc(num_polled_hits*sizeof(int));
 
+  int sort_id;
   int num_targets = 0;
-  for (int sort_id = 0; sort_id<num_polled_hits; sort_id++) {
+  for (sort_id = 0; sort_id<num_polled_hits; sort_id++) {
 
     // The higher-scoring hits get more voting power
     int vote_power = 1 + (num_polled_hits-sort_id)/2;
@@ -837,10 +849,11 @@ void SetTargetSeqRange
     int hit_id = HitScoreSort[sort_id];
     char * PolledHitTarget = TopHits->hit[hit_id]->name;
 
+    int target_id;
     int new_target = 1;
-    for (int i=0; i<num_targets; i++) {
-      if (!strcmp(PolledHitTargets[i],PolledHitTarget)) {
-        TargetVotes[i] += vote_power;
+    for (target_id=0; target_id<num_targets; target_id++) {
+      if (!strcmp(PolledHitTargets[target_id],PolledHitTarget)) {
+        TargetVotes[target_id] += vote_power;
         new_target = 0;
         break;
       }
@@ -856,9 +869,10 @@ void SetTargetSeqRange
 
 
   // Who wins the vote?
+  int poll_id;
   int poll_winner_id = 0;
   int poll_winner_votes = TargetVotes[0];
-  for (int poll_id=1; poll_id<num_targets; poll_id++) {
+  for (poll_id=1; poll_id<num_targets; poll_id++) {
     if (TargetVotes[poll_id] > poll_winner_votes) {
       poll_winner_votes = TargetVotes[poll_id];
       poll_winner_id = poll_id;
@@ -879,7 +893,7 @@ void SetTargetSeqRange
   int64_t max_coord;
   int64_t min_cap;
   int64_t max_cap;
-  for (int sort_id = 0; sort_id<num_hits; sort_id++) {
+  for (sort_id = 0; sort_id<num_hits; sort_id++) {
 
     int hit_id = HitScoreSort[sort_id];
 
@@ -909,12 +923,13 @@ void SetTargetSeqRange
   // Now that we know the absolute min/max of the search zone,
   // we can check all hits to define the actual search zone.
   //
-  for (int hit_id = 0; hit_id < num_hits; hit_id++) {
+  for (hit_id = 0; hit_id < num_hits; hit_id++) {
 
     if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
       continue;
 
-    for (int dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
+    int dom_id;
+    for (dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
   
       P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
 
@@ -1079,12 +1094,14 @@ ESL_DSQ * GrabNuclRange
 
   if (start < end) {
   
-    for (int i=0; i<len; i++)
+    int i;
+    for (i=0; i<len; i++)
       Seq[i] = DNA_CHARS[TargetNuclSeq->Seq[read_index++]];
 
   } else {
 
-    for (int i=0; i<len; i++) {
+    int i;
+    for (i=0; i<len; i++) {
       int fwd_nucl_code = TargetNuclSeq->Seq[read_index--];
       if (fwd_nucl_code < 4) Seq[i] = DNA_CHARS[3 - fwd_nucl_code];
       else                   Seq[i] ='N';
@@ -1124,7 +1141,8 @@ ESL_DSQ * GrabNuclRange
 int DetermineNuclType 
 (P7_ALIDISPLAY * AliDisplay)
 {
-  for (int i=0; i<strlen(AliDisplay->ntseq); i++) {
+  int i;
+  for (i=0; i<strlen(AliDisplay->ntseq); i++) {
     if (AliDisplay->ntseq[i] == 'T') return eslDNA;
     if (AliDisplay->ntseq[i] == 'U') return eslRNA;
   }
@@ -1396,7 +1414,8 @@ float FindOptimalSpliceSite
 
 
   // Incorporate the extension
-  for (int i=1; i<=Overlap->upstream_ext_len; i++) {
+  int i;
+  for (i=1; i<=Overlap->upstream_ext_len; i++) {
 
 
     USNuclPos[us_trans_len] = nucl_read_pos;
@@ -1493,8 +1512,8 @@ float FindOptimalSpliceSite
 
   // We're really just interested in the sum scores on each side,
   // so let's switch over to that
-  for (int i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
-  for (int i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
+  for (i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
+  for (i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
 
 
   // In order to determine the score difference created by the
@@ -1869,12 +1888,13 @@ void SketchSpliceEdge
     fprintf(stderr,"\n");
     fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
     fprintf(stderr,"                                   : ");
-    for (int i=1; i<=abs(Edge->upstream_nucl_start-Edge->upstream_nucl_end)+1; i++)
+    int i;
+    for (i=1; i<=abs(Edge->upstream_nucl_start-Edge->upstream_nucl_end)+1; i++)
       fprintf(stderr,"%c",DNA_CHARS[Edge->UpstreamNucls[i]]);
     fprintf(stderr,"\n");
     fprintf(stderr,"                      : Downstream : %d ... %d\n",Edge->downstream_nucl_start,Edge->downstream_nucl_end);
     fprintf(stderr,"                                   : ");
-    for (int i=3; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+3; i++)
+    for (i=3; i<=abs(Edge->downstream_nucl_start-Edge->downstream_nucl_end)+3; i++)
       fprintf(stderr,"%c",DNA_CHARS[Edge->DownstreamNucls[i]]);
     fprintf(stderr,"\n");
     fprintf(stderr,"                      : Model Pos.s: %d..%d\n",Edge->amino_start,Edge->amino_end);
@@ -2021,7 +2041,8 @@ int HighCTermGapContent
   if (AD->N < 10) 
     num_check_positions = AD->N;
 
-  for (int i=AD->N-1; i>=(AD->N-num_check_positions); i--) {
+  int i;
+  for (i=AD->N-1; i>=(AD->N-num_check_positions); i--) {
     if (AD->aseq[i]      == '-') model_c_term_gaps++;
     if (AD->ntseq[3*i+1] == '-') model_c_term_gaps++;
   }
@@ -2046,7 +2067,8 @@ int HighNTermGapContent
   if (AD->N < 10) 
     num_check_positions = AD->N;
 
-  for (int i=0; i<num_check_positions; i++) {
+  int i;
+  for (i=0; i<num_check_positions; i++) {
     if (AD->aseq[i]      == '-') model_n_term_gaps++;
     if (AD->ntseq[3*i+1] == '-') model_n_term_gaps++;
   }
@@ -2079,7 +2101,8 @@ int OutsideSearchArea
   if (strcmp(TargetNuclSeq->SeqName,Hit->name))
     return 1;
 
-  for (int dom_id=0; dom_id<Hit->ndom; dom_id++) {
+  int dom_id;
+  for (dom_id=0; dom_id<Hit->ndom; dom_id++) {
 
     int64_t sqfrom = (&Hit->dcl[dom_id])->ad->sqfrom;
     if (sqfrom < TargetNuclSeq->start) return 1;
@@ -2140,7 +2163,11 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
   DOMAIN_OVERLAP ** SpliceEdges = (DOMAIN_OVERLAP **)malloc(edge_capacity * sizeof(DOMAIN_OVERLAP *));
 
   int num_edges = 0;
-  for (int upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++) {
+  int   upstream_hit_id;
+  int   upstream_dom_id;
+  int downstream_dom_id;
+  int downstream_hit_id;
+  for (upstream_hit_id = 0; upstream_hit_id < num_hits; upstream_hit_id++) {
 
 
     P7_HIT * UpstreamHit  = TopHits->hit[upstream_hit_id];
@@ -2154,7 +2181,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
     // For each hit, gather all of the indices of other hits that
     // could potentially be downstream exons.
-    for (int downstream_hit_id=0; downstream_hit_id < (int)(TopHits->N); downstream_hit_id++) {
+    for (downstream_hit_id=0; downstream_hit_id < (int)(TopHits->N); downstream_hit_id++) {
 
 
       P7_HIT * DownstreamHit  = TopHits->hit[downstream_hit_id];
@@ -2166,7 +2193,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
         continue;
 
 
-      for (int upstream_dom_id = 0; upstream_dom_id < num_upstream_doms; upstream_dom_id++) {
+      for (upstream_dom_id = 0; upstream_dom_id < num_upstream_doms; upstream_dom_id++) {
 
 
         P7_ALIDISPLAY * UpstreamDisplay = (&UpstreamHit->dcl[upstream_dom_id])->ad;
@@ -2176,7 +2203,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
           continue;
 
 
-        for (int downstream_dom_id = 0; downstream_dom_id < num_downstream_doms; downstream_dom_id++) {
+        for (downstream_dom_id = 0; downstream_dom_id < num_downstream_doms; downstream_dom_id++) {
 
           // NO SELF-SPLICING, YOU ABSOLUTE MANIAC!
           if (upstream_hit_id == downstream_hit_id && upstream_dom_id == downstream_dom_id)
@@ -2198,8 +2225,9 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
               edge_capacity *= 2;
 
               DOMAIN_OVERLAP ** MoreSpliceEdges = (DOMAIN_OVERLAP **)malloc(edge_capacity * sizeof(DOMAIN_OVERLAP *));
-              for (int j=0; j<num_edges; j++)
-                MoreSpliceEdges[j] = SpliceEdges[j];
+              int edge_id;
+              for (edge_id=0; edge_id<num_edges; edge_id++)
+                MoreSpliceEdges[edge_id] = SpliceEdges[edge_id];
 
               free(SpliceEdges);
               SpliceEdges = MoreSpliceEdges;
@@ -2246,7 +2274,8 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
 
   // We'll run through all of our paired domains and actually
   // splice 'em up (or at least try our best to)!
-  for (int splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++) {
+  int splice_edge_id;
+  for (splice_edge_id = 0; splice_edge_id < num_edges; splice_edge_id++) {
 
     SketchSpliceEdge(SpliceEdges[splice_edge_id],TargetNuclSeq,gm,gcode);
 
@@ -2427,6 +2456,7 @@ void ConnectNodesByEdge
 
 
   // Resize?
+  int edge_id;
   if (UpstreamNode->num_out_edges == UpstreamNode->out_edge_cap) {
 
     UpstreamNode->out_edge_cap *= 2;
@@ -2434,9 +2464,9 @@ void ConnectNodesByEdge
     DOMAIN_OVERLAP ** NewOutEdges = (DOMAIN_OVERLAP **)malloc(UpstreamNode->out_edge_cap*sizeof(DOMAIN_OVERLAP *)); 
     SPLICE_NODE    ** NewDSNodes  = (SPLICE_NODE    **)malloc(UpstreamNode->out_edge_cap*sizeof(SPLICE_NODE    *));
 
-    for (int i = 0; i < UpstreamNode->num_out_edges; i++) {
-      NewOutEdges[i] = UpstreamNode->OutEdges[i];
-      NewDSNodes[i]  = UpstreamNode->DownstreamNodes[i];
+    for (edge_id=0; edge_id<UpstreamNode->num_out_edges; edge_id++) {
+      NewOutEdges[edge_id] = UpstreamNode->OutEdges[edge_id];
+      NewDSNodes[edge_id]  = UpstreamNode->DownstreamNodes[edge_id];
     }
 
     free(UpstreamNode->OutEdges);
@@ -2454,9 +2484,9 @@ void ConnectNodesByEdge
     DOMAIN_OVERLAP ** NewInEdges = (DOMAIN_OVERLAP **)malloc(DownstreamNode->in_edge_cap*sizeof(DOMAIN_OVERLAP *)); 
     SPLICE_NODE    ** NewUSNodes = (SPLICE_NODE    **)malloc(DownstreamNode->in_edge_cap*sizeof(SPLICE_NODE    *));
 
-    for (int i = 0; i < DownstreamNode->num_in_edges; i++) {
-      NewInEdges[i] = DownstreamNode->InEdges[i];
-      NewUSNodes[i] = DownstreamNode->UpstreamNodes[i];
+    for (edge_id=0; edge_id<DownstreamNode->num_in_edges; edge_id++) {
+      NewInEdges[edge_id] = DownstreamNode->InEdges[edge_id];
+      NewUSNodes[edge_id] = DownstreamNode->UpstreamNodes[edge_id];
     }
 
     free(DownstreamNode->InEdges);
@@ -2511,7 +2541,8 @@ void FindBestPathToNode
   // For each of the nodes that feed into this node,
   // recursively find *their* best path, then determine
   // across those options which is our favorite.
-  for (int in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
+  int in_edge_id;
+  for (in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
   
 
     FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
@@ -2572,18 +2603,20 @@ void EvangelizePath
   if (Node->best_path_score == EDGE_FAIL_SCORE) 
     Node->best_path_score = Node->cumulative_score;
 
-  for (int i=0; i<Node->num_in_edges; i++) {
+  int  in_edge_index;
+  int out_edge_index;
+  for (in_edge_index=0; in_edge_index<Node->num_in_edges; in_edge_index++) {
 
-    SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[i];
+    SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[in_edge_index];
 
     if (Node->best_path_score > UpstreamNode->best_path_score) {
 
       // NOTE: This isn't necessarily the most rigorous
       //       definition of the best outgoing edge, but
       //       for our purposes it's fine.
-      for (int j=0; j<UpstreamNode->num_out_edges; j++) {
-        if (UpstreamNode->DownstreamNodes[j] == Node) {
-          UpstreamNode->best_out_edge = j;
+      for (out_edge_index=0; out_edge_index<UpstreamNode->num_out_edges; out_edge_index++) {
+        if (UpstreamNode->DownstreamNodes[out_edge_index] == Node) {
+          UpstreamNode->best_out_edge = out_edge_index;
           break;
         }
       }
@@ -2591,7 +2624,7 @@ void EvangelizePath
       // We'll only set the upstream node's best_path_score
       // to this node's bps *if* the upstream node is how we
       // achieved our best_path_score!
-      if (i == Node->best_in_edge) {
+      if (in_edge_index == Node->best_in_edge) {
         UpstreamNode->best_path_score = Node->best_path_score;    
         EvangelizePath(UpstreamNode);
       }
@@ -2632,10 +2665,11 @@ void GatherNTermNodes
   int   * NTermIDs    = malloc(Graph->num_nodes * sizeof(int  ));
   float * NTermScores = malloc(Graph->num_nodes * sizeof(float));
 
-  for (int i=1; i<=Graph->num_nodes; i++) {
-    if (Graph->Nodes[i]->is_n_terminal) {
-      NTermIDs[num_n_term] = i;
-      NTermScores[num_n_term] = Graph->Nodes[i]->best_path_score;
+  int node_id;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
+    if (Graph->Nodes[node_id]->is_n_terminal) {
+      NTermIDs[num_n_term] = node_id;
+      NTermScores[num_n_term] = Graph->Nodes[node_id]->best_path_score;
       num_n_term++;
     }
   }
@@ -2647,8 +2681,9 @@ void GatherNTermNodes
 
   Graph->NTermNodeIDs = malloc(num_n_term * sizeof(int));
   Graph->num_n_term   = num_n_term;
-  for (int i=0; i<num_n_term; i++)
-    Graph->NTermNodeIDs[i] = NTermIDs[NTermScoreSort[i]];
+  int n_term_index;
+  for (n_term_index=0; n_term_index<num_n_term; n_term_index++)
+    Graph->NTermNodeIDs[n_term_index] = NTermIDs[NTermScoreSort[n_term_index]];
 
   free(NTermIDs);
   free(NTermScores);
@@ -2688,10 +2723,11 @@ void GatherCTermNodes
   int   * CTermIDs    = malloc(Graph->num_nodes * sizeof(int  ));
   float * CTermScores = malloc(Graph->num_nodes * sizeof(float));
 
-  for (int i=1; i<=Graph->num_nodes; i++) {
-    if (Graph->Nodes[i]->is_c_terminal) {
-      CTermIDs[num_c_term] = i;
-      CTermScores[num_c_term] = Graph->Nodes[i]->best_path_score;
+  int node_id;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
+    if (Graph->Nodes[node_id]->is_c_terminal) {
+      CTermIDs[num_c_term] = node_id;
+      CTermScores[num_c_term] = Graph->Nodes[node_id]->best_path_score;
       num_c_term++;
     }
   }
@@ -2703,8 +2739,9 @@ void GatherCTermNodes
 
   Graph->CTermNodeIDs = malloc(num_c_term * sizeof(int));
   Graph->num_c_term   = num_c_term;
-  for (int i=0; i<num_c_term; i++)
-    Graph->CTermNodeIDs[i] = CTermIDs[CTermScoreSort[i]];
+  int c_term_index;
+  for (c_term_index=0; c_term_index<num_c_term; c_term_index++)
+    Graph->CTermNodeIDs[c_term_index] = CTermIDs[CTermScoreSort[c_term_index]];
 
   free(CTermIDs);
   free(CTermScores);
@@ -2739,12 +2776,14 @@ void GenCumScoreSort
   if (DEBUGGING) DEBUG_OUT("Starting 'GenCumScoreSort'",1);
 
   float * Scores = malloc(Graph->num_nodes * sizeof(float));
-  for (int i=0; i<Graph->num_nodes; i++)
-    Scores[i] = Graph->Nodes[i+1]->cumulative_score;
+  int node_id;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++)
+    Scores[node_id-1] = Graph->Nodes[node_id]->cumulative_score;
 
   int * SortIndex = FloatHighLowSortIndex(Scores,Graph->num_nodes);
-  for (int i=0; i<Graph->num_nodes; i++)
-    SortIndex[i]++;
+  int sort_index_pos;
+  for (sort_index_pos=0; sort_index_pos<Graph->num_nodes; sort_index_pos++)
+    SortIndex[sort_index_pos]++; // Brings these indices in-line with node IDs
 
   if (Graph->CumScoreSort != NULL)
     free(Graph->CumScoreSort);
@@ -2786,7 +2825,8 @@ void EvaluatePaths
   Graph->best_full_path_end    = 0;
   Graph->best_full_path_length = 0;
   Graph->best_full_path_score  = EDGE_FAIL_SCORE;
-  for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
+  int node_id;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
     Graph->Nodes[node_id]->best_in_edge     = -1;
     Graph->Nodes[node_id]->best_out_edge    = -1;
     Graph->Nodes[node_id]->cumulative_score =  EDGE_FAIL_SCORE;
@@ -2795,12 +2835,13 @@ void EvaluatePaths
 
 
   // Find the best path to each node
-  for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++)
     FindBestPathToNode(Graph->Nodes[node_id]);
 
   GenCumScoreSort(Graph);
 
-  for (int sort_id=0; sort_id<Graph->num_nodes; sort_id++) {
+  int sort_id;
+  for (sort_id=0; sort_id<Graph->num_nodes; sort_id++) {
     
     int node_id = Graph->CumScoreSort[sort_id];
     SPLICE_NODE * Node = Graph->Nodes[node_id];
@@ -2849,10 +2890,11 @@ void FillOutGraphStructure
 
   // We'll want to be a little careful, just because this is our flagship
   // datastructure...
+  int node_id;
   if (Graph->Nodes != NULL) {
-    for (int i=1; i<=Graph->num_nodes; i++)
-      if (Graph->Nodes[i] != NULL)
-        free(Graph->Nodes[i]);
+    for (node_id=1; node_id<=Graph->num_nodes; node_id++)
+      if (Graph->Nodes[node_id] != NULL)
+        free(Graph->Nodes[node_id]);
     free(Graph->Nodes);
   }
 
@@ -2862,7 +2904,9 @@ void FillOutGraphStructure
   int num_hits = (int)(Graph->TopHits->N);
   int max_doms = 0;
   int sum_doms = 0;
-  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+  int hit_id;
+  int dom_id;
+  for (hit_id=0; hit_id<num_hits; hit_id++) {
     int hit_doms = Graph->TopHits->hit[hit_id]->ndom;
     if (hit_doms > max_doms)
       max_doms = hit_doms;
@@ -2875,12 +2919,14 @@ void FillOutGraphStructure
 
   Graph->TH_HitDomToNodeID = malloc(num_hits * sizeof(int *));
 
-  int node_id = 0;
-  for (int hit_id=0; hit_id<num_hits; hit_id++) {
+  
+  node_id = 0;
+  
+  for (hit_id=0; hit_id<num_hits; hit_id++) {
 
     Graph->TH_HitDomToNodeID[hit_id] = malloc(max_doms * sizeof(int));
     
-    for (int dom_id=0; dom_id<max_doms; dom_id++) {
+    for (dom_id=0; dom_id<max_doms; dom_id++) {
 
       Graph->TH_HitDomToNodeID[hit_id][dom_id] = 0;
 
@@ -2907,7 +2953,8 @@ void FillOutGraphStructure
   }
 
 
-  for (int edge_id=0; edge_id<num_splice_edges; edge_id++) {
+  int edge_id;
+  for (edge_id=0; edge_id<num_splice_edges; edge_id++) {
     if (SpliceEdges[edge_id] != NULL)
       ConnectNodesByEdge(SpliceEdges[edge_id],Graph);
   }
@@ -2948,9 +2995,10 @@ void FindBestFullPath
   // NOTE: Because NTermNodeIDs is sorted by best_path_score,
   //       we can break the first time we find a full path.
   SPLICE_NODE * Walker;
-  for (int i=0; i<Graph->num_n_term; i++) {
+  int n_term_index;
+  for (n_term_index=0; n_term_index<Graph->num_n_term; n_term_index++) {
 
-    Walker = Graph->Nodes[Graph->NTermNodeIDs[i]];
+    Walker = Graph->Nodes[Graph->NTermNodeIDs[n_term_index]];
 
     Graph->best_full_path_length = 1;
     while (Walker->num_out_edges) {
@@ -2960,7 +3008,7 @@ void FindBestFullPath
 
     if (Walker->is_c_terminal) {
       Graph->has_full_path        = 1;
-      Graph->best_full_path_start = Graph->NTermNodeIDs[i];
+      Graph->best_full_path_start = Graph->NTermNodeIDs[n_term_index];
       Graph->best_full_path_end   = Walker->node_id;
       Graph->best_full_path_score = Walker->best_path_score;
       if (DEBUGGING) DEBUG_OUT("'FindBestFullPath' Complete",-1);
@@ -3156,11 +3204,16 @@ P7_PROFILE * ExtractSubProfile
   strcpy(SubModel->name,"SubModel\0");
 
 
+  // I'm just going to declare all of these iterators here.
+  int tt,nr,i,j;
+  int sub_model_pos,residue_id;
+
+
   // 1. TRANSITION SCORES
   //
-  for (int tt = 0; tt < p7P_NTRANS; tt++) { // "transition type"
+  for (tt = 0; tt < p7P_NTRANS; tt++) { // "transition type"
 
-    for (int sub_model_pos = 0; sub_model_pos < subM; sub_model_pos++)
+    for (sub_model_pos = 0; sub_model_pos < subM; sub_model_pos++)
       SubModel->tsc[sub_model_pos * p7P_NTRANS + tt] = FullModel->tsc[(sub_model_pos-1 + hmm_start_pos) * p7P_NTRANS + tt];
 
   }
@@ -3168,13 +3221,13 @@ P7_PROFILE * ExtractSubProfile
 
   // 2. EMISSION SCORES
   //
-  for (int nr = 0; nr < p7P_NR; nr++) {
-    for (int residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
+  for (nr = 0; nr < p7P_NR; nr++) {
+    for (residue_id = 0; residue_id < FullModel->abc->Kp; residue_id++) {
 
       // Position 0 is a special little baby
       SubModel->rsc[residue_id][nr] = FullModel->rsc[residue_id][nr];
     
-      for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+      for (sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
         SubModel->rsc[residue_id][p7P_NR * sub_model_pos + nr] = FullModel->rsc[residue_id][p7P_NR * (sub_model_pos-1 + hmm_start_pos) + nr];
     
     }
@@ -3183,8 +3236,8 @@ P7_PROFILE * ExtractSubProfile
 
   // 3. SPECIAL STATES
   //
-  for (int i=0; i<p7P_NXSTATES; i++) {
-    for (int j=0; j<p7P_NXTRANS; j++)
+  for (i=0; i<p7P_NXSTATES; i++) {
+    for (j=0; j<p7P_NXTRANS; j++)
       SubModel->xsc[i][j] = FullModel->xsc[i][j];
   }
 
@@ -3192,7 +3245,7 @@ P7_PROFILE * ExtractSubProfile
   // 4. CONSENSUS SEQUENCE
   //
   SubModel->consensus[0] = FullModel->consensus[0];
-  for (int sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
+  for (sub_model_pos = 1; sub_model_pos <= subM; sub_model_pos++)
     SubModel->consensus[sub_model_pos] = FullModel->consensus[sub_model_pos+hmm_start_pos-1];
   SubModel->consensus[subM+1] = 0;
 
@@ -3211,10 +3264,10 @@ P7_PROFILE * ExtractSubProfile
   SubModel->nj         = FullModel->nj;
   SubModel->roff       = -1;
   SubModel->eoff       = -1;
-  for (int i=0; i< p7_NOFFSETS; i++) SubModel->offs[i]    = FullModel->offs[i];
-  for (int i=0; i< p7_NEVPARAM; i++) SubModel->evparam[i] = FullModel->evparam[i];
-  for (int i=0; i< p7_NCUTOFFS; i++) SubModel->cutoff[i]  = FullModel->cutoff[i];
-  for (int i=0; i< p7_MAXABET;  i++) SubModel->compo[i]   = FullModel->compo[i];
+  for (i=0; i< p7_NOFFSETS; i++) SubModel->offs[i]    = FullModel->offs[i];
+  for (i=0; i< p7_NEVPARAM; i++) SubModel->evparam[i] = FullModel->evparam[i];
+  for (i=0; i< p7_NCUTOFFS; i++) SubModel->cutoff[i]  = FullModel->cutoff[i];
+  for (i=0; i< p7_MAXABET;  i++) SubModel->compo[i]   = FullModel->compo[i];
 
 
 
@@ -3333,6 +3386,8 @@ int * GetBoundedSearchRegions
 
   if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
 
+  int i,j,x; // Just easier.
+
 
   // Who all doesn't have an incoming / outgoing edge?
   // (not including "genuine" terminal nodes, of course!)
@@ -3341,8 +3396,8 @@ int * GetBoundedSearchRegions
   int num_no_out_edge  = 0;
   int num_no_in_edge   = 0;
 
-
-  for (int node_id = 1; node_id <= Graph->num_nodes; node_id++) {
+  int node_id;
+  for (node_id = 1; node_id <= Graph->num_nodes; node_id++) {
 
     SPLICE_NODE * Node = Graph->Nodes[node_id];
 
@@ -3360,14 +3415,14 @@ int * GetBoundedSearchRegions
   // be reasonably fast to do an all-versus-all sorta thang...
   int * DisConnCompOuts = malloc(num_no_out_edge * sizeof(int));
   int * DisConnCompIns  = malloc(num_no_in_edge  * sizeof(int));
-  for (int i=0; i<num_no_out_edge; i++) DisConnCompOuts[i] = 0;
-  for (int i=0; i<num_no_in_edge ; i++) DisConnCompIns[i]  = 0;
+  for (i=0; i<num_no_out_edge; i++) DisConnCompOuts[i] = 0;
+  for (i=0; i<num_no_in_edge ; i++) DisConnCompIns[i]  = 0;
 
 
   int dcc_ids_issued   = 0; // Note that this is more like "num_dcc_ids issued"
   int num_live_dcc_ids = 0;
   int * LiveDCCIDs = malloc(num_no_out_edge * sizeof(int));
-  for (int i=0; i<num_no_out_edge; i++) {
+  for (i=0; i<num_no_out_edge; i++) {
 
 
     // Grab the next node without any outgoing edges
@@ -3380,7 +3435,7 @@ int * GetBoundedSearchRegions
     
     // Scan through the nodes without incoming edges and
     // see who's available for friendship
-    for (int j=0; j<num_no_in_edge; j++) {
+    for (j=0; j<num_no_in_edge; j++) {
 
 
       // Has this node already heard the good news?
@@ -3415,12 +3470,12 @@ int * GetBoundedSearchRegions
 
         int dcc_id_to_replace = DisConnCompIns[j];
 
-        for (int x=0; x<num_no_out_edge; x++) {
+        for (x=0; x<num_no_out_edge; x++) {
           if (DisConnCompOuts[x] == dcc_id_to_replace)
             DisConnCompOuts[x] = dcc_id;
         }
 
-        for (int x=0; x<num_no_in_edge; x++) {
+        for (x=0; x<num_no_in_edge; x++) {
           if (DisConnCompIns[x] == dcc_id_to_replace) {
             DisConnCompIns[x] = dcc_id;
           }
@@ -3428,7 +3483,7 @@ int * GetBoundedSearchRegions
 
         // The replaced ID is no longer alive :'(
         num_live_dcc_ids--;
-        for (int x=0; x<num_live_dcc_ids; x++) {
+        for (x=0; x<num_live_dcc_ids; x++) {
           if (LiveDCCIDs[x] == dcc_id_to_replace) {
             LiveDCCIDs[x] = dcc_id;
           }
@@ -3468,7 +3523,8 @@ int * GetBoundedSearchRegions
   // but I really doubt this is going to be a bottleneck
   // in Splash...
   P7_DOMAIN * DomPtr;
-  for (int meta_dcc_id = 0; meta_dcc_id < num_live_dcc_ids; meta_dcc_id++) {
+  int meta_dcc_id;
+  for (meta_dcc_id = 0; meta_dcc_id < num_live_dcc_ids; meta_dcc_id++) {
 
 
     int dcc_id = LiveDCCIDs[meta_dcc_id];
@@ -3482,7 +3538,7 @@ int * GetBoundedSearchRegions
     int dcc_hmm_start  = -1;
     int dcc_nucl_start = -1;
 
-    for (int i=0; i<num_no_out_edge; i++) {
+    for (i=0; i<num_no_out_edge; i++) {
 
       if (DisConnCompOuts[i] != dcc_id)
         continue;
@@ -3519,7 +3575,7 @@ int * GetBoundedSearchRegions
     int dcc_hmm_end  = -1;
     int dcc_nucl_end = -1;
 
-    for (int i=0; i<num_no_in_edge; i++) {
+    for (i=0; i<num_no_in_edge; i++) {
 
       if (DisConnCompIns[i] != dcc_id)
         continue;
@@ -3572,7 +3628,7 @@ int * GetBoundedSearchRegions
     int upstreamest_nucl_pos  = -1;
     int upstreamest_model_pos = Graph->Model->M;
 
-    for (int i=0; i<num_no_in_edge; i++) {
+    for (i=0; i<num_no_in_edge; i++) {
 
       int node_id = NoInEdgeNodes[i];
 
@@ -3617,7 +3673,7 @@ int * GetBoundedSearchRegions
     int downstreamest_nucl_pos  = -1;
     int downstreamest_model_pos =  1;
 
-    for (int i=0; i<num_no_out_edge; i++) {
+    for (i=0; i<num_no_out_edge; i++) {
 
       int node_id = NoOutEdgeNodes[i];
 
@@ -3659,13 +3715,13 @@ int * GetBoundedSearchRegions
   int * SearchRegionAggregate = malloc((1+(4*(num_live_dcc_ids+num_term_searches)))*sizeof(int));
   
   SearchRegionAggregate[0] = num_live_dcc_ids + num_term_searches;
-  for (int i=0; i<num_live_dcc_ids; i++) {
+  for (i=0; i<num_live_dcc_ids; i++) {
     SearchRegionAggregate[4*i+1] = MidSearchRegions[4*i+1];
     SearchRegionAggregate[4*i+2] = MidSearchRegions[4*i+2];
     SearchRegionAggregate[4*i+3] = MidSearchRegions[4*i+3];
     SearchRegionAggregate[4*i+4] = MidSearchRegions[4*i+4];
   }
-  for (int i=0; i<num_term_searches; i++) {
+  for (i=0; i<num_term_searches; i++) {
     SearchRegionAggregate[4*(i+num_live_dcc_ids)+1] = TermSearchRegions[4*i+1];
     SearchRegionAggregate[4*(i+num_live_dcc_ids)+2] = TermSearchRegions[4*i+2];
     SearchRegionAggregate[4*(i+num_live_dcc_ids)+3] = TermSearchRegions[4*i+3];
@@ -3736,12 +3792,14 @@ P7_DOMAIN ** SelectFinalSubHits
   // one(s) will give us coverage of the part of the pHMM
   // we need covered.
   int * Coverage = malloc(sub_hmm_len*sizeof(int));
-  for (int i=0; i<sub_hmm_len; i++) 
-    Coverage[i] = 0;
+  int model_pos;
+  for (model_pos=0; model_pos<sub_hmm_len; model_pos++) 
+    Coverage[model_pos] = 0;
 
 
   *final_num_sub_hits = 0;
-  for (int sort_id=0; sort_id<num_sub_hits; sort_id++) {
+  int sort_id;
+  for (sort_id=0; sort_id<num_sub_hits; sort_id++) {
 
         
     int sub_hit_id = ADSort[sort_id];
@@ -3750,9 +3808,9 @@ P7_DOMAIN ** SelectFinalSubHits
 
     // Do we get any fresh coverage out of this hit?
     int added_coverage = 0;
-    for (int i = AD->hmmfrom - hmm_start; i <= AD->hmmto - hmm_start; i++) {
-      if (Coverage[i] == 0) {
-        Coverage[i] = 1;
+    for (model_pos = AD->hmmfrom - hmm_start; model_pos <= AD->hmmto - hmm_start; model_pos++) {
+      if (Coverage[model_pos] == 0) {
+        Coverage[model_pos] = 1;
         added_coverage++;
       }
     }
@@ -3778,7 +3836,8 @@ P7_DOMAIN ** SelectFinalSubHits
 
   P7_DOMAIN ** FinalSubHits = malloc(*final_num_sub_hits * sizeof(P7_DOMAIN *));
   *final_num_sub_hits = 0;
-  for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++) {
+  int sub_hit_id;
+  for (sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++) {
 
     if (SubHitADs[sub_hit_id] == NULL)
       continue;
@@ -3904,7 +3963,8 @@ P7_DOMAIN ** FindSubHits
 
 
   // Loop over each full reading frame
-  for (int frame=0; frame<3; frame++) {
+  int frame,i;
+  for (frame=0; frame<3; frame++) {
 
     int orf_len = 0;
     int frame_start = 1 + frame;
@@ -3934,8 +3994,8 @@ P7_DOMAIN ** FindSubHits
 
           char * NewAminoStr = malloc(  orf_str_cap*sizeof(char));
           char * NewNuclStr  = malloc(3*orf_str_cap*sizeof(char));
-          for (int i=0; i<  orf_len; i++) NewAminoStr[i] = AminoStr[i];
-          for (int i=0; i<3*orf_len; i++) NewNuclStr[i]  = NuclStr[i];
+          for (i=0; i<  orf_len; i++) NewAminoStr[i] = AminoStr[i];
+          for (i=0; i<3*orf_len; i++) NewNuclStr[i]  = NuclStr[i];
 
           free(AminoStr);
           AminoStr = NewAminoStr;
@@ -3991,7 +4051,8 @@ P7_DOMAIN ** FindSubHits
 
           // For each of the domains in our P7_TRACE, see if
           // they look like solid missed exons
-          for (int trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
+          int trace_dom;
+          for (trace_dom = 0; trace_dom < Trace->ndom; trace_dom++) {
 
 
             P7_ALIDISPLAY * AD = p7_alidisplay_Create(Trace,0,OSubModel,ORFAminoSeq,NULL);
@@ -4024,7 +4085,8 @@ P7_DOMAIN ** FindSubHits
               
               float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
               
-              for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+              int sub_hit_id;
+              for (sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
                 NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
                 NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
               }
@@ -4046,7 +4108,7 @@ P7_DOMAIN ** FindSubHits
             AD->ntseq = malloc((3 * AD->N + 1) * sizeof(char));
             
             int nucl_read_pos = 3 * (AD->sqfrom - 1);
-            for (int i=0; i<AD->N; i++) {
+            for (i=0; i<AD->N; i++) {
               if (AD->aseq[i] == '-') {
                 AD->ntseq[3*i  ] = '-';
                 AD->ntseq[3*i+1] = '-';
@@ -4192,7 +4254,8 @@ void IntegrateMissedHits
   Graph->num_nodes = new_num_nodes;
 
   Graph->MH_HitToNodeID = malloc(Graph->MissedHits->N * sizeof(int));
-  for (int missed_hit_id = 0; missed_hit_id < Graph->MissedHits->N; missed_hit_id++) {
+  int missed_hit_id;
+  for (missed_hit_id = 0; missed_hit_id < Graph->MissedHits->N; missed_hit_id++) {
 
     Graph->MH_HitToNodeID[missed_hit_id] = ++node_id;
 
@@ -4201,7 +4264,8 @@ void IntegrateMissedHits
   }
 
 
-  for (int new_edge_id=0; new_edge_id<num_new_edges; new_edge_id++) {
+  int new_edge_id;
+  for (new_edge_id=0; new_edge_id<num_new_edges; new_edge_id++) {
     if (NewSpliceEdges[new_edge_id] != NULL)
       ConnectNodesByEdge(NewSpliceEdges[new_edge_id],Graph);
   }
@@ -4265,7 +4329,8 @@ P7_TOPHITS * SeekMissingExons
 
   if (DEBUGGING) {
     fprintf(stderr,"\n  Num Search Regions: %d\n",num_search_regions);
-    for (int i=0; i<num_search_regions; i++) {
+    int i;
+    for (i=0; i<num_search_regions; i++) {
       fprintf(stderr,"    - Search Region : %d\n",i+1);
       fprintf(stderr,"      HMM Positions : %d..%d\n",SearchRegionAggregate[i*4 + 1],SearchRegionAggregate[i*4 + 2]);
       fprintf(stderr,"      Nucl. Coord.s : %d..%d\n",SearchRegionAggregate[i*4 + 3],SearchRegionAggregate[i*4 + 4]);
@@ -4289,7 +4354,8 @@ P7_TOPHITS * SeekMissingExons
   int num_sub_hits = 0;
   int sub_hits_capacity = 20;
   P7_DOMAIN ** SubHits = malloc(sub_hits_capacity*sizeof(P7_DOMAIN *));
-  for (int search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
+  int search_region_id,sub_hit_id,new_sub_hit_id; // iterators
+  for (search_region_id = 0; search_region_id < num_search_regions; search_region_id++) {
 
 
     int num_new_sub_hits = 0;
@@ -4303,7 +4369,8 @@ P7_TOPHITS * SeekMissingExons
     // New sub-hit(s) alert!
     if (DEBUGGING) {
       fprintf(stderr,"%d additional sub-model hits discovered\n",num_new_sub_hits);
-      for (int i=0; i<num_new_sub_hits; i++) {
+      int i;
+      for (i=0; i<num_new_sub_hits; i++) {
         fprintf(stderr,"+ Sub-Hit %d\n",i+1);
         fprintf(stderr,"  Model Range: %d..%d\n",NewSubHits[i]->ad->hmmfrom,NewSubHits[i]->ad->hmmto);
         fprintf(stderr,"  Nucl. Range: %d..%d\n",(int)(NewSubHits[i]->ad->sqfrom),(int)(NewSubHits[i]->ad->sqto));
@@ -4315,7 +4382,7 @@ P7_TOPHITS * SeekMissingExons
     if (num_sub_hits + num_new_sub_hits > sub_hits_capacity) {
       sub_hits_capacity = intMax(sub_hits_capacity*2,num_sub_hits+num_new_sub_hits);
       P7_DOMAIN ** MoreSubHits = malloc(sub_hits_capacity * sizeof(P7_DOMAIN *));
-      for (int sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++)
+      for (sub_hit_id = 0; sub_hit_id < num_sub_hits; sub_hit_id++)
         MoreSubHits[sub_hit_id] = SubHits[sub_hit_id];
       free(SubHits);
       SubHits = MoreSubHits;
@@ -4324,7 +4391,7 @@ P7_TOPHITS * SeekMissingExons
 
     // Pop dem shrimps on the barbie, Guv! 
     // (as they say way up there in Argentina)
-    for (int new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
+    for (new_sub_hit_id = 0; new_sub_hit_id < num_new_sub_hits; new_sub_hit_id++)
       SubHits[num_sub_hits++] = NewSubHits[new_sub_hit_id];
 
 
@@ -4352,7 +4419,7 @@ P7_TOPHITS * SeekMissingExons
   MissingHits->N   = (uint64_t)num_sub_hits;
   MissingHits->hit = malloc(num_sub_hits * sizeof(P7_HIT *));
 
-  for (int sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+  for (sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
 
     MissingHits->hit[sub_hit_id]        = malloc(sizeof(P7_HIT));
     MissingHits->hit[sub_hit_id]->name  = TargetNuclSeq->SeqName;
@@ -4434,14 +4501,15 @@ void AddMissingExonsToGraph
 
   int num_missing_hits = (int)(Graph->MissedHits->N);
   int num_new_edges    = 0;
-  for (int missed_hit_id = 0; missed_hit_id < num_missing_hits; missed_hit_id++) {
+  int missed_hit_id,node_id;
+  for (missed_hit_id = 0; missed_hit_id < num_missing_hits; missed_hit_id++) {
 
 
     // Lucky us!  Cheap and easy access!
     P7_ALIDISPLAY * MissedAD = Graph->MissedHits->hit[missed_hit_id]->dcl->ad;
 
 
-    for (int node_id = 1; node_id <= Graph->num_nodes; node_id++) {
+    for (node_id = 1; node_id <= Graph->num_nodes; node_id++) {
 
 
       int node_hit_id = Graph->Nodes[node_id]->hit_id;
@@ -4496,7 +4564,8 @@ void AddMissingExonsToGraph
         new_splice_edge_cap *= 2;
 
         DOMAIN_OVERLAP ** MoreNewEdges = (DOMAIN_OVERLAP **)malloc(new_splice_edge_cap*sizeof(DOMAIN_OVERLAP *));
-        for (int i=0; i<num_new_edges; i++)
+        int i;
+        for (i=0; i<num_new_edges; i++)
           MoreNewEdges[i] = NewSpliceEdges[i];
 
         free(NewSpliceEdges);
@@ -4509,7 +4578,8 @@ void AddMissingExonsToGraph
 
     // It's possible we might want to splice two missed exons together
     // (see A1BG human isoform 1)
-    for (int mhi2=missed_hit_id+1; mhi2<num_missing_hits; mhi2++) {
+    int mhi2; // "missed_hit_id_2"
+    for (mhi2=missed_hit_id+1; mhi2<num_missing_hits; mhi2++) {
 
       P7_ALIDISPLAY * MAD2 = Graph->MissedHits->hit[mhi2]->dcl->ad;
 
@@ -4555,7 +4625,8 @@ void AddMissingExonsToGraph
         new_splice_edge_cap *= 2;
 
         DOMAIN_OVERLAP ** MoreNewEdges = (DOMAIN_OVERLAP **)malloc(new_splice_edge_cap*sizeof(DOMAIN_OVERLAP *));
-        for (int i=0; i<num_new_edges; i++)
+        int i;
+        for (i=0; i<num_new_edges; i++)
           MoreNewEdges[i] = NewSpliceEdges[i];
 
         free(NewSpliceEdges);
@@ -4570,7 +4641,8 @@ void AddMissingExonsToGraph
 
 
   // Back at it again!
-  for (int splice_edge_id = 0; splice_edge_id < num_new_edges; splice_edge_id++) {
+  int splice_edge_id;
+  for (splice_edge_id = 0; splice_edge_id < num_new_edges; splice_edge_id++) {
   
     SketchSpliceEdge(NewSpliceEdges[splice_edge_id],TargetNuclSeq,Graph->Model,gcode);
   
@@ -4729,11 +4801,13 @@ void FindComponentBestStart
     *best_comp_score = Node->best_path_score;
   }
 
-  for (int i=0; i<Node->num_in_edges; i++)
-    FindComponentBestStart(Node->UpstreamNodes[i],ComponentIDs,component_id,best_comp_start,best_comp_score);
+  int in_edge_index;
+  for (in_edge_index=0; in_edge_index<Node->num_in_edges; in_edge_index++)
+    FindComponentBestStart(Node->UpstreamNodes[in_edge_index],ComponentIDs,component_id,best_comp_start,best_comp_score);
 
-  for (int i=0; i<Node->num_out_edges; i++)
-    FindComponentBestStart(Node->DownstreamNodes[i],ComponentIDs,component_id,best_comp_start,best_comp_score);
+  int out_edge_index;
+  for (out_edge_index=0; out_edge_index<Node->num_out_edges; out_edge_index++)
+    FindComponentBestStart(Node->DownstreamNodes[out_edge_index],ComponentIDs,component_id,best_comp_start,best_comp_score);
 
 
   if (DEBUGGING) DEBUG_OUT("'FindComponentBestStart' Complete",-1);
@@ -4775,8 +4849,8 @@ ESL_DSQ * TranslateExonSetNucls
 
   ESL_DSQ * Codon = malloc(3*sizeof(ESL_DSQ));
   int trans_index = 1;
-
-  for (int nucl_index=1; nucl_index<coding_region_len; nucl_index += 3) {
+  int nucl_index;
+  for (nucl_index=1; nucl_index<coding_region_len; nucl_index += 3) {
     Codon[0] = ExonSetNucls[nucl_index    ];
     Codon[1] = ExonSetNucls[nucl_index + 1];
     Codon[2] = ExonSetNucls[nucl_index + 2];
@@ -4822,7 +4896,8 @@ ESL_DSQ * GrabExonCoordSetNucls
   int num_exons = ExonCoordSet[0];
 
   int num_nucls = 0;
-  for (int exon_id = 0; exon_id < num_exons; exon_id++)
+  int exon_id,nucl_id;
+  for (exon_id = 0; exon_id < num_exons; exon_id++)
     num_nucls += abs(ExonCoordSet[exon_id*5 + 1] - ExonCoordSet[exon_id*5 + 3]) + 1;
 
   ESL_DSQ * ExonSetNucls = malloc((num_nucls+1) * sizeof(ESL_DSQ));
@@ -4830,14 +4905,14 @@ ESL_DSQ * GrabExonCoordSetNucls
 
 
   int nucl_placer = 1;
-  for (int exon_id = 0; exon_id < num_exons; exon_id++) {
+  for (exon_id = 0; exon_id < num_exons; exon_id++) {
 
     int range_start = ExonCoordSet[exon_id*5 + 1];
     int range_end   = ExonCoordSet[exon_id*5 + 3];
     ESL_DSQ * ExonNucls = GrabNuclRange(TargetNuclSeq,range_start,range_end);
 
 
-    for (int nucl_id = 1; nucl_id <= abs(range_end-range_start)+1; nucl_id++)
+    for (nucl_id = 1; nucl_id <= abs(range_end-range_start)+1; nucl_id++)
       ExonSetNucls[nucl_placer++] = ExonNucls[nucl_id];
 
 
@@ -4876,30 +4951,30 @@ ESL_DSQ * GrabExonCoordSetNucls
 void DumpExonSets
 (int ** ExonCoordSets, int num_exon_sets, TARGET_SEQ * TargetNuclSeq, ESL_GENCODE * gcode)
 {
-  
+  int i,exon_set_id;
 
   fprintf(stderr,"\n\n+");
-  for (int i=0; i<60; i++)
+  for (i=0; i<60; i++)
     fprintf(stderr,"=");
   fprintf(stderr,"+\n\n");
 
 
   
-  for (int exon_set_id=0; exon_set_id<num_exon_sets; exon_set_id++) {
+  for (exon_set_id=0; exon_set_id<num_exon_sets; exon_set_id++) {
 
 
     int * ExonCoords = ExonCoordSets[exon_set_id];
     int   num_exons  = ExonCoords[0];
 
     fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
-    for (int i=0; i<num_exons; i++) {
+    for (i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*5 + 1],ExonCoords[i*5 + 3]);
     }
 
 
     fprintf(stderr,":Aminos__");
-    for (int i=0; i<num_exons; i++) {
+    for (i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
       fprintf(stderr,"%d-%d",ExonCoords[i*5 + 2],ExonCoords[i*5 + 4]);
     }
@@ -4911,7 +4986,7 @@ void DumpExonSets
     
 
     int line_length = 60;
-    for (int i=1; i<=num_nucls; i++) {
+    for (i=1; i<=num_nucls; i++) {
       if (i % line_length == 1)
         fprintf(stderr,"\n");
       fprintf(stderr,"%c",DNA_CHARS[NuclSeq[i]]);
@@ -4920,7 +4995,7 @@ void DumpExonSets
 
 
     fprintf(stderr,">Translation");
-    for (int i=1; i<=num_nucls/3; i++) {
+    for (i=1; i<=num_nucls/3; i++) {
       if (i % line_length == 1)
         fprintf(stderr,"\n");
       fprintf(stderr,"%c",AMINO_CHARS[TransSeq[i]]);
@@ -4938,7 +5013,7 @@ void DumpExonSets
 
 
   fprintf(stderr,"+");
-  for (int i=0; i<60; i++)
+  for (i=0; i<60; i++)
     fprintf(stderr,"=");
   fprintf(stderr,"+\n\n\n");
 
@@ -5007,6 +5082,7 @@ void CheckTerminusProximity
 
 
   // Might we consider extending to the model's N-terminus?
+  int ext_amino_index;
   if (hmm_start <= max_ext_dist && hmm_start != 1) {
 
     int ext_len = hmm_start-1;
@@ -5023,8 +5099,8 @@ void CheckTerminusProximity
 
     ESL_DSQ * NExtSeq = GrabNuclRange(TargetNuclSeq,ext_nucl_start,ext_nucl_end);
     int unusual_codon = 0;
-    for (int i=0; i<ext_len; i++) {
-      int n_ext_amino = esl_gencode_GetTranslation(gcode,&NExtSeq[3*i+1]);
+    for (ext_amino_index=0; ext_amino_index<ext_len; ext_amino_index++) {
+      int n_ext_amino = esl_gencode_GetTranslation(gcode,&NExtSeq[3*ext_amino_index+1]);
       if (n_ext_amino < 0 || n_ext_amino > 20) {
         unusual_codon = 1;
         break;
@@ -5058,8 +5134,8 @@ void CheckTerminusProximity
 
     ESL_DSQ * CExtSeq = GrabNuclRange(TargetNuclSeq,ext_nucl_start,ext_nucl_end);
     int unusual_codon = 0;
-    for (int i=0; i<ext_len; i++) {
-      int c_ext_amino = esl_gencode_GetTranslation(gcode,&CExtSeq[3*i+1]);
+    for (ext_amino_index=0; ext_amino_index<ext_len; ext_amino_index++) {
+      int c_ext_amino = esl_gencode_GetTranslation(gcode,&CExtSeq[3*ext_amino_index+1]);
       if (c_ext_amino < 0 || c_ext_amino > 20) {
         unusual_codon = 1;
         break;
@@ -5110,7 +5186,7 @@ int ** GetSplicedExonCoordSets
   //  the graph, we just report that one component.)
   int num_conn_comps = 0;
   int * StartNodes = malloc(Graph->num_nodes*sizeof(int));
-
+  int node_id;
   if (Graph->has_full_path) {
 
     StartNodes[0]  = Graph->best_full_path_start;
@@ -5119,10 +5195,10 @@ int ** GetSplicedExonCoordSets
   } else {
 
     int * ComponentIDs = malloc((Graph->num_nodes+1)*sizeof(int));
-    for (int node_id=1; node_id<=Graph->num_nodes; node_id++)
+    for (node_id=1; node_id<=Graph->num_nodes; node_id++)
       ComponentIDs[node_id] = 0;
     
-    for (int node_id=1; node_id<=Graph->num_nodes; node_id++) {
+    for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
 
       if (!ComponentIDs[node_id]) {
 
@@ -5149,7 +5225,8 @@ int ** GetSplicedExonCoordSets
 
   // Cool!  Now let's grab the spliced coordinates
   int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
-  for (int conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
+  int conn_comp_id;
+  for (conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
     ExonCoordSets[conn_comp_id] = GetExonSetFromStartNode(Graph,StartNodes[conn_comp_id]);
   free(StartNodes);
 
@@ -5199,7 +5276,8 @@ char * RightAlignStr
   OutStr[out_str_len] = 0;
 
   int writer = out_str_len-1;
-  for (int i=in_str_len-1; i>=0; i--)
+  int i;
+  for (i=in_str_len-1; i>=0; i--)
     OutStr[writer--] = InStr[i];
 
   while (writer >= 0)
@@ -5270,7 +5348,8 @@ void GetALSBlockLengths
   *block_A_len = intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(AD->orfname));
 
   int max_coord = 0;
-  for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
+  int exon_id;
+  for (exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
     int set_max = intMax(intMax(ExonCoordSet[(exon_id*5)+1],ExonCoordSet[(exon_id*5)+3]),intMax(ExonCoordSet[(exon_id*5)+2],ExonCoordSet[(exon_id*5)+4]));
     max_coord = intMax(max_coord,set_max);
   }
@@ -5445,7 +5524,8 @@ void PrintExon
   TNSName[2] = 'o';
   TNSName[3] = 'n';
   TNSName[4] = ' ';
-  for (int i=0; i<exon_id_len; i++)
+  int i;
+  for (i=0; i<exon_id_len; i++)
     TNSName[5+i] = exon_id_str[i];
   TNSName[5+exon_id_len] = 0;
   char * FormattedTNSName = RightAlignStr(TNSName,EDI->name_str_len);
@@ -5463,7 +5543,8 @@ void PrintExon
 
   int model_pos = EDI->hmm_start;
   int nucl_pos  = ali_nucl_start;
-  for (int line_read_start = 0; line_read_start < ali_len; line_read_start += adj_textw) {
+  int line_read_start,read_pos;
+  for (line_read_start = 0; line_read_start < ali_len; line_read_start += adj_textw) {
 
     
     int line_read_end = line_read_start + adj_textw;
@@ -5483,7 +5564,7 @@ void PrintExon
     free(FormattedInt);
 
     int init_model_pos = model_pos;
-    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
+    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
       fprintf(ofp,"%c",ModelAli[read_pos]);
       if (ModelAli[read_pos] != ' ' && ModelAli[read_pos] != '.') {
         model_pos++;
@@ -5502,7 +5583,7 @@ void PrintExon
     // 2. Quality stuff
     //
     fprintf(ofp,"  %s %s ",EDI->NameBlank,EDI->CoordBlank);
-    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",QualityAli[read_pos]);
     fprintf(ofp,"\n");
 
@@ -5514,7 +5595,7 @@ void PrintExon
     //
     // OLD: fprintf(ofp,"  %s %s ",EDI->TransName,EDI->CoordBlank);
     fprintf(ofp,"  %s %s ",FormattedTNSName,EDI->CoordBlank);
-    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",TransAli[read_pos]);
     fprintf(ofp,"\n");
 
@@ -5532,7 +5613,7 @@ void PrintExon
     free(FormattedInt);
 
     int init_nucl_pos = nucl_pos;
-    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
+    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++) {
       fprintf(ofp,"%c",NuclAli[read_pos]);
       if (NuclAli[read_pos] != '-') {
         if (EDI->revcomp) {
@@ -5557,7 +5638,7 @@ void PrintExon
     // 5. PP Time!
     //
     fprintf(ofp,"  %s %s ",EDI->NameBlank,EDI->CoordBlank);
-    for (int read_pos = line_read_start; read_pos < line_read_end; read_pos++)
+    for (read_pos = line_read_start; read_pos < line_read_end; read_pos++)
       fprintf(ofp,"%c",PPAli[read_pos]);
     fprintf(ofp,"\n");
 
@@ -5613,6 +5694,7 @@ void PrintSplicedAlignment
 
   if (DEBUGGING) DEBUG_OUT("Starting 'PrintSplicedAlignment'",1);
 
+  int i;
 
   EXON_DISPLAY_INFO * EDI = malloc(sizeof(EXON_DISPLAY_INFO));
 
@@ -5632,7 +5714,7 @@ void PrintSplicedAlignment
 
 
   EDI->CoordBlank = malloc((EDI->coord_str_len+1)*sizeof(char));
-  for (int i=0; i<EDI->coord_str_len; i++)
+  for (i=0; i<EDI->coord_str_len; i++)
     EDI->CoordBlank[i] = ' ';
   EDI->CoordBlank[EDI->coord_str_len] = 0;
 
@@ -5646,7 +5728,8 @@ void PrintSplicedAlignment
   int ad_amino_read_pos = 0;
 
   int num_exons = ExonCoordSet[0];
-  for (int exon_id = 0; exon_id < num_exons; exon_id++) {
+  int exon_id;
+  for (exon_id = 0; exon_id < num_exons; exon_id++) {
 
     EDI->exon_id     = exon_id + 1;
     EDI->hmm_start   = ExonCoordSet[(5*exon_id)+2];
@@ -5727,10 +5810,11 @@ int ReportSplicedTopHits
   p7_tophits_Threshold(ExonSetTopHits,ExonSetPipeline);
 
 
+  int exon_id,i;
   //DEBUGGING
   //fprintf(stderr,"\n\n");
   //fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
-  //for (int exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
+  //for (exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
   //fprintf(ofp,"  + Exon %d\n",exon_id+1);
   //fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*5+2],ExonCoordSet[exon_id*5+4]);
   //fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*5+1],ExonCoordSet[exon_id*5+3]);
@@ -5756,14 +5840,14 @@ int ReportSplicedTopHits
       full_coverage = 1;
 
     int num_found_exons = 0;
-    for (int exon_id=0; exon_id<num_exons; exon_id++) {
+    for (exon_id=0; exon_id<num_exons; exon_id++) {
       int node_id = ExonCoordSet[5 + 5*exon_id];
       if (Graph->Nodes[node_id]->was_missed)
         num_found_exons++;
     }
 
     fprintf(ofp,"\n\n+");
-    for (int i=0; i<=textw; i++)
+    for (i=0; i<=textw; i++)
       fprintf(ofp,"=");
     fprintf(ofp,"+\n");
     fprintf(ofp,"|\n");
@@ -5804,7 +5888,7 @@ int ReportSplicedTopHits
     fprintf(ofp,":\n");
     fprintf(ofp,"|\n");
     fprintf(ofp,"+");
-    for (int i=0; i<=textw; i++)
+    for (i=0; i<=textw; i++)
       fprintf(ofp,"=");
     fprintf(ofp,"+\n");
   }
@@ -5917,7 +6001,8 @@ void RunModelOnExonSets
   //       but I can't, so I'm not going to risk messing up my
   //       bookkeeping.
   //
-  //for (int i=0; i<num_exon_sets; i++)
+  //int i;
+  //for (i=0; i<num_exon_sets; i++)
   //CheckTerminusProximity(ExonCoordSets[i],TargetNuclSeq,Graph,gcode);
 
 
@@ -5939,7 +6024,8 @@ void RunModelOnExonSets
   P7_BG       * ExonSetBackground = p7_bg_Create(Graph->OModel->abc);
 
 
-  for (int exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
+  int exon_set_id;
+  for (exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
     
     // If there's only one exon in this set of exons, we'll
