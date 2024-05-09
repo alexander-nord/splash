@@ -131,6 +131,12 @@ sub RecordMappings
 		$map_method =~ /Map Method : (\S+)/;
 		$map_method = $1;
 
+		# For now I'm going to require that the mapping came
+		# from FastMap2, since I want to test with mapping
+		# coordinates that I trust *very much*
+		next if ($map_method ne 'FastMap2');
+
+
 		$num_exons =~ /Num Exons  : (\d+)/;
 		$num_exons = $1;
 
@@ -179,17 +185,21 @@ sub RecordMappings
 		$MappedSeqs{$full_seq_name} = 1;
 
 	}
-
+	
 	close($MapFile);
 
-	
-	my $species_range_file_name = $gene_out_dir_name.$species.'.genome-range.out';
-	open(my $SpeciesRangeFile,'>',$species_range_file_name) || die "\n  ERROR:  Failed to open range output file '$species_range_file_name'\n\n";
-	print $SpeciesRangeFile "SPECIES : $species\n";
-	print $SpeciesRangeFile "CHR     : $straight_chr\n";
-	print $SpeciesRangeFile "RANGE   : $min_coord..$max_coord\n";
-	close($SpeciesRangeFile);
 
+	# If we had mappings but none were FastMap2-derived
+	# then we don't have anything to spit out here
+	if ($min_coord != $max_coord) # (Both == -1)
+	{
+		my $species_range_file_name = $gene_out_dir_name.$species.'.genome-range.out';
+		open(my $SpeciesRangeFile,'>',$species_range_file_name) || die "\n  ERROR:  Failed to open range output file '$species_range_file_name'\n\n";
+		print $SpeciesRangeFile "SPECIES : $species\n";
+		print $SpeciesRangeFile "CHR     : $straight_chr\n";
+		print $SpeciesRangeFile "RANGE   : $min_coord..$max_coord\n";
+		close($SpeciesRangeFile);
+	}
 
 	return \%MappedSeqs;
 
