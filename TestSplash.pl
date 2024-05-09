@@ -75,6 +75,123 @@ else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
 
 
 
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: CompileBasicResults
+#
+sub CompileBasicResults
+{
+
+	my $out_dir_name   = shift;
+	my $base_names_ref = shift;
+
+	
+	$out_dir_name =~ /\/([^\/]+)\//;
+	my $family = $1;
+
+	
+	my $summary_file_name = $out_dir_name.'summary.out';
+	open(my $SummaryFile,'>',$summary_file_name)
+		|| die "\n  ERROR:  Failed to open summary file '$summary_file_name'\n\n";
+
+	
+	my @BaseNames = @{$base_names_ref};
+	my $num_seqs  = scalar(@BaseNames);
+
+
+	print $SummaryFile "GENE FAMILY  : $family\n";
+	print $SummaryFile "NUM SPLASHED : $num_seqs\n";
+
+
+	foreach my $base_name (sort @BaseNames)
+	{
+
+		my $spl_out_file_name = $out_dir_name.$base_name.'.out';
+		my $spl_err_file_name = $out_dir_name.$base_name.'.err';
+
+		# Just to get it out of the way, let's
+		# grab the timing data from the error file
+		my $runtime = 'Not timed';
+		if (-e $spl_err_file_name)
+		{
+	
+			open(my $SplErrFile,'<',$spl_err_file_name)
+				|| die "\n  ERROR:  Failed to open error file '$spl_err_file_name' (looking for timing info.)\n\n";
+			while (my $line = <$SplErrFile>) 
+			{
+				next if ($line !~ /Time spent splashing/);
+				$line = <$SplErrFile>;
+				if ($line =~ /Elapsed:\s+(\S+)/) 
+				{
+					$runtime = $1;
+				}
+				last;
+			}
+			close($SplErrFile);
+		}
+
+
+
+		# Get this stuff taken care of
+		print $SummaryFile "\n";
+		print $SummaryFile "  Input ID      : $base_name\n";
+		print $SummaryFile "  Runtime       : $runtime\n";
+
+
+		# Now, it's time to look at the actual output!
+		open(my $SplOutFile,'<',$spl_out_file_name)
+			|| die "\n  ERROR:  Failed to open output file '$spl_out_file_name' (BAD NEWS!)\n\n";
+
+		while (my $line = <$SplOutFile>) {
+			next if ($line !~ /^\s*Query:\s+\S+\s+\[M=(\d+)\]\s*$/);
+			print $SummaryFile "  Model Length  : $1\n";
+			last;
+		}
+
+
+		# This is a bit inefficient, but it's useful to put this at the
+		# top for each query
+		my $num_exon_sets = 0;
+		my $has_full_hit  = 0;
+		while (my $line = <$SplOutFile>) 
+		{
+			$num_exon_sets++  if ($line =~ /\| = Exon Set/);
+			$has_full_hit = 1 if ($line =~ /\(\* Full Model\)/);
+		}
+		print $SummaryFile "  Num Exon Sets : $num_exon_sets\n";
+
+		# We can jump the gun *just a bit* in this case:
+		if ($has_full_hit && $num_exon_sets == 1)
+		{
+			print $SummaryFile "                * Full model coverage!\n";
+		}
+
+
+		# Close and reopen the file :p
+		close($SplOutFile);
+		open($SplOutFile,'<',$spl_out_file_name)
+			|| die "\n  ERROR:  Failed to open output file '$spl_out_file_name' (BAD NEWS!)\n\n";
+
+
+		close($SplOutFile);
+
+	}
+
+}
+
+
+
+
+
+
+
+
+
 ###########################################################################
 #
 #  Subroutine: FamilySplash
@@ -160,8 +277,8 @@ sub FamilySplash
 
 	# Iterate over each HMM, determining the appropriate
 	# target sequence and running hmmsearcht!
-	my $num_fam_errors    = 0;
-	my $num_fam_victories = 0;
+	my @FamilySuccesses;
+	my @FamilyErrors;
 	foreach my $hmm_file_name (@InputHMMs) 
 	{
 
@@ -170,14 +287,15 @@ sub FamilySplash
 		
 
 		$hmm_file_name =~ /\/([^\/]+)\.hmm$/;
-		my $out_file_name = $fam_out_dir_name.$1.'.out';
-		my $err_file_name = $fam_out_dir_name.$1.'.err';
+		my $query_base_name = $1;
+		my $out_file_name   = $fam_out_dir_name.$query_base_name.'.out';
+		my $err_file_name   = $fam_out_dir_name.$query_base_name.'.err';
 
 		my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
 
 		if (system($hmmsearcht_cmd)) 
 		{
-			$num_fam_errors++;
+			push(@FamilyErrors,$query_base_name);
 			system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
 			# system("cat $err_file_name >> $ERROR_FILE");
 
@@ -193,7 +311,7 @@ sub FamilySplash
 		} 
 		else 
 		{
-			$num_fam_victories++;
+			push(@FamilySuccesses,$query_base_name);
 		}
 
 
@@ -206,10 +324,15 @@ sub FamilySplash
 	}
 
 
+	# Compile some basic metadata about the results of
+	# splashing around
+	CompileBasicResults($fam_out_dir_name,\@FamilySuccesses);
+
+
 	# If this is being run as part of a larger test,
 	# we'll want to collect the number of error-full and
 	# error-free runs.
-	return ($num_fam_victories,$num_fam_errors);
+	return ($fam_out_dir_name,\@FamilySuccesses,\@FamilyErrors);
 
 
 }
@@ -252,6 +375,13 @@ sub BigBadSplash
 	closedir($ProteinMetaDir);
 
 
+	# Make a directory to hold the results
+	my $rbg_dir_name = $OPTIONS{'output-dir'}.'Results-by-Gene/';
+	die "\n  ERROR:  Failed to create 'Results-by-Gene' directory ($rbg_dir_name)\n\n"
+		if (system("mkdir \"$rbg_dir_name\""));
+
+
+	# Start thinking thread-ily
 	my $num_cpus = $OPTIONS{'num-cpus'};
 	my $num_fams = scalar(@FamilyDirs);
 	if ($num_cpus > $num_fams) {
@@ -277,6 +407,11 @@ sub BigBadSplash
 	}
 
 
+	# I don't think the system calls that write to
+	# the error file would race, but let's play it safe	 
+	$ERROR_FILE =~ s/\.err$/\.$thread_id\.err/ if ($thread_id);
+
+
 	my $start_fam_id =  $thread_id    * int($num_fams/$num_cpus);
 	my   $end_fam_id = ($thread_id+1) * int($num_fams/$num_cpus);
 	if ($end_fam_id > $num_fams) {
@@ -284,20 +419,24 @@ sub BigBadSplash
 	}
 
 
-	my $total_victories = 0; # "Non-errors" probably works better...
-	my $total_errors    = 0; # How many times did hmmsearcht exit with non-0?
+	# Iterate over the families and splash 'em up!
 	for (my $fam_id = $start_fam_id; $fam_id < $end_fam_id; $fam_id++) 
 	{
 
-		my $family_dir_name = $FamilyDirs[$fam_id];
-		$family_dir_name =~ /\/([^\/]+)\/$/;
+		my $fam_in_dir_name = $FamilyDirs[$fam_id];
 
+		$fam_in_dir_name =~ /\/([^\/]+)\/$/;
 		my $family = $1;
 
-		my ($num_fam_victories,$num_fam_errors) = FamilySplash($FamilyDirs[$fam_id]);
+		# NOTE: The 'successes' and 'errors' are the base names of the files
+		#       (e.g., 'file.out' minus '.out')
+		#
+		my ($fam_out_dir_name,$fam_successes_ref,$fam_errors_ref) 
+			= FamilySplash($fam_in_dir_name);
 
-		$total_victories += $num_fam_victories;
-		$total_errors    += $num_fam_errors;
+		my $rbg_fam_dir_name = $rbg_dir_name.$family.'/';
+		die "\n  ERROR:  Failed to move family directory '$fam_out_dir_name' to '$rbg_fam_dir_name'\n\n"
+			if (system("mv \"$fam_out_dir_name\" \"$rbg_fam_dir_name\""));
 
 	}
 
@@ -305,6 +444,20 @@ sub BigBadSplash
 	# End of the real work!
 	exit(0) if ($thread_id);
 	while (wait() != -1) {}
+
+
+	# Pull in the error output from each of the helpers
+	for ($thread_id=1; $thread_id<$num_cpus; $thread_id++) 
+	{
+		my $thread_err_file = $ERROR_FILE;
+		$thread_err_file =~ s/\.err$/\.$thread_id\.err/;
+
+		if (-e $thread_err_file)
+		{
+			system("cat \"$thread_err_file\" >> \"$ERROR_FILE\"");
+			system("rm \"$thread_err_file\"");
+		}
+	}
 
 
 }
@@ -492,13 +645,13 @@ sub HelpAndDie
 	print "\n";
 	print "  Use Case 1:  Search all sequences for a gene family\n";
 	print "            :\n";
-	print "            :  ./TestSplash.pl {OPT.S} [gene]\n";
+	print "            :  ./TestValidity.pl {OPT.S} [gene]\n";
 	print "            '-------------------------------------------------------\n";
 	print "\n";
 	print "\n";
 	print "  Use Case 2:  Search ALL GENES in an 'inputs-to-splash' directory\n";
 	print "            :\n";
-	print "            :  ./TestSplash.pl {OPT.S} [path/to/inputs-to-splash]\n";
+	print "            :  ./TestValidity.pl {OPT.S} [path/to/inputs-to-splash]\n";
 	print "            '-------------------------------------------------------\n";
 	print "\n";
 	print "\n";
