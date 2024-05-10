@@ -1165,6 +1165,11 @@ int DetermineNuclType
 
 
 
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: SelectSpliceOpt
@@ -1340,6 +1345,61 @@ void GetContestedDownstreamNucls
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: AminoScoreAtPosition
+ *
+ */
+float AminoScoreAtPosition
+(
+  P7_PROFILE * gm, 
+  int amino_index, 
+  int model_pos,
+  P7_ALIDISPLAY * AD, // If AD == NULL we're in the extension (all matches!)
+  int display_pos,
+  int * state
+)
+{
+
+
+  if (amino_index > 20) {
+    if      (*state == p7P_MM) { *state = p7P_MD; }
+    else if (*state == p7P_MD) { *state = p7P_DD; }
+    // Otherwise, we *should* be staying DD
+  } else if (AD && AD->ntseq[3*display_pos] == '-') {
+    if      (*state == p7P_MM) { *state = p7P_MI; }
+    else if (*state == p7P_MI) { *state = p7P_II; }
+    // Otherwise, we *should* be staying II
+  } else {
+    if      (*state == p7P_MI) { *state = p7P_IM; }
+    else if (*state == p7P_II) { *state = p7P_IM; }
+    else if (*state == p7P_MD) { *state = p7P_DM; }
+    else if (*state == p7P_DD) { *state = p7P_DM; }
+    else                       { *state = p7P_MM; }
+  }
+  float transition_score = p7P_TSC(gm,model_pos,*state);
+
+  
+  float emission_score = 0.0;
+  if (*state != p7P_MD && *state != p7P_DD) {
+    if (*state == p7P_MI || *state == p7P_II)
+      emission_score = p7P_ISC(gm,model_pos,amino_index);
+    else
+      emission_score = p7P_MSC(gm,model_pos,amino_index);
+  }
+
+
+  return transition_score + emission_score;
+
+
+}
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: FindOptimalSpliceSite
  *
  *  Desc. :
@@ -1370,6 +1430,13 @@ float FindOptimalSpliceSite
 
 
 
+  // We'll want to track whether we're approaching each new
+  // position from having been in a match / deletion / insert
+  // (yes, there are also other special states, but those
+  // states are for nerds)
+  int model_state;
+
+
   //
   //  UPSTREAM 
   //
@@ -1384,6 +1451,8 @@ float FindOptimalSpliceSite
   int   * USNuclPos  = malloc(upstream_nucl_cnt*sizeof(int));
   float * USScores   = malloc(upstream_nucl_cnt*sizeof(float));
 
+  // We'll just assume we matched our way in
+  model_state = p7P_MM;
 
   int us_trans_len   = 0; // Without messy indels, comes out to upstream_nucl_cnt/3
   int nucl_read_pos  = 1;
@@ -1404,10 +1473,7 @@ float FindOptimalSpliceSite
 
     USTrans[us_trans_len]    = amino_index;
     USModelPos[us_trans_len] = model_pos;
-    if (amino_index == 27) 
-      USScores[us_trans_len] = -0.7; // Let's try this...
-    else 
-      USScores[us_trans_len] = gm->rsc[amino_index][2*model_pos];
+    USScores[us_trans_len]   = AminoScoreAtPosition(gm,amino_index,model_pos,Overlap->UpstreamDisplay,display_pos,&model_state);
 
 
     if (Overlap->UpstreamDisplay->aseq[display_pos] != '.')
@@ -1434,7 +1500,7 @@ float FindOptimalSpliceSite
 
     USTrans[us_trans_len]    = amino_index;
     USModelPos[us_trans_len] = model_pos;
-    USScores[us_trans_len]   = gm->rsc[amino_index][2*model_pos];
+    USScores[us_trans_len]   = AminoScoreAtPosition(gm,amino_index,model_pos,NULL,0,&model_state);
 
 
     model_pos++;
@@ -1459,6 +1525,8 @@ float FindOptimalSpliceSite
   int   * DSNuclPos  = malloc(downstream_nucl_cnt*sizeof(int));
   float * DSScores   = malloc(downstream_nucl_cnt*sizeof(float));
 
+  model_state = p7P_MM;
+
   int ds_trans_len = 0;
   nucl_read_pos    = 3; // Because we sneak in 2 extra nucleotides for splice signal
   model_pos        = Overlap->amino_start;
@@ -1474,7 +1542,7 @@ float FindOptimalSpliceSite
 
     DSTrans[ds_trans_len]    = amino_index;
     DSModelPos[ds_trans_len] = model_pos;
-    DSScores[ds_trans_len]   = gm->rsc[amino_index][2*model_pos];
+    DSScores[ds_trans_len]   = AminoScoreAtPosition(gm,amino_index,model_pos,NULL,0,&model_state);
 
 
     model_pos++;
@@ -1501,10 +1569,7 @@ float FindOptimalSpliceSite
 
     DSTrans[ds_trans_len]    = amino_index;
     DSModelPos[ds_trans_len] = model_pos;
-    if (amino_index == 27) 
-      DSScores[ds_trans_len] = -0.7; // Let's try this...
-    else 
-      DSScores[ds_trans_len] = gm->rsc[amino_index][2*model_pos];
+    DSScores[ds_trans_len]   = AminoScoreAtPosition(gm,amino_index,model_pos,Overlap->DownstreamDisplay,display_pos,&model_state);
 
 
     if (Overlap->DownstreamDisplay->aseq[display_pos] != '.')
