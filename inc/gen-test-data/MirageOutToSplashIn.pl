@@ -341,7 +341,7 @@ sub CleanUpEmptyGeneDirs
 {
 	my $out_dir_name = shift;
 
-	open(my $OutDir,$out_dir_name)
+	opendir(my $OutDir,$out_dir_name)
 		|| die "\n  ERROR:  Failed to open output directory $out_dir_name for cleanup check\n\n";
 
 	while (my $gene_dir_name = readdir($OutDir)) {
