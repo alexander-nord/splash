@@ -354,7 +354,7 @@ sub CleanUpEmptyGeneDirs
 		# a directory, but just in case...
 		next if (!(-d $gene_dir_name));
 
-		open(my $GeneDir,$gene_dir_name)
+		opendir(my $GeneDir,$gene_dir_name)
 			|| die "\n  ERROR:  Failed to open gene directory $gene_dir_name for cleanup check\n\n";
 
 		my $dir_is_empty = 1;
