@@ -905,7 +905,22 @@ sub BigBadSplash
 		my $family_dir_name = $protein_meta_dir_name.$family.'/';
 		next if (!(-d $family_dir_name));
 
-		push(@FamilyDirs,$family_dir_name);
+		# Confirm that there's at least one sequence in this directory
+		opendir(my $FamilyDir,$family_dir_name)
+			|| die "\n  ERROR:  Failed to open family directory '$family_dir_name' (looking to confirm at least one sequence)\n\n";
+
+		my $contains_seqs = 0;
+		while (my $file_check = readdir($FamilyDir)) 
+		{
+			if ($file_check =~ /\.fa$/)
+			{
+				$contains_seqs = 1;
+				last;
+			}
+		}
+		closedir($FamilyDir);
+
+		push(@FamilyDirs,$family_dir_name) if ($contains_seqs);
 
 	}
 	closedir($ProteinMetaDir);
@@ -918,11 +933,9 @@ sub BigBadSplash
 
 
 	# Start thinking thread-ily
-	my $num_cpus = $OPTIONS{'num-cpus'};
 	my $num_fams = scalar(@FamilyDirs);
-	if ($num_cpus > $num_fams) {
-		$num_cpus = $num_fams;
-	}
+	my $num_cpus = $OPTIONS{'num-cpus'};
+	$num_cpus    = $num_fams if ($num_cpus > $num_fams);
 
 
 	my $thread_id = 0;
@@ -955,6 +968,11 @@ sub BigBadSplash
 	}
 
 
+	# Checking
+	my $check_in_str = "Thread $thread_id ready to tackle families $start_fam_id..$end_fam_id-1";
+	system("echo \"$check_in_str\" >> $ERROR_FILE");
+
+
 	# Iterate over the families and splash 'em up!
 	for (my $fam_id = $start_fam_id; $fam_id < $end_fam_id; $fam_id++) 
 	{
@@ -971,9 +989,17 @@ sub BigBadSplash
 		my ($fam_out_dir_name,$fam_successes_ref,$fam_errors_ref) 
 			= FamilySplash($fam_in_dir_name);
 
-		my $rbg_fam_dir_name = $rbg_dir_name.$family.'/';
-		die "\n  ERROR:  Failed to move family directory '$fam_out_dir_name' to '$rbg_fam_dir_name'\n\n"
-			if (system("mv \"$fam_out_dir_name\" \"$rbg_fam_dir_name\""));
+		if (-d $fam_out_dir_name)
+		{
+			my $rbg_fam_dir_name = $rbg_dir_name.$family.'/';
+			die "\n  ERROR:  Failed to move family directory '$fam_out_dir_name' to '$rbg_fam_dir_name'\n\n"
+				if (system("mv \"$fam_out_dir_name\" \"$rbg_fam_dir_name\""));
+		}
+		else
+		{
+			my $fam_err_str = "Error: No output directory seems to have been created for family '$family'";
+			system("echo \"$fam_err_str\" >> $ERROR_FILE");
+		}
 
 	}
 

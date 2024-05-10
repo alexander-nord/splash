@@ -52,8 +52,6 @@ if (system("./$genome_downloader")) {
 
 system("mv \"protein-data\"      \"$out_dir_name\""         );
 system("mv \"genomes\"           \"$out_dir_name\""         );
-system("mv \"species-to-genome\" \"$out_dir_name\/genomes\"");
-
 
 
 print "\n  Test data generated!\n  Direct splash testing towards '$out_dir_name'\n\n";

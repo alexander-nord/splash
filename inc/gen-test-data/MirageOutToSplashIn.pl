@@ -359,12 +359,9 @@ sub CleanUpEmptyGeneDirs
 
 		my $dir_is_empty = 1;
 		while (my $file = readdir($GeneDir)) {
-			next if ($file =~ /^\./);
-			$file = $gene_dir_name.$file;
-			if (-e $file) {
-				$dir_is_empty = 0;
-				last;
-			}
+			next if ($file !~ /\.fa$/);
+			$dir_is_empty = 0;
+			last;
 		}
 
 		closedir($GeneDir);
