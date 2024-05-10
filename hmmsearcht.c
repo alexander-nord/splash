@@ -144,7 +144,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -201,6 +201,7 @@ typedef struct _target_seq {
   // What's the chromosome (or, more generally, sequence name?)
   // NOTE that this is a borrowed pointer, so we don't want to free it!
   char * SeqName;
+
 
   // NOTE that start is always less than end (even if revcomp)
   int64_t start;
@@ -417,6 +418,12 @@ typedef struct _exon_display_info {
 
 
 /* DEBUGGING FUNCTION: DumpNode  */
+//
+// NOTE: Because this function depends on a 'best (up/down)stream node'
+//       it will implode if run before 'EvaluatePaths'.
+//       Yes, there is an obvious way to fix this fact, but I'm trying
+//       to steamroll through some debugging as I'm leaving this note.
+//
 void DumpNode (SPLICE_NODE * Node)
 {
   fprintf(stderr,"   |\n");
@@ -911,8 +918,8 @@ void SetTargetSeqRange
     if (AD->sqto > max_coord)
       max_coord = AD->sqfrom;
 
-    min_cap = min_coord - 300000;
-    max_cap = max_coord + 300000;
+    min_cap = min_coord - 750000;
+    max_cap = max_coord + 750000;
 
     break;
 
@@ -2371,7 +2378,7 @@ SPLICE_NODE * InitSpliceNode
       NewNode->is_c_terminal = 1;
 
     NewNode->hit_score = Graph->MissedHits->hit[hit_id]->dcl->bitscore;
-  
+
   } else {
   
     NewNode->is_n_terminal = 0;
@@ -2443,7 +2450,6 @@ void ConnectNodesByEdge
   SPLICE_NODE * DownstreamNode = Graph->Nodes[downstream_node_id];
 
 
-
   UpstreamNode->OutEdges[UpstreamNode->num_out_edges] = Edge;
   UpstreamNode->DownstreamNodes[UpstreamNode->num_out_edges] = DownstreamNode;
   UpstreamNode->num_out_edges += 1;
@@ -2499,6 +2505,7 @@ void ConnectNodesByEdge
 
 
 
+  // Node connected... by an edge!
   Graph->num_edges += 1;
 
 
@@ -2545,6 +2552,7 @@ void FindBestPathToNode
   for (in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
   
 
+    // Lil' recurrence (pull up the best path score)
     FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
 
 
@@ -2609,7 +2617,15 @@ void EvangelizePath
 
     SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[in_edge_index];
 
-    if (Node->best_path_score > UpstreamNode->best_path_score) {
+    // Special case: A missed exon will have <0 score, so it puts things
+    // out of expected order (where score should always increase as we
+    // advance along the graph).
+    //
+    // To combat this, if we're upstream of a node without a best downstream
+    // edge we'll write ourselves in (perhaps temporarily)
+    //
+    if (Node->best_path_score > UpstreamNode->best_path_score || UpstreamNode->best_out_edge == -1) {
+
 
       // NOTE: This isn't necessarily the most rigorous
       //       definition of the best outgoing edge, but
@@ -2620,6 +2636,7 @@ void EvangelizePath
           break;
         }
       }
+
 
       // We'll only set the upstream node's best_path_score
       // to this node's bps *if* the upstream node is how we
@@ -2781,6 +2798,8 @@ void GenCumScoreSort
     Scores[node_id-1] = Graph->Nodes[node_id]->cumulative_score;
 
   int * SortIndex = FloatHighLowSortIndex(Scores,Graph->num_nodes);
+  free(Scores);
+
   int sort_index_pos;
   for (sort_index_pos=0; sort_index_pos<Graph->num_nodes; sort_index_pos++)
     SortIndex[sort_index_pos]++; // Brings these indices in-line with node IDs
@@ -2788,8 +2807,6 @@ void GenCumScoreSort
   if (Graph->CumScoreSort != NULL)
     free(Graph->CumScoreSort);
   Graph->CumScoreSort = SortIndex;
-
-  free(Scores);
 
   if (DEBUGGING) DEBUG_OUT("'GenCumScoreSort' Complete",-1);
 
@@ -2882,7 +2899,12 @@ void EvaluatePaths
  *
  */
 void FillOutGraphStructure
-(SPLICE_GRAPH * Graph, DOMAIN_OVERLAP ** SpliceEdges, int num_splice_edges)
+(
+  SPLICE_GRAPH    * Graph, 
+  TARGET_SEQ      * TargetNuclSeq,
+  DOMAIN_OVERLAP ** SpliceEdges, 
+  int num_splice_edges
+)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'FillOutGraphStructure'",1);
@@ -2925,12 +2947,17 @@ void FillOutGraphStructure
   for (hit_id=0; hit_id<num_hits; hit_id++) {
 
     Graph->TH_HitDomToNodeID[hit_id] = malloc(max_doms * sizeof(int));
+
+    // 1. I don't think we ever actually use this matrix...
+    // 2. We need to confirm that this hit isn't out of bounds.
+    // 3. Even if it is out of bounds, we'll just have zeros
+    int out_of_bounds = OutsideSearchArea(Graph->TopHits->hit[hit_id],TargetNuclSeq);
     
     for (dom_id=0; dom_id<max_doms; dom_id++) {
 
       Graph->TH_HitDomToNodeID[hit_id][dom_id] = 0;
 
-      if (dom_id < Graph->TopHits->hit[hit_id]->ndom) {
+      if (!out_of_bounds && dom_id < Graph->TopHits->hit[hit_id]->ndom) {
 
         Graph->TH_HitDomToNodeID[hit_id][dom_id] = ++node_id;
         
@@ -3098,7 +3125,7 @@ SPLICE_GRAPH * BuildSpliceGraph
 
 
   // Build that stinky graph!
-  FillOutGraphStructure(Graph,SpliceEdges,num_splice_edges);
+  FillOutGraphStructure(Graph,TargetNuclSeq,SpliceEdges,num_splice_edges);
   FindBestFullPath(Graph);
 
 
@@ -3633,7 +3660,6 @@ int * GetBoundedSearchRegions
       int node_id = NoInEdgeNodes[i];
 
       DomPtr = &(Graph->TopHits->hit[Graph->Nodes[node_id]->hit_id]->dcl[Graph->Nodes[node_id]->dom_id]);
-      fprintf(stderr,"\n--> Node %d (%d)\n",node_id,DomPtr->ad->hmmfrom);
       if (DomPtr->ad->hmmfrom < upstreamest_model_pos) {
         upstreamest_model_pos = DomPtr->ad->hmmfrom;
         upstreamest_nucl_pos  = DomPtr->ad->sqfrom;
@@ -3643,7 +3669,6 @@ int * GetBoundedSearchRegions
 
     // Could just use literals, but in case I change
     // something I'll variable-ize this.
-    fprintf(stderr,"%d/%d\n",upstreamest_model_pos,upstreamest_nucl_pos);
     if (upstreamest_model_pos > 5 && upstreamest_model_pos < 50 && upstreamest_nucl_pos != -1) {
 
       TermSearchRegions[4*num_term_searches+1] = 1;
