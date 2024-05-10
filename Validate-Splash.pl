@@ -742,6 +742,15 @@ sub FamilySplash
 	my $gene = $1;
 
 
+	# ... but I can prepare for bad presumptions!
+	if (!$gene)
+	{
+		my $no_gene_message = "Error: Failed to pull gene name from directory path $family_dir_name";
+		system("echo \"$no_gene_message\" >> $ERROR_FILE");
+		return (0,0,0);
+	}
+
+
 	# Read through the family's directory, figuring
 	# out what the situation is with our query data
 	opendir(my $FamilyDir,$family_dir_name) 
@@ -989,7 +998,7 @@ sub BigBadSplash
 		my ($fam_out_dir_name,$fam_successes_ref,$fam_errors_ref) 
 			= FamilySplash($fam_in_dir_name);
 
-		if (-d $fam_out_dir_name)
+		if ($fam_out_dir_name && -d $fam_out_dir_name)
 		{
 			my $rbg_fam_dir_name = $rbg_dir_name.$family.'/';
 			die "\n  ERROR:  Failed to move family directory '$fam_out_dir_name' to '$rbg_fam_dir_name'\n\n"
