@@ -97,11 +97,8 @@ typedef struct {
  *
  *  + InitSpliceNode        :
  *  + ConnectNodesByEdge    :
- *  + FindBestPathToNode    :
- *  + EvangelizePath        :
- *  + GatherNTermNodes      :
+ *  + CountNTermNodes       :
  *  + GatherCTermNodes      :
- *  + GenCumScoreSort       :
  *  + EvaluatePaths         :
  *  + FillOutGraphStructure :
  *  + FindBestFullPath      :
@@ -144,7 +141,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -295,7 +292,6 @@ typedef struct _splice_node {
 
   int out_edge_cap;
   int num_out_edges;
-  int best_out_edge; // Relative to the following arrays
   DOMAIN_OVERLAP ** OutEdges;
   struct _splice_node ** DownstreamNodes;
 
@@ -306,7 +302,6 @@ typedef struct _splice_node {
 
   float hit_score;
   float cumulative_score;
-  float best_path_score;
 
 
 } SPLICE_NODE;
@@ -346,13 +341,10 @@ typedef struct _splice_graph {
   int num_edges;
   SPLICE_NODE ** Nodes; // NOTE: these go from [1..num_nodes]
 
-  int * CumScoreSort; // Yes, it says cum.  FOR CUMULATIVE!
 
   int   num_n_term;
-  int * NTermNodeIDs; // Sorted by cumulative score
-
   int   num_c_term;
-  int * CTermNodeIDs; // Also sorted by cum score. ~CUM~
+  int * CTermNodeIDs; // When we generate this, we sort by cumulative score
 
 
   int   has_full_path;
@@ -434,8 +426,6 @@ void DumpNode (SPLICE_NODE * Node)
   fprintf(stderr,"   |     |\n");
   fprintf(stderr,"   |     |  Score of Source Hit      :  %f\n",Node->hit_score);
   fprintf(stderr,"   |     |  Score of Path Up To Node :  %f\n",Node->cumulative_score);
-  fprintf(stderr,"   |     |  Total Score of Best Path\n");
-  fprintf(stderr,"   |     |      that Uses this Node  :  %f\n",Node->best_path_score);
   fprintf(stderr,"   |     |\n");
   if (Node->num_in_edges > 0) {
     fprintf(stderr,"   |     |  Number of Incoming Edges :  %d\n",Node->num_in_edges);
@@ -448,7 +438,6 @@ void DumpNode (SPLICE_NODE * Node)
   fprintf(stderr,"   |     |\n");
   if (Node->num_out_edges > 0) {
     fprintf(stderr,"   |     |  Number of Outgoing Edges :  %d\n",Node->num_out_edges);
-    fprintf(stderr,"   |     |  Best Downstream Node     :  Node %d\n",Node->DownstreamNodes[Node->best_out_edge]->node_id);
   } else if (Node->is_c_terminal) {
     fprintf(stderr,"   |     |  * C-TERMINAL NODE\n");
   } else {
@@ -566,14 +555,11 @@ void SPLICE_GRAPH_Destroy
 (SPLICE_GRAPH * Graph)
 {
 
-  
   // Wipe them nodes *OUT*
   int node_id;
   for (node_id = 1; node_id <= Graph->num_nodes; node_id++)
     SPLICE_NODE_Destroy(Graph->Nodes[node_id]);
 
-
-  free(Graph->NTermNodeIDs);
   free(Graph->CTermNodeIDs);
 
   Graph = NULL;
@@ -2417,7 +2403,6 @@ SPLICE_NODE * InitSpliceNode
 
   NewNode->out_edge_cap    = 10;
   NewNode->num_out_edges   =  0;
-  NewNode->best_out_edge   = -1;
   NewNode->OutEdges        = (DOMAIN_OVERLAP **)malloc(NewNode->out_edge_cap*sizeof(DOMAIN_OVERLAP *));
   NewNode->DownstreamNodes = (SPLICE_NODE    **)malloc(NewNode->out_edge_cap*sizeof(SPLICE_NODE    *));
 
@@ -2459,9 +2444,8 @@ SPLICE_NODE * InitSpliceNode
   }
 
 
-  // Initialize these scores to recognizable low values
-  NewNode->cumulative_score = EDGE_FAIL_SCORE; // Best score up to and including this node
-  NewNode->best_path_score  = EDGE_FAIL_SCORE; // Best full path score using this node
+  // Initialize this score to a recognizable and impossibly low value
+  NewNode->cumulative_score = EDGE_FAIL_SCORE;
 
 
   if (DEBUGGING) DEBUG_OUT("'InitSpliceNode' Complete",-1);
@@ -2585,202 +2569,6 @@ void ConnectNodesByEdge
 
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: FindBestPathToNode
- *
- *  Desc. :
- *
- *  Inputs:  1. Node :  
- *
- *  Output:
- *
- */
-void FindBestPathToNode
-(SPLICE_NODE * Node)
-{
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'FindBestPathToNode'",1);
-
-  
-  // Have we already examined this node?
-  if (Node->cumulative_score != EDGE_FAIL_SCORE) {
-    if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
-    return;
-  }
-
-
-  // For each of the nodes that feed into this node,
-  // recursively find *their* best path, then determine
-  // across those options which is our favorite.
-  int in_edge_id;
-  for (in_edge_id = 0; in_edge_id < Node->num_in_edges; in_edge_id++) {
-  
-
-    // Lil' recurrence (pull up the best path score)
-    FindBestPathToNode(Node->UpstreamNodes[in_edge_id]);
-
-
-    // What's the score of the path up to the current node using
-    // this as our input edge?
-    float edge_sum_score = Node->UpstreamNodes[in_edge_id]->cumulative_score;
-    edge_sum_score += Node->InEdges[in_edge_id]->score;
-
-
-    if (edge_sum_score > Node->cumulative_score) {
-      Node->cumulative_score = edge_sum_score;
-      Node->best_in_edge     = in_edge_id;
-    }
-
-
-  }
-
-
-  // If this node doesn't have any inputs, its cumulative score
-  // should be initialized to 'EDGE_FAIL_SCORE'
-  if (Node->cumulative_score == EDGE_FAIL_SCORE) 
-    Node->cumulative_score  = Node->hit_score;
-  else
-    Node->cumulative_score += Node->hit_score;
-
-
-  if (DEBUGGING) DEBUG_OUT("'FindBestPathToNode' Complete",-1);
-
-}
-
-
-
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: EvangelizePath
- *
- *  Desc. :
- *
- *  Inputs:  1. Node :
- *
- *  Output:
- *
- */
-void EvangelizePath
-(SPLICE_NODE * Node)
-{
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'EvangelizePath'",1);
-
-  if (Node->best_path_score == EDGE_FAIL_SCORE) 
-    Node->best_path_score = Node->cumulative_score;
-
-  int  in_edge_index;
-  int out_edge_index;
-  for (in_edge_index=0; in_edge_index<Node->num_in_edges; in_edge_index++) {
-
-    SPLICE_NODE * UpstreamNode = Node->UpstreamNodes[in_edge_index];
-
-    // Special case: A missed exon will have <0 score, so it puts things
-    // out of expected order (where score should always increase as we
-    // advance along the graph).
-    //
-    // To combat this, if we're upstream of a node without a best downstream
-    // edge we'll write ourselves in (perhaps temporarily)
-    //
-    if (Node->best_path_score > UpstreamNode->best_path_score || UpstreamNode->best_out_edge == -1) {
-
-
-      // NOTE: This isn't necessarily the most rigorous
-      //       definition of the best outgoing edge, but
-      //       for our purposes it's fine.
-      for (out_edge_index=0; out_edge_index<UpstreamNode->num_out_edges; out_edge_index++) {
-        if (UpstreamNode->DownstreamNodes[out_edge_index] == Node) {
-          UpstreamNode->best_out_edge = out_edge_index;
-          break;
-        }
-      }
-
-
-      // We'll only set the upstream node's best_path_score
-      // to this node's bps *if* the upstream node is how we
-      // achieved our best_path_score!
-      if (in_edge_index == Node->best_in_edge) {
-        UpstreamNode->best_path_score = Node->best_path_score;    
-        EvangelizePath(UpstreamNode);
-      }
-    
-    }
-  }
-
-  if (DEBUGGING) DEBUG_OUT("'EvangelizePath' Complete",-1);
-
-}
-
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: GatherNTermNodes
- *
- *  Desc. :
- *
- *  Inputs:  1. Graph :
- *
- *  Output:
- *
- */
-void GatherNTermNodes
-(SPLICE_GRAPH * Graph)
-{
-
-  if (DEBUGGING) DEBUG_OUT("Starting 'GatherNTermNodes'",1);
-
-  // We'll re-count N terminal hits, just to be certain
-  int num_n_term = 0;
-
-  int   * NTermIDs    = malloc(Graph->num_nodes * sizeof(int  ));
-  float * NTermScores = malloc(Graph->num_nodes * sizeof(float));
-
-  int node_id;
-  for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
-    if (Graph->Nodes[node_id]->is_n_terminal) {
-      NTermIDs[num_n_term] = node_id;
-      NTermScores[num_n_term] = Graph->Nodes[node_id]->best_path_score;
-      num_n_term++;
-    }
-  }
-
-  int * NTermScoreSort = FloatHighLowSortIndex(NTermScores,num_n_term);
-  
-  if (Graph->NTermNodeIDs)
-    free(Graph->NTermNodeIDs);
-
-  Graph->NTermNodeIDs = malloc(num_n_term * sizeof(int));
-  Graph->num_n_term   = num_n_term;
-  int n_term_index;
-  for (n_term_index=0; n_term_index<num_n_term; n_term_index++)
-    Graph->NTermNodeIDs[n_term_index] = NTermIDs[NTermScoreSort[n_term_index]];
-
-  free(NTermIDs);
-  free(NTermScores);
-  free(NTermScoreSort);
-
-  if (DEBUGGING) DEBUG_OUT("'GatherNTermNodes' Complete",-1);
-
-}
-
-
-
-
-
-
-
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
@@ -2809,7 +2597,7 @@ void GatherCTermNodes
   for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
     if (Graph->Nodes[node_id]->is_c_terminal) {
       CTermIDs[num_c_term] = node_id;
-      CTermScores[num_c_term] = Graph->Nodes[node_id]->best_path_score;
+      CTermScores[num_c_term] = Graph->Nodes[node_id]->cumulative_score;
       num_c_term++;
     }
   }
@@ -2829,9 +2617,10 @@ void GatherCTermNodes
   free(CTermScores);
   free(CTermScoreSort);
 
-  if (DEBUGGING) DEBUG_OUT("'GatherNTermNodes' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'GatherCTermNodes' Complete",-1);
 
 }
+
 
 
 
@@ -2842,40 +2631,50 @@ void GatherCTermNodes
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GenCumScoreSort
- *
- *  Desc. :
- *
- *  Inputs:  1. Graph :
- *
- *  Output:
+ *  Function: PullUpCumulativeScore
  *
  */
-void GenCumScoreSort
-(SPLICE_GRAPH * Graph)
+float PullUpCumulativeScore
+(SPLICE_NODE * Node)
 {
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'GenCumScoreSort'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'PullUpCumulativeScore'",1);
 
-  float * Scores = malloc(Graph->num_nodes * sizeof(float));
-  int node_id;
-  for (node_id=1; node_id<=Graph->num_nodes; node_id++)
-    Scores[node_id-1] = Graph->Nodes[node_id]->cumulative_score;
+  if (Node->cumulative_score != EDGE_FAIL_SCORE) {
+    if (DEBUGGING) DEBUG_OUT("'PullUpCumulativeScore' Complete",-1);
+    return Node->cumulative_score;
+  }
 
-  int * SortIndex = FloatHighLowSortIndex(Scores,Graph->num_nodes);
-  free(Scores);
 
-  int sort_index_pos;
-  for (sort_index_pos=0; sort_index_pos<Graph->num_nodes; sort_index_pos++)
-    SortIndex[sort_index_pos]++; // Brings these indices in-line with node IDs
+  int in_edge_index;
+  for (in_edge_index = 0; in_edge_index < Node->num_in_edges; in_edge_index++) {
 
-  if (Graph->CumScoreSort != NULL)
-    free(Graph->CumScoreSort);
-  Graph->CumScoreSort = SortIndex;
+    float in_edge_score = Node->InEdges[in_edge_index]->score;
+    in_edge_score += PullUpCumulativeScore(Node->UpstreamNodes[in_edge_index]);
 
-  if (DEBUGGING) DEBUG_OUT("'GenCumScoreSort' Complete",-1);
+    if (in_edge_score > Node->cumulative_score) {
+      Node->cumulative_score = in_edge_score;
+      Node->best_in_edge     = in_edge_index;
+    }
+
+  }
+
+
+  if (Node->cumulative_score == EDGE_FAIL_SCORE)
+    Node->cumulative_score  = Node->hit_score;
+  else
+    Node->cumulative_score += Node->hit_score;
+
+
+  if (DEBUGGING) DEBUG_OUT("'PullUpCumulativeScore' Complete",-1);
+
+
+  return Node->cumulative_score;
 
 }
+
+
+
 
 
 
@@ -2902,6 +2701,7 @@ void EvaluatePaths
 
   // We'll reset all of our pathfinding, in case we're
   // running this after adding missing exons to the graph.
+  //
   Graph->has_full_path         = 0;
   Graph->best_full_path_start  = 0;
   Graph->best_full_path_end    = 0;
@@ -2910,33 +2710,31 @@ void EvaluatePaths
   int node_id;
   for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
     Graph->Nodes[node_id]->best_in_edge     = -1;
-    Graph->Nodes[node_id]->best_out_edge    = -1;
     Graph->Nodes[node_id]->cumulative_score =  EDGE_FAIL_SCORE;
-    Graph->Nodes[node_id]->best_path_score  =  EDGE_FAIL_SCORE;
   }
 
 
-  // Find the best path to each node
-  for (node_id=1; node_id<=Graph->num_nodes; node_id++)
-    FindBestPathToNode(Graph->Nodes[node_id]);
-
-  GenCumScoreSort(Graph);
-
-  int sort_id;
-  for (sort_id=0; sort_id<Graph->num_nodes; sort_id++) {
-    
-    int node_id = Graph->CumScoreSort[sort_id];
-    SPLICE_NODE * Node = Graph->Nodes[node_id];
-    EvangelizePath(Node);
-
+  // For each node without an outgoing edge, recursively
+  // draw score up through the graph.
+  //
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
+    if (Graph->Nodes[node_id]->num_out_edges == 0)
+      PullUpCumulativeScore(Graph->Nodes[node_id]);
   }
 
 
-  // We gather the N- and C-terminal nodes at the end of this
-  // function because these are fundamentally an ordering of
-  // paths through the graph
-  GatherNTermNodes(Graph);
+  // Once we have all of our cumulative scores pulled up,
+  // we can collect and sort the C-terminal nodes by
+  // their cumulative scores.
+  //
   GatherCTermNodes(Graph);
+
+
+  // We'll count the number of N-terminal nodes (just for fun)
+  Graph->num_n_term = 0;
+  for (node_id=1; node_id<=Graph->num_nodes; node_id++)
+    if (Graph->Nodes[node_id]->is_n_terminal)
+      Graph->num_n_term += 1;
 
 
   if (DEBUGGING) DEBUG_OUT("'EvaluatePaths' Complete",-1);
@@ -3084,25 +2882,25 @@ void FindBestFullPath
   if (DEBUGGING) DEBUG_OUT("Starting 'FindBestFullPath'",1);
 
 
-  // NOTE: Because NTermNodeIDs is sorted by best_path_score,
+  // NOTE: Because CTermNodeIDs is sorted by cumulative score,
   //       we can break the first time we find a full path.
   SPLICE_NODE * Walker;
-  int n_term_index;
-  for (n_term_index=0; n_term_index<Graph->num_n_term; n_term_index++) {
+  int c_term_index;
+  for (c_term_index=0; c_term_index<Graph->num_c_term; c_term_index++) {
 
-    Walker = Graph->Nodes[Graph->NTermNodeIDs[n_term_index]];
+    Walker = Graph->Nodes[Graph->CTermNodeIDs[c_term_index]];
 
     Graph->best_full_path_length = 1;
-    while (Walker->num_out_edges) {
-      Walker = Walker->DownstreamNodes[Walker->best_out_edge];
+    while (Walker->num_in_edges) {
+      Walker = Walker->UpstreamNodes[Walker->best_in_edge];
       Graph->best_full_path_length += 1;
     }
 
-    if (Walker->is_c_terminal) {
+    if (Walker->is_n_terminal) {
       Graph->has_full_path        = 1;
-      Graph->best_full_path_start = Graph->NTermNodeIDs[n_term_index];
-      Graph->best_full_path_end   = Walker->node_id;
-      Graph->best_full_path_score = Walker->best_path_score;
+      Graph->best_full_path_start = Walker->node_id;
+      Graph->best_full_path_end   = Graph->CTermNodeIDs[c_term_index];
+      Graph->best_full_path_score = Graph->Nodes[Graph->best_full_path_end]->cumulative_score;
       if (DEBUGGING) DEBUG_OUT("'FindBestFullPath' Complete",-1);
       return;
     } else {
@@ -3167,10 +2965,7 @@ SPLICE_GRAPH * BuildSpliceGraph
   Graph->TH_HitDomToNodeID = NULL;
   Graph->MH_HitToNodeID    = NULL;
 
-
   Graph->Nodes        = NULL;
-  Graph->CumScoreSort = NULL;
-  Graph->NTermNodeIDs = NULL;
   Graph->CTermNodeIDs = NULL;
 
 
@@ -4776,11 +4571,11 @@ void AddMissingExonsToGraph
  *  Output:
  *
  */
-int * GetExonSetFromStartNode
-(SPLICE_GRAPH * Graph, int start_node_id)
+int * GetExonSetFromEndNode
+(SPLICE_GRAPH * Graph, int end_node_id)
 {
   
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetExonSetFromStartNode'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetExonSetFromEndNode'",1);
 
 
   // In case we use *every* node
@@ -4788,59 +4583,93 @@ int * GetExonSetFromStartNode
   // path (Min:1,Max:num_nodes)
   //
   // Each "entry" consists of
-  //    [1.] The start position in the profile
-  //    [2.] The start position in the genome
-  //    [3.] The   end position in the profile
-  //    [4.] The   end position in the genome
+  //    [1.] The start position in the genome
+  //    [2.] The start position in the profile
+  //    [3.] The   end position in the genome
+  //    [4.] The   end position in the profile
   //    [5.] The corresponding node's ID
   //
-  int * BestPathCoords  = malloc((5*Graph->num_nodes + 1)*sizeof(int));
-  int num_path_elements = 0;
+  int * BestPathCoords = malloc((5*Graph->num_nodes + 1)*sizeof(int));
+  int   nodes_in_path  = 0;
 
 
-  // N-Terminal is special
-  SPLICE_NODE * Node = Graph->Nodes[start_node_id];
+  SPLICE_NODE * Node = Graph->Nodes[end_node_id];
+  BestPathCoords[5]  = Node->node_id;
+
+  // C-Terminal is special
   if (Node->was_missed) {
-    BestPathCoords[++num_path_elements] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqfrom;
-    BestPathCoords[++num_path_elements] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->hmmfrom;
+    BestPathCoords[3] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqto;
+    BestPathCoords[4] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->hmmto;
   } else {
-    BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqfrom;
-    BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->hmmfrom;
+    BestPathCoords[3] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqto;
+    BestPathCoords[4] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->hmmto;
   }
 
 
-  while (Node->num_out_edges) {
+  // Iterate until we're at the N-terminal node
+  SPLICE_NODE * USNode;
+  while (Node->num_in_edges) {
 
-    BestPathCoords[++num_path_elements] = Node->OutEdges[Node->best_out_edge]->upstream_spliced_nucl_end;
-    BestPathCoords[++num_path_elements] = Node->OutEdges[Node->best_out_edge]->upstream_exon_terminus;
 
-    BestPathCoords[++num_path_elements] = Node->node_id;
+    BestPathCoords[nodes_in_path*5 + 1] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
+    BestPathCoords[nodes_in_path*5 + 2] = Node->InEdges[Node->best_in_edge]->downstream_exon_terminus;
 
-    Node = Node->DownstreamNodes[Node->best_out_edge];
 
-    BestPathCoords[++num_path_elements] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
-    BestPathCoords[++num_path_elements] = Node->InEdges[Node->best_in_edge]->downstream_exon_terminus;
+    // We need to know which edge fed into the current node
+    // from its upstream friend.
+    USNode = Node->UpstreamNodes[Node->best_in_edge];
+
+    int out_edge_index = 0;
+    while (USNode->DownstreamNodes[out_edge_index] != Node)
+      out_edge_index++;
+
+
+    // Swell!
+    nodes_in_path++;
+    Node = USNode;
+    BestPathCoords[nodes_in_path*5 + 5] = Node->node_id;
+
+    BestPathCoords[nodes_in_path*5 + 3] = Node->OutEdges[out_edge_index]->upstream_spliced_nucl_end;
+    BestPathCoords[nodes_in_path*5 + 4] = Node->OutEdges[out_edge_index]->upstream_exon_terminus;
+
 
   }
 
 
-  // C-Terminal is also special
+  // Complete the list with the N-terminal node's info
   if (Node->was_missed) {
-    BestPathCoords[++num_path_elements] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqto;
-    BestPathCoords[++num_path_elements] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->hmmto;
+    BestPathCoords[nodes_in_path*5 + 1] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->sqfrom;
+    BestPathCoords[nodes_in_path*5 + 2] = Graph->MissedHits->hit[Node->hit_id]->dcl->ad->hmmfrom;
   } else {
-    BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqto;
-    BestPathCoords[++num_path_elements] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->hmmto;
+    BestPathCoords[nodes_in_path*5 + 1] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->sqfrom;
+    BestPathCoords[nodes_in_path*5 + 2] = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad->hmmfrom;
   }
-  BestPathCoords[++num_path_elements] = Node->node_id;
+  nodes_in_path++;
 
 
-  BestPathCoords[0] = num_path_elements/5;
+
+  // Because we started with the C-terminal exon, these coordinates
+  // are in reverse order -- flip 'em!
+  int *ExonCoordSet = malloc((5*nodes_in_path + 1)*sizeof(int));
+  
+  int read_id = nodes_in_path - 1;
+  int exon_id,i;
+  for (exon_id = 0; exon_id < nodes_in_path; exon_id++) {
+  
+    for (i=1; i<=5; i++)
+      ExonCoordSet[5*exon_id+i] = BestPathCoords[5*read_id+i];
+  
+    read_id--;
+  
+  }
+  ExonCoordSet[0] = nodes_in_path;
+  free(BestPathCoords);
 
 
-  if (DEBUGGING) DEBUG_OUT("'GetExonSetFromStartNode' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'GetExonSetFromEndNode' Complete",-1);
 
-  return BestPathCoords;
+
+  return ExonCoordSet;
 
 }
 
@@ -4854,53 +4683,53 @@ int * GetExonSetFromStartNode
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: FindComponentBestStart
+ *  Function: FindComponentBestEnd
  *
  *  Desc. :
  *
  *  Inputs:  1.            Node :
  *           2.    ComponentIDs :
  *           3.    component_id :
- *           4. best_comp_start :
+ *           4.   best_comp_end :
  *           5. best_comp_score :
  *
  *  Output:
  *
  */
-void FindComponentBestStart
+void FindComponentBestEnd
 (
   SPLICE_NODE * Node,
   int   * ComponentIDs,
   int     component_id,
-  int   * best_comp_start,
-  float * best_comp_score
+  int   * comp_best_end,
+  float * comp_best_score
 )
 {
-  if (DEBUGGING) DEBUG_OUT("Starting 'FindComponentBestStart'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'FindComponentBestEnd'",1);
 
 
   if (ComponentIDs[Node->node_id]) {
-    if (DEBUGGING) DEBUG_OUT("'FindComponentBestStart' Complete",-1);
+    if (DEBUGGING) DEBUG_OUT("'FindComponentBestEnd' Complete",-1);
     return;
   }
 
   ComponentIDs[Node->node_id] = component_id;
 
-  if (Node->num_in_edges == 0 && Node->best_path_score > *best_comp_score) {
-    *best_comp_start = Node->node_id;
-    *best_comp_score = Node->best_path_score;
+  if (Node->num_out_edges == 0 && Node->cumulative_score > *comp_best_score) {
+    *comp_best_end   = Node->node_id;
+    *comp_best_score = Node->cumulative_score;
   }
 
   int in_edge_index;
   for (in_edge_index=0; in_edge_index<Node->num_in_edges; in_edge_index++)
-    FindComponentBestStart(Node->UpstreamNodes[in_edge_index],ComponentIDs,component_id,best_comp_start,best_comp_score);
+    FindComponentBestEnd(Node->UpstreamNodes[in_edge_index],ComponentIDs,component_id,comp_best_end,comp_best_score);
 
   int out_edge_index;
   for (out_edge_index=0; out_edge_index<Node->num_out_edges; out_edge_index++)
-    FindComponentBestStart(Node->DownstreamNodes[out_edge_index],ComponentIDs,component_id,best_comp_start,best_comp_score);
+    FindComponentBestEnd(Node->DownstreamNodes[out_edge_index],ComponentIDs,component_id,comp_best_end,comp_best_score);
 
 
-  if (DEBUGGING) DEBUG_OUT("'FindComponentBestStart' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'FindComponentBestEnd' Complete",-1);
 
 }
 
@@ -5275,11 +5104,11 @@ int ** GetSplicedExonCoordSets
   // (In the case that we have a full path through
   //  the graph, we just report that one component.)
   int num_conn_comps = 0;
-  int * StartNodes = malloc(Graph->num_nodes*sizeof(int));
+  int * EndNodes = malloc(Graph->num_nodes*sizeof(int));
   int node_id;
   if (Graph->has_full_path) {
 
-    StartNodes[0]  = Graph->best_full_path_start;
+    EndNodes[0]  = Graph->best_full_path_end;
     num_conn_comps = 1;
 
   } else {
@@ -5292,17 +5121,17 @@ int ** GetSplicedExonCoordSets
 
       if (!ComponentIDs[node_id]) {
 
-        int   best_comp_start = 0;
-        float best_comp_score = 0.0;
-        FindComponentBestStart(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&best_comp_start,&best_comp_score);
+        int   comp_best_end   = 0;
+        float comp_best_score = 0.0;
+        FindComponentBestEnd(Graph->Nodes[node_id],ComponentIDs,num_conn_comps+1,&comp_best_end,&comp_best_score);
 
         // There's some way that we can get a node to not be properly tagged
         // so that it *thinks* its connected component hasn't been considered.
         // This results in 'FindComponentBestStart' returning without setting
         // 'best_comp_start'
         // This *is* a bug, but for now I'm just patching over it
-        if (best_comp_start != 0)
-          StartNodes[num_conn_comps++] = best_comp_start;
+        if (comp_best_end != 0)
+          EndNodes[num_conn_comps++] = comp_best_end;
 
       }
 
@@ -5317,8 +5146,9 @@ int ** GetSplicedExonCoordSets
   int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
   int conn_comp_id;
   for (conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
-    ExonCoordSets[conn_comp_id] = GetExonSetFromStartNode(Graph,StartNodes[conn_comp_id]);
-  free(StartNodes);
+    ExonCoordSets[conn_comp_id] = GetExonSetFromEndNode(Graph,EndNodes[conn_comp_id]);
+  free(EndNodes);
+
 
   if (DEBUGGING) DEBUG_OUT("'GetSplicedExonCoordSets' Complete",-1);
 
