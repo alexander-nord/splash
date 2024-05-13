@@ -55,6 +55,9 @@ while (my $species = readdir($AllSpeciesDir)) {
 		next if ($map_file_name !~ /^(\S+)\.out$/);
 		my $gene = $1;
 
+		# Titan is really slow, so for now we're just going to cut it out
+		next if ($gene eq 'ttn');
+
 		$map_file_name = $species_map_dir_name.$map_file_name;
 
 		my $mapped_seqs_ref = RecordMappings($map_file_name,$out_dir_name);
