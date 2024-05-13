@@ -1643,8 +1643,14 @@ float FindOptimalSpliceSite
 
     }
 
+
+    if (us_pos >= us_trans_len || ds_pos >= ds_trans_len)
+      break;
+
+
     us_start = us_pos;
     ds_start = ds_pos;
+
 
   }
 
