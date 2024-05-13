@@ -143,8 +143,11 @@ sub RecordMappings
 		# For now I'm going to require that the mapping came
 		# from FastMap2, since I want to test with mapping
 		# coordinates that I trust *very much*
-		next if ($map_method ne 'FastMap2');
-
+		#
+		# UPDATE: We'll catch these on the back-end
+		#
+		#next if ($map_method ne 'FastMap2');
+		#
 
 		$num_exons =~ /Num Exons  : (\d+)/;
 		$num_exons = $1;

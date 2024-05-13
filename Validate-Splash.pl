@@ -698,6 +698,14 @@ sub CompileBasicResults
 					my $ali_line_nucl_seq   = $2;
 					my $ali_line_nucl_end   = $3;
 
+
+					# DEBUGGING
+					if (!$ali_line_nucl_end) {
+						$line =~ s/\n|\r//g;
+						print "\n  Warning:  Nucleotide line for $base_name is missing ali_line_nucl_end (line:'$line')\n\n";
+					}
+
+
 					# NOTE: We'll deal with the add/sub-2 for splice signal *later*
 					$exon_nucl_start = $ali_line_nucl_start + ($chr_start-1) if (!$exon_nucl_start);
 					$exon_nucl_end   = $ali_line_nucl_end   + ($chr_start-1);
@@ -789,7 +797,7 @@ sub FamilySplash
 		
 		$file_to_hmmbuild =~ /^(\S+)\.[^\.]+$/;
 		my $hmm_file_name = $1.'.hmm';
-		my $hmmbuild_cmd  = "$HMMBUILD \"$hmm_file_name\" \"$file_to_hmmbuild\"";
+		my $hmmbuild_cmd  = "$HMMBUILD --amino \"$hmm_file_name\" \"$file_to_hmmbuild\"";
 
 		if (system($hmmbuild_cmd)) {
 			die "\n  ERROR:  Failed to build HMM on '$file_to_hmmbuild' (command:'$hmmbuild_cmd')\n\n";
@@ -1233,9 +1241,10 @@ sub HelpAndDie
 	print "            '----------------------------------------------------------\n";
 	print "\n";
 	print "\n";
-	print "  OPT.S: --full-genome : Force use of full genome as target sequence.\n";
-	print "         --err-kills   : If an hmmsearcht run fails, kill the script\n";
-	print "                         (by default we log the error and continue)\n";
+	print "  OPT.S: --full-genome   : Force use of full genome as target sequence.\n";
+	print "         --err-kills     : If an hmmsearcht run fails, kill the script\n";
+	print "                            (by default we log the error and continue).\n";
+	print "         --cpus/-n [int] : Set the number of threads to use.\n";
 	print "\n";
 	die   "\n";
 }
