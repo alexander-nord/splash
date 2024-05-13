@@ -1473,8 +1473,7 @@ float FindOptimalSpliceSite
 
 
   // Incorporate the extension
-  int i;
-  for (i=1; i<=Overlap->upstream_ext_len; i++) {
+  while (model_pos <= Overlap->amino_end) {
 
 
     USNuclPos[us_trans_len] = nucl_read_pos;
@@ -1570,6 +1569,7 @@ float FindOptimalSpliceSite
 
   // We're really just interested in the sum scores on each side,
   // so let's switch over to that
+  int i;
   for (i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
   for (i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
 
@@ -1597,7 +1597,7 @@ float FindOptimalSpliceSite
 
   int us_start = 0;
   int ds_start = 0;
-  for (model_pos = Overlap->amino_start; model_pos < Overlap->amino_end; model_pos++) {
+  for (model_pos = Overlap->amino_start; model_pos <= Overlap->amino_end; model_pos++) {
 
 
     while (USModelPos[us_start] < model_pos) us_start++;
@@ -1606,13 +1606,13 @@ float FindOptimalSpliceSite
 
     int us_pos = us_start;
     int ds_pos;
-    while (USModelPos[us_pos] == model_pos) {
+    while (USModelPos[us_pos] == model_pos && us_pos < us_trans_len) {
 
 
       ds_pos = ds_start;
 
 
-      while (DSModelPos[ds_pos] == model_pos) {
+      while (DSModelPos[ds_pos] == model_pos && ds_pos < ds_trans_len) {
 
 
         // Pull in the "contested" nucleotides for this position
@@ -1647,7 +1647,7 @@ float FindOptimalSpliceSite
     ds_start = ds_pos;
 
   }
-  
+
 
   free(USTrans);
   free(USModelPos);
