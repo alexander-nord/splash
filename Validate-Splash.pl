@@ -108,6 +108,16 @@ sub AggregateAllResults
 	my $discord_file_name = $OPTIONS{'output-dir'}.'Discord.err';
 
 
+	# DEBUGGING
+	# If there are non-nucleotide characters listed at splice sites
+	# we'll want to do some investigating...
+	my %NuclChars;
+	$NuclChars{'a'} = 1;
+	$NuclChars{'c'} = 1;
+	$NuclChars{'g'} = 1;
+	$NuclChars{'t'} = 1;
+
+
 	# We'll want to capture the splicing dinucleotides
 	my %ThreePrime;
 	my %ThreePrimeOne;
@@ -303,11 +313,19 @@ sub AggregateAllResults
 					{
 						if ($ThreePrimeOne{$three_one}) { $ThreePrimeOne{$three_one}++; }
 						else                            { $ThreePrimeOne{$three_one}=1; }
+
+						# DEBUGGING
+						print "WARNING: $family/$fam_input_name has non-nucleotide splice characters\n" if (!$NuclChars{$three_one});
+
 					}
 					if ($three_two ne '-') 
 					{
 						if ($ThreePrimeTwo{$three_two}) { $ThreePrimeTwo{$three_two}++; }
 						else                            { $ThreePrimeTwo{$three_two}=1; }
+
+						# DEBUGGING
+						print "WARNING: $family/$fam_input_name has non-nucleotide splice characters\n" if (!$NuclChars{$three_two});
+
 					}
 					if ($three ne '--')
 					{
@@ -320,11 +338,19 @@ sub AggregateAllResults
 					{
 						if ($FivePrimeOne{$five_one}) { $FivePrimeOne{$five_one}++; }
 						else                          { $FivePrimeOne{$five_one}=1; }
+
+						# DEBUGGING
+						print "WARNING: $family/$fam_input_name has non-nucleotide splice characters\n" if (!$NuclChars{$five_one});
+
 					}
 					if ($five_two ne '-') 
 					{
 						if ($FivePrimeTwo{$five_two}) { $FivePrimeTwo{$five_two}++; }
 						else                          { $FivePrimeTwo{$five_two}=1; }
+
+						# DEBUGGING
+						print "WARNING: $family/$fam_input_name has non-nucleotide splice characters\n" if (!$NuclChars{$five_two});
+
 					}
 					if ($five ne '--')
 					{
