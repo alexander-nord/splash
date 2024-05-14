@@ -141,7 +141,11 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
+
+
+// Ever want to know what function you're in, and how deep it
+// is (roughly)? Well, wonder no more!
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -3958,7 +3962,7 @@ P7_DOMAIN ** FindSubHits
 
   // Create a whole mess of objects that we'll need to get our
   // our sub-model alignments to fit into an alidisplay...
-  ESL_SQ   * ORFAminoSeq;
+  ESL_SQ   * ORFAminoSeq   = NULL;
   P7_GMX   * ViterbiMatrix = p7_gmx_Create(SubModel->M,1024);
   P7_TRACE * Trace         = p7_trace_Create();
   float viterbi_score;
@@ -4214,7 +4218,9 @@ P7_DOMAIN ** FindSubHits
   // It takes a lot of fun to need this much cleanup ;)
   free(AminoStr);
   free(NuclStr);
-  esl_sq_Destroy(ORFAminoSeq);
+
+
+  if (ORFAminoSeq) esl_sq_Destroy(ORFAminoSeq);
   p7_profile_Destroy(SubModel);
   p7_oprofile_Destroy(OSubModel);
   p7_gmx_Destroy(ViterbiMatrix);
