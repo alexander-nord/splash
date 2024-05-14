@@ -21,6 +21,7 @@ sub ConfirmInputsToSplashDir;
 sub ConfirmGenomeDir;
 sub ConfirmGenome;
 sub ConfirmRequiredTools;
+sub GetPct;
 
 
 
@@ -344,7 +345,7 @@ sub AggregateAllResults
 
 				# Compute the percent of the model covered by our best
 				# exon set
-				my $best_coverage_pct = int(1000.0 * $best_coverage_len / $model_length) / 10.0;
+				my $best_coverage_pct = GetPct($best_coverage_len,$model_length);
 
 
 				# Hell yeah! We sure were given an input, did something with
@@ -406,12 +407,17 @@ sub AggregateAllResults
 	open(my $FinalResults,'>',$final_results_file_name)
 		|| die "\n  ERROR:  Failed to open final output file '$final_results_file_name'\n\n";
 
+	my $pct_spliced       = GetPct($total_num_spliced,$total_input_phmms);
+	my $pct_full_model    = GetPct($num_full_model,$total_input_phmms);
+	my $pct_with_missed   = GetPct($inputs_with_missed,$total_input_phmms);
+	my $pct_full_w_missed = GetPct($full_with_missed,$total_input_phmms);
+
 	# First-blush statistics
 	print $FinalResults "Total Number of Input pHMMs       : $total_input_phmms\n";
-	print $FinalResults "Inputs w/ Successful Splicing     : $total_num_spliced\n";
-	print $FinalResults "Inputs w/ Full-Model Splicing     : $num_full_model\n";
-	print $FinalResults "Inputs w/ Hits Using Missed Exons : $inputs_with_missed\n";
-	print $FinalResults "Full-Model Hits w/ Missed Exons   : $full_with_missed\n";
+	print $FinalResults "Inputs w/ Successful Splicing     : $total_num_spliced ($pct_spliced\%)\n";
+	print $FinalResults "Inputs w/ Full-Model Splicing     : $num_full_model ($pct_full_model\%)\n";
+	print $FinalResults "Inputs w/ Hits Using Missed Exons : $inputs_with_missed ($pct_with_missed\%)\n";
+	print $FinalResults "Full-Model Hits w/ Missed Exons   : $full_with_missed ($pct_full_w_missed\%)\n";
 
 
 	# What did splice signals look like?
@@ -421,21 +427,21 @@ sub AggregateAllResults
 	foreach my $dinucl (sort keys %ThreePrime)
 	{
 		my $count = $ThreePrime{$dinucl};
-		my $pct   = int(1000.0 * $count / $total_3prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_3prime_sites);
 		print $FinalResults "  $dinucl : $count ($pct\%)\n";
 	}
 	print $FinalResults "- [-2] position\n";
 	foreach my $nucl (sort keys %ThreePrimeOne)
 	{
 		my $count = $ThreePrimeOne{$nucl};
-		my $pct   = int(1000.0 * $count / $total_3prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_3prime_sites);
 		print $FinalResults "  $nucl  : $count ($pct\%)\n";
 	}
 	print $FinalResults "- [-1] position\n";
 	foreach my $nucl (sort keys %ThreePrimeTwo)
 	{
 		my $count = $ThreePrimeTwo{$nucl};
-		my $pct   = int(1000.0 * $count / $total_3prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_3prime_sites);
 		print $FinalResults "   $nucl : $count ($pct\%)\n";
 	}
 
@@ -445,21 +451,21 @@ sub AggregateAllResults
 	foreach my $dinucl (sort keys %FivePrime)
 	{
 		my $count = $FivePrime{$dinucl};
-		my $pct   = int(1000.0 * $count / $total_5prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_5prime_sites);
 		print $FinalResults "  $dinucl : $count ($pct\%)\n";
 	}
 	print $FinalResults "- [+1] position\n";
 	foreach my $nucl (sort keys %FivePrimeOne)
 	{
 		my $count = $FivePrimeOne{$nucl};
-		my $pct   = int(1000.0 * $count / $total_5prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_5prime_sites);
 		print $FinalResults "  $nucl  : $count ($pct\%)\n";
 	}
 	print $FinalResults "- [+2] position\n";
 	foreach my $nucl (sort keys %FivePrimeTwo)
 	{
 		my $count = $FivePrimeTwo{$nucl};
-		my $pct   = int(1000.0 * $count / $total_5prime_sites) / 10.0;
+		my $pct   = GetPct($count,$total_5prime_sites);
 		print $FinalResults "   $nucl : $count ($pct\%)\n";
 	}
 	print $FinalResults "\n";
@@ -1656,4 +1662,22 @@ sub ConfirmRequiredTools
 
 }
 
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: GetPct
+#
+sub GetPct
+{
+	my $numerator   = shift;
+	my $denominator = shift;
+	my $pct = int(1000.0 * $numerator / $denominator) / 10.0;
+	return $pct;
+}
 
