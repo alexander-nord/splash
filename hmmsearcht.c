@@ -141,7 +141,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 int FUNCTION_DEPTH = 0;
 void DEBUG_OUT (const char * message, const int func_depth_change) {
 
@@ -1433,11 +1433,14 @@ float FindOptimalSpliceSite
   int upstream_nucl_cnt = abs(Overlap->upstream_nucl_start - Overlap->upstream_nucl_end) + 1;
 
 
-  // Oversize -- Deal with it!
-  int   * USTrans    = malloc(upstream_nucl_cnt*sizeof(int));
-  int   * USModelPos = malloc(upstream_nucl_cnt*sizeof(int));
-  int   * USNuclPos  = malloc(upstream_nucl_cnt*sizeof(int));
-  float * USScores   = malloc(upstream_nucl_cnt*sizeof(float));
+  // Allocate the arrays we'll use to capture the
+  // upstream candidates for splice site splitting
+  int     us_arr_cap = upstream_nucl_cnt/3 + 10; // IDK
+  int   * USTrans    = malloc(us_arr_cap*sizeof(int));
+  int   * USModelPos = malloc(us_arr_cap*sizeof(int));
+  int   * USNuclPos  = malloc(us_arr_cap*sizeof(int));
+  float * USScores   = malloc(us_arr_cap*sizeof(float));
+
 
   // We'll just assume we matched our way in
   model_state = p7P_MM;
@@ -1470,6 +1473,29 @@ float FindOptimalSpliceSite
     us_trans_len++;
 
 
+    // NOTE: this probably means significant gappiness
+    //       (*barely* within threshold not to be rejected
+    //       by ExcessiveGapContent)
+    if (us_trans_len == us_arr_cap) {
+      us_arr_cap *= 2;
+      int   * TmpTrans    = malloc(us_arr_cap*sizeof(int));
+      int   * TmpModelPos = malloc(us_arr_cap*sizeof(int));
+      int   * TmpNuclPos  = malloc(us_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(us_arr_cap*sizeof(int));
+      int copy_index;
+      for (copy_index=0; copy_index<us_trans_len; copy_index++) {
+        TmpTrans[copy_index]    = USTrans[copy_index];
+        TmpModelPos[copy_index] = USModelPos[copy_index];
+        TmpNuclPos[copy_index]  = USNuclPos[copy_index];
+        TmpScores[copy_index]   = USScores[copy_index];
+      }
+      free(USTrans);    USTrans    = TmpTrans;
+      free(USModelPos); USModelPos = TmpModelPos;
+      free(USNuclPos);  USNuclPos  = TmpNuclPos;
+      free(USScores);   USScores   = TmpScores;
+    }
+
+
   }
   int us_pre_ext_end_pos = us_trans_len-1; // For scoring purposes
 
@@ -1494,6 +1520,26 @@ float FindOptimalSpliceSite
     us_trans_len++;
 
 
+    // Resize?
+    if (us_trans_len == us_arr_cap) {
+      us_arr_cap *= 2;
+      int   * TmpTrans    = malloc(us_arr_cap*sizeof(int));
+      int   * TmpModelPos = malloc(us_arr_cap*sizeof(int));
+      int   * TmpNuclPos  = malloc(us_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(us_arr_cap*sizeof(int));
+      int copy_index;
+      for (copy_index=0; copy_index<us_trans_len; copy_index++) {
+        TmpTrans[copy_index]    = USTrans[copy_index];
+        TmpModelPos[copy_index] = USModelPos[copy_index];
+        TmpNuclPos[copy_index]  = USNuclPos[copy_index];
+        TmpScores[copy_index]   = USScores[copy_index];
+      }
+      free(USTrans);    USTrans    = TmpTrans;
+      free(USModelPos); USModelPos = TmpModelPos;
+      free(USNuclPos);  USNuclPos  = TmpNuclPos;
+      free(USScores);   USScores   = TmpScores;
+    }
+
   }
 
 
@@ -1506,11 +1552,12 @@ float FindOptimalSpliceSite
   int downstream_nucl_cnt = abs(Overlap->downstream_nucl_start - Overlap->downstream_nucl_end) + 1;
 
 
-  // Oversize -- deal with it!
-  int   * DSTrans    = malloc(downstream_nucl_cnt*sizeof(int));
-  int   * DSModelPos = malloc(downstream_nucl_cnt*sizeof(int));
-  int   * DSNuclPos  = malloc(downstream_nucl_cnt*sizeof(int));
-  float * DSScores   = malloc(downstream_nucl_cnt*sizeof(float));
+  // Time to malloc!
+  int     ds_arr_cap = downstream_nucl_cnt/3 + 10; // Still DK
+  int   * DSTrans    = malloc(ds_arr_cap*sizeof(int));
+  int   * DSModelPos = malloc(ds_arr_cap*sizeof(int));
+  int   * DSNuclPos  = malloc(ds_arr_cap*sizeof(int));
+  float * DSScores   = malloc(ds_arr_cap*sizeof(float));
 
   model_state = p7P_MM;
 
@@ -1535,6 +1582,27 @@ float FindOptimalSpliceSite
     model_pos++;
     ds_trans_len++;
 
+
+    // Resize?
+    // (Again, this probably means a gappy hit...)
+    if (ds_trans_len == ds_arr_cap) {
+      ds_arr_cap *= 2;
+      int   * TmpTrans    = malloc(ds_arr_cap*sizeof(int));
+      int   * TmpModelPos = malloc(ds_arr_cap*sizeof(int));
+      int   * TmpNuclPos  = malloc(ds_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(ds_arr_cap*sizeof(int));
+      int copy_index;
+      for (copy_index=0; copy_index<ds_trans_len; copy_index++) {
+        TmpTrans[copy_index]    = DSTrans[copy_index];
+        TmpModelPos[copy_index] = DSModelPos[copy_index];
+        TmpNuclPos[copy_index]  = DSNuclPos[copy_index];
+        TmpScores[copy_index]   = DSScores[copy_index];
+      }
+      free(DSTrans);    DSTrans    = TmpTrans;
+      free(DSModelPos); DSModelPos = TmpModelPos;
+      free(DSNuclPos);  DSNuclPos  = TmpNuclPos;
+      free(DSScores);   DSScores   = TmpScores;
+    }
 
   }
 
@@ -1564,6 +1632,27 @@ float FindOptimalSpliceSite
     display_pos++;
     ds_trans_len++;
 
+
+    // Resize?
+    // (Again, this probably means a gappy hit...)
+    if (ds_trans_len == ds_arr_cap) {
+      ds_arr_cap *= 2;
+      int   * TmpTrans    = malloc(ds_arr_cap*sizeof(int));
+      int   * TmpModelPos = malloc(ds_arr_cap*sizeof(int));
+      int   * TmpNuclPos  = malloc(ds_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(ds_arr_cap*sizeof(int));
+      int copy_index;
+      for (copy_index=0; copy_index<ds_trans_len; copy_index++) {
+        TmpTrans[copy_index]    = DSTrans[copy_index];
+        TmpModelPos[copy_index] = DSModelPos[copy_index];
+        TmpNuclPos[copy_index]  = DSNuclPos[copy_index];
+        TmpScores[copy_index]   = DSScores[copy_index];
+      }
+      free(DSTrans);    DSTrans    = TmpTrans;
+      free(DSModelPos); DSModelPos = TmpModelPos;
+      free(DSNuclPos);  DSNuclPos  = TmpNuclPos;
+      free(DSScores);   DSScores   = TmpScores;
+    }
 
   }
 
@@ -5452,6 +5541,33 @@ void PrintExon
       *codon_pos = 0;
 
     write_pos++;
+
+
+    // Similar to the issue of parsing "original" ALIDISPLAYs
+    // in 'FindOptimalSpliceSite,' if we're re-allocating
+    // it probably means we've ended up with some uncomfortably
+    // gappy alignments...
+    if (write_pos + 5 >= exon_ali_str_alloc) {
+      exon_ali_str_alloc *= 2;
+      char * TmpModelAli    = malloc(exon_ali_str_alloc*sizeof(char));
+      char * TmpQualityAli  = malloc(exon_ali_str_alloc*sizeof(char));
+      char * TmpTransAli    = malloc(exon_ali_str_alloc*sizeof(char));
+      char * TmpNuclAli     = malloc(exon_ali_str_alloc*sizeof(char));
+      char * TmpPPAli       = malloc(exon_ali_str_alloc*sizeof(char));
+      int copy_index;
+      for (copy_index=0; copy_index<write_pos; copy_index++) {
+        TmpModelAli[copy_index]   = ModelAli[copy_index];
+        TmpQualityAli[copy_index] = QualityAli[copy_index];
+        TmpTransAli[copy_index]   = TransAli[copy_index];
+        TmpNuclAli[copy_index]    = NuclAli[copy_index];
+        TmpPPAli[copy_index]      = PPAli[copy_index];
+      }
+      free(ModelAli);   ModelAli   = TmpModelAli;
+      free(QualityAli); QualityAli = TmpQualityAli;
+      free(TransAli);   TransAli   = TmpTransAli;
+      free(NuclAli);    NuclAli    = TmpNuclAli;
+      free(PPAli);      PPAli      = TmpPPAli;
+    }
 
   }
 
