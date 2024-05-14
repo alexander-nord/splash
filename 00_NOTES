@@ -46,7 +46,12 @@
      I would assume that's (a.) rare, and (b.) whatever gets thrown out will
      be recovered on the back-end with the Viterbi search.
 
-     --> UPDATE: We're going with a 10-position poll (>5 gaps and you're out!)
+     XX--> UPDATE: We're going with a 10-position poll (>5 gaps and you're out!)XX
+
+     --> SECONDARY UPDATE: I've found this same issue in ADAMTS13, but with
+           long internal gaps.  Instead of checking around the edges I'm going
+	   to revert back to a percentage of the total alidisplay string being
+	   gaps.
 
 
 [3.] GPX5: Frameshift alert!  Not sure how to catch this, but might be worth

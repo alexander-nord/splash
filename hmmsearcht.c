@@ -1608,13 +1608,14 @@ float FindOptimalSpliceSite
 
     int us_pos = us_start;
     int ds_pos;
-    while (USModelPos[us_pos] == model_pos && us_pos < us_trans_len) {
+    while (us_pos < us_trans_len && USModelPos[us_pos] == model_pos) {
 
 
       ds_pos = ds_start;
 
 
-      while (DSModelPos[ds_pos] == model_pos && ds_pos < ds_trans_len) {
+      while (ds_pos < ds_trans_len && DSModelPos[ds_pos] == model_pos) {
+
 
 
         // Pull in the "contested" nucleotides for this position
@@ -1669,7 +1670,7 @@ float FindOptimalSpliceSite
 
   free(UN);
   free(DN);
-
+  
 
   // Currently, the optimal positions share an amino,
   // which we're going to want to consider methods
@@ -2091,11 +2092,33 @@ int HitsAreSpliceCompatible
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ExcessiveGapContent
+ *
+ */
+int ExcessiveGapContent
+(P7_ALIDISPLAY * AD)
+{
+  int num_gaps = 0;
+  int ad_pos;
+  for (ad_pos=0; ad_pos<AD->N; ad_pos++)
+    if (AD->model[ad_pos] == '.' || AD->aseq[ad_pos] == '-')
+      num_gaps++;
+  // 25% cutoff
+  if (4*num_gaps > AD->N)
+    return 1;
+  return 0;
+}
+
+
+
+
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: HighCTermGapContent
+ *  Function: HighCTermGapContent < DEPRECATED (Now using ExcessiveGapContent)
  *
  */
 int HighCTermGapContent
@@ -2121,7 +2144,7 @@ int HighCTermGapContent
 }
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: HighNTermGapContent
+ *  Function: HighNTermGapContent < DEPRECATED (Now using ExcessiveGapContent)
  *
  */
 int HighNTermGapContent
@@ -2265,7 +2288,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
         P7_ALIDISPLAY * UpstreamDisplay = (&UpstreamHit->dcl[upstream_dom_id])->ad;
 
 
-        if (HighCTermGapContent(UpstreamDisplay))       
+        if (ExcessiveGapContent(UpstreamDisplay))       
           continue;
 
 
@@ -2279,7 +2302,7 @@ DOMAIN_OVERLAP ** GatherViableSpliceEdges
           P7_ALIDISPLAY * DownstreamDisplay = (&DownstreamHit->dcl[downstream_dom_id])->ad;
 
 
-          if (HighNTermGapContent(DownstreamDisplay))
+          if (ExcessiveGapContent(DownstreamDisplay))
             continue;
 
 
@@ -3867,6 +3890,7 @@ P7_DOMAIN ** FindSubHits
 
 
   // Loop over each full reading frame
+  int max_orf_len = 500;
   int frame,i;
   for (frame=0; frame<3; frame++) {
 
@@ -3914,8 +3938,12 @@ P7_DOMAIN ** FindSubHits
 
 
       // Have we hit a stop codon? Are we at the end of the road?
-      if (next_amino_index >= 21 || frame_end+2 >= nucl_seq_len) {
+      if (next_amino_index >= 21 || frame_end+2 >= nucl_seq_len || orf_len == max_orf_len) {
 
+
+        int long_orf_catch = 0;
+        if (orf_len == max_orf_len)
+          long_orf_catch = 1;
 
 
         // Is this ORF long enough to be worth considering as an exon?
@@ -4062,8 +4090,30 @@ P7_DOMAIN ** FindSubHits
 
 
         // Reset and advance!
-        orf_len     = 0;
+        // (but be mindful if there was a long ORF!)
+        if (long_orf_catch) {
+
+          int reuse_len      = 100;
+          int amino_read_pos = max_orf_len - reuse_len;
+          
+          for (i=0; i<reuse_len; i++) {
+            AminoStr[i]    = AminoStr[amino_read_pos];
+            NuclStr[3*i  ] = NuclStr[3*amino_read_pos  ];
+            NuclStr[3*i+1] = NuclStr[3*amino_read_pos+1];
+            NuclStr[3*i+2] = NuclStr[3*amino_read_pos+2];
+            amino_read_pos++;
+          }
+
+          orf_len = reuse_len;
+
+        } else {
+
+          orf_len     = 0;
+
+        }
+
         frame_start = frame_end;
+
 
       }
 
