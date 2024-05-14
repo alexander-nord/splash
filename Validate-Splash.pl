@@ -102,6 +102,11 @@ sub AggregateAllResults
 	print $CoverageFile "Best-ES-Start-Pos,Best-ES-End-Pos,Time-in-Splash\n";
 
 
+	# In case we had weird / discordant output for any inputs,
+	# be sure to report that!
+	my $discord_file_name = $OPTIONS{'output-dir'}.'Discord.err';
+
+
 	# We'll want to capture the splicing dinucleotides
 	my %ThreePrime;
 	my %ThreePrimeOne;
@@ -114,6 +119,7 @@ sub AggregateAllResults
 	# How many sequences had some splicing action?
 	# How many covered the full length of the model?
 	# How many (of each of the above) incorporated 'missed' exons?
+	my $total_input_phmms  = 0;
 	my $total_num_spliced  = 0;
 	my $num_full_model     = 0;
 	my $inputs_with_missed = 0;
@@ -157,6 +163,9 @@ sub AggregateAllResults
 				last;
 			}
 		}
+
+
+		$total_input_phmms += $num_fam_inputs;
 
 
 		# Let's interrogate some stinky ol' exon sets!
@@ -209,6 +218,13 @@ sub AggregateAllResults
 			my $best_coverage_set_id; # Probably useless, but *whatever*
 
 
+			# In case this hit looked good according to the splice
+			# graph but we couldn't make our data play nicely with
+			# the model, we'll need to be prepared to adjust our
+			# statistics to represent it as a failure (sadly)
+			my $num_discord_exon_sets = 0;
+
+
 			# Let's start running through our dang exon sets
 			my $had_missed_exons = 0;
 			for (my $exon_set_id = 1; $exon_set_id <= $num_exon_sets; $exon_set_id++) 
@@ -229,6 +245,29 @@ sub AggregateAllResults
 				my $exon_set_model_end   = $2;
 				my $exon_set_coverage    = 1 + ($exon_set_model_end - $exon_set_model_start);
 
+
+				# Nucleotide range summary for this exon set
+				$line = <$SummaryFile>;
+
+
+				$line = <$SummaryFile>; # Missed exons?
+				my $exon_set_missed_exons = 1 if ($line =~ /\? Yes/);
+
+
+				# The next line indicates if the secondary search with
+				# the full pipeline doesn't match what we fed in.
+				# If this is the case, there aren't any exon-by-exon
+				# outputs.
+				$line = <$SummaryFile>;
+				if ($line =~ /EXON SET DISCORD/) {
+					$num_discord_exon_sets++;
+					next;
+				}
+
+
+				# Now that we know we didn't have discord with the
+				# model behavior, we can report this hit's stats
+				# (if applicable)
 				if ($exon_set_coverage > $best_coverage_len)
 				{
 					$best_coverage_set_id = $exon_set_id;
@@ -236,20 +275,14 @@ sub AggregateAllResults
 					$best_coverage_end    = $exon_set_model_end;
 					$best_coverage_len    = $exon_set_coverage;
 				}
+				$had_missed_exons = 1 if ($exon_set_missed_exons);
 
 
-				# Nucleotide range summary for this exon set
-				$line = <$SummaryFile>;
-
-
-				$line = <$SummaryFile>; # Missed exons?
-				$had_missed_exons = 1 if ($line =~ /\? Yes/);
-
-
+				# Grab info about splice site signal
 				for (my $exon_id = 1; $exon_id <= $num_exons; $exon_id++)
 				{
 
-					$line = <$SummaryFile>; # Exon ID
+					$line = <$SummaryFile> unless ($exon_id == 1); # Exon ID
 					$line = <$SummaryFile>; # Model range
 					$line = <$SummaryFile>; # Nucl. range
 
@@ -303,26 +336,40 @@ sub AggregateAllResults
 			}
 
 
-			# Compute the percent of the model covered by our best
-			# exon set
-			my $best_coverage_pct = int(1000.0 * $best_coverage_len / $model_length) / 10.0;
-
-
-			# Hell yeah! We sure were given an input, did something with
-			# it, and then produced an output!  Way to go, us!
-			print $CoverageFile "$family,$fam_input_name,$model_length,";
-			print $CoverageFile "$num_exon_sets,$best_coverage_len,$best_coverage_pct\%,";
-			print $CoverageFile "$best_coverage_start,$best_coverage_end,";
-			print $CoverageFile "$fam_input_runtime\n";
-
-
-			# Wrap up this input with whether it made use of missed exons
-			if ($had_missed_exons)
+			# We need to have had at least one non-discordant hit
+			# in order to log this as a success.  Otherwise we'll
+			# backtrack.
+			if ($num_discord_exon_sets != $num_exon_sets)
 			{
-				$inputs_with_missed++;
-				$full_with_missed++ if ($full_coverage);
-			}
 
+				# Compute the percent of the model covered by our best
+				# exon set
+				my $best_coverage_pct = int(1000.0 * $best_coverage_len / $model_length) / 10.0;
+
+
+				# Hell yeah! We sure were given an input, did something with
+				# it, and then produced an output!  Way to go, us!
+				print $CoverageFile "$family,$fam_input_name,$model_length,";
+				print $CoverageFile "$num_exon_sets,$best_coverage_len,$best_coverage_pct\%,";
+				print $CoverageFile "$best_coverage_start,$best_coverage_end,";
+				print $CoverageFile "$fam_input_runtime\n";
+
+
+				# Wrap up this input with whether it made use of missed exons
+				if ($had_missed_exons)
+				{
+					$inputs_with_missed++;
+					$full_with_missed++ if ($full_coverage);
+				}
+
+			}
+			else
+			{
+				# BUMMER!
+				$num_full_model-- if ($full_coverage);
+				$total_num_spliced--;
+				system("echo \"$family/$fam_input_name\" >> $discord_file_name");
+			}
 
 		}
 
@@ -360,6 +407,7 @@ sub AggregateAllResults
 		|| die "\n  ERROR:  Failed to open final output file '$final_results_file_name'\n\n";
 
 	# First-blush statistics
+	print $FinalResults "Total Number of Input pHMMs       : $total_input_phmms\n";
 	print $FinalResults "Inputs w/ Successful Splicing     : $total_num_spliced\n";
 	print $FinalResults "Inputs w/ Full-Model Splicing     : $num_full_model\n";
 	print $FinalResults "Inputs w/ Hits Using Missed Exons : $inputs_with_missed\n";
@@ -589,21 +637,36 @@ sub CompileBasicResults
 
 
 			# Did this hit incorporate "missed" exons?
-			my $has_missed_exons  = 0;
-			while (my $missed_exons_line = <$SplOutFile>) 
+			# Is it significantly divergent from the
+			# exon set supplied for search?
+			my $has_missed_exons = 0;
+			my $exon_set_discord = 0;
+			while (my $extra_info_line = <$SplOutFile>) 
 			{
-				last if ($missed_exons_line !~ /^\|/);
+				last if ($extra_info_line !~ /^\|/);
 
-				if ($missed_exons_line =~ /\| \+ Includes Missed Exons/)
+				if ($extra_info_line =~ /\| \+ Includes Missed Exons/)
 				{
 					$has_missed_exons = 1;
-					last;
+				}
+				elsif ($extra_info_line =~ /\| \+ WARNING/)
+				{
+					$exon_set_discord = 1;
 				}
 			}
 
 			print $SummaryFile "  - Missed Exons? ";
 			if ($has_missed_exons) { print $SummaryFile "Yes\n"; }
 			else                   { print $SummaryFile "No\n";  }
+
+
+			# If there was discord, we'll signal that this was
+			# a problematic hit and skip to the next exon set.
+			if ($exon_set_discord)
+			{
+				print $SummaryFile "  - EXON SET DISCORD -- Spliced alignment abandoned\n";
+				next;
+			}
 
 
 			# Now we can iterate over the exons that make up this
@@ -985,9 +1048,9 @@ sub BigBadSplash
 	}
 
 
-	# Checking
-	my $check_in_str = "Thread $thread_id ready to tackle families $start_fam_id..$end_fam_id-1";
-	system("echo \"$check_in_str\" >> $ERROR_FILE");
+	# DEBUGGING
+	#my $check_in_str = "Thread $thread_id ready to tackle families $start_fam_id..$end_fam_id-1";
+	#system("echo \"$check_in_str\" >> $ERROR_FILE");
 
 
 	# Iterate over the families and splash 'em up!

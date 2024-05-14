@@ -98,3 +98,18 @@
                the cases where I've observed this the pipeline overrides my attempt to extend,
 	       so we're just going to have to accept these as 99%-model-length alignments.
 
+
+
+[5.] Just to keep a record, IMMP2L is the fun case where a relatively short protein (~100 aminos)
+     has an intron that's over 500kb! Wild!
+
+
+
+[6.] CASP12 is a funky case where we consistently (across a *bunch* of human input sequences) have
+     two hits that should be joined but aren't, resulting in (previously) attempts to use the
+     sub-model to fill a hole of ~5 nucleotides.
+
+     I think there might be a frameshift explaining why the two hits are being split out, but might
+     be worth looking closely just to make sure there isn't something going wrong in the splicer...
+
+

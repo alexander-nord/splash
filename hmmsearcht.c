@@ -904,8 +904,8 @@ void SetTargetSeqRange
     if (AD->sqto > max_coord)
       max_coord = AD->sqfrom;
 
-    min_cap = min_coord - 750000;
-    max_cap = max_coord + 750000;
+    min_cap = min_coord - 1000000;
+    max_cap = max_coord + 1000000;
 
     break;
 
@@ -1080,7 +1080,7 @@ ESL_DSQ * GrabNuclRange
 
   int len = abs(end - start) + 1;
 
-  char * Seq = malloc(len * sizeof(char));
+  char * Seq = malloc((len+1) * sizeof(char));
 
   // Keep in mind that DSQs are [1..n]
   int read_index = (int)((uint64_t)start - TargetNuclSeq->start) + 1;
@@ -1101,10 +1101,12 @@ ESL_DSQ * GrabNuclRange
     }
 
   }
+  Seq[len] = 0;
 
 
   ESL_DSQ * NuclSubseq;
   esl_abc_CreateDsq(TargetNuclSeq->abc,Seq,&NuclSubseq);
+
 
   free(Seq);
 
@@ -3417,6 +3419,7 @@ int * GetBoundedSearchRegions
   // in Splash...
   P7_DOMAIN * DomPtr;
   int meta_dcc_id;
+  int final_num_dccs = 0; // In case any search regions are too small
   for (meta_dcc_id = 0; meta_dcc_id < num_live_dcc_ids; meta_dcc_id++) {
 
 
@@ -3500,6 +3503,10 @@ int * GetBoundedSearchRegions
     MidSearchRegions[4*meta_dcc_id + 2] = dcc_hmm_end;
     MidSearchRegions[4*meta_dcc_id + 3] = dcc_nucl_start;
     MidSearchRegions[4*meta_dcc_id + 4] = dcc_nucl_end;
+
+    // Will we allow this into the final set?
+    if (abs(dcc_nucl_end - dcc_nucl_start) > 50)
+      final_num_dccs++;
 
   }
   free(DisConnCompOuts);
@@ -3603,20 +3610,26 @@ int * GetBoundedSearchRegions
   free(NoInEdgeNodes);
 
 
-  int * SearchRegionAggregate = malloc((1+(4*(num_live_dcc_ids+num_term_searches)))*sizeof(int));
+  int   final_num_searches    = final_num_dccs + num_term_searches;
+  int * SearchRegionAggregate = malloc((1 + 4*final_num_searches)*sizeof(int));
   
-  SearchRegionAggregate[0] = num_live_dcc_ids + num_term_searches;
+  SearchRegionAggregate[0] = final_num_searches;
+  x = 0; // The write index, as opposed to i's read index
   for (i=0; i<num_live_dcc_ids; i++) {
-    SearchRegionAggregate[4*i+1] = MidSearchRegions[4*i+1];
-    SearchRegionAggregate[4*i+2] = MidSearchRegions[4*i+2];
-    SearchRegionAggregate[4*i+3] = MidSearchRegions[4*i+3];
-    SearchRegionAggregate[4*i+4] = MidSearchRegions[4*i+4];
+    if (abs(MidSearchRegions[4*i+4] - MidSearchRegions[4*i+3]) > 50) {
+      SearchRegionAggregate[4*x+1] = MidSearchRegions[4*i+1];
+      SearchRegionAggregate[4*x+2] = MidSearchRegions[4*i+2];
+      SearchRegionAggregate[4*x+3] = MidSearchRegions[4*i+3];
+      SearchRegionAggregate[4*x+4] = MidSearchRegions[4*i+4];
+      x++;
+    }
   }
   for (i=0; i<num_term_searches; i++) {
-    SearchRegionAggregate[4*(i+num_live_dcc_ids)+1] = TermSearchRegions[4*i+1];
-    SearchRegionAggregate[4*(i+num_live_dcc_ids)+2] = TermSearchRegions[4*i+2];
-    SearchRegionAggregate[4*(i+num_live_dcc_ids)+3] = TermSearchRegions[4*i+3];
-    SearchRegionAggregate[4*(i+num_live_dcc_ids)+4] = TermSearchRegions[4*i+4];
+    SearchRegionAggregate[4*x+1] = TermSearchRegions[4*i+1];
+    SearchRegionAggregate[4*x+2] = TermSearchRegions[4*i+2];
+    SearchRegionAggregate[4*x+3] = TermSearchRegions[4*i+3];
+    SearchRegionAggregate[4*x+4] = TermSearchRegions[4*i+4];
+    x++;
   }
   free(MidSearchRegions);
   free(TermSearchRegions);
@@ -4772,17 +4785,9 @@ ESL_DSQ * TranslateExonSetNucls
   int translation_len = coding_region_len/3;
   ESL_DSQ * ExonSetTrans = malloc((1 + translation_len) * sizeof(ESL_DSQ));
 
-  ESL_DSQ * Codon = malloc(3*sizeof(ESL_DSQ));
-  int trans_index = 1;
-  int nucl_index;
-  for (nucl_index=1; nucl_index<coding_region_len; nucl_index += 3) {
-    Codon[0] = ExonSetNucls[nucl_index    ];
-    Codon[1] = ExonSetNucls[nucl_index + 1];
-    Codon[2] = ExonSetNucls[nucl_index + 2];
-    ExonSetTrans[trans_index++] = esl_gencode_GetTranslation(gcode,&(Codon[0]));
-  }
-
-  free(Codon);
+  int trans_index;
+  for (trans_index=1; trans_index<=translation_len; trans_index++) 
+      ExonSetTrans[trans_index] = esl_gencode_GetTranslation(gcode,&(ExonSetNucls[3*trans_index-2]));
 
 
   if (DEBUGGING) DEBUG_OUT("'TranslateExonSetNucls' Complete",-1);
@@ -5626,9 +5631,10 @@ void PrintSplicedAlignment
   EXON_DISPLAY_INFO * EDI = malloc(sizeof(EXON_DISPLAY_INFO));
 
 
+  int best_domain  = Hit->best_domain;
   EDI->ofp         = ofp;
   EDI->textw       = textw;
-  EDI->AD          = (&Hit->dcl[0])->ad;
+  EDI->AD          = (&Hit->dcl[best_domain])->ad;
   EDI->exon_set_id = exon_set_name_id;
 
 
@@ -5721,6 +5727,7 @@ int ReportSplicedTopHits
   TARGET_SEQ   * TargetNuclSeq, 
   int          * ExonCoordSet,
   int            exon_set_name_id, // just exon_set_id+1, for output
+  int            hit_matches_coords,
   FILE         * ofp,
   int            textw
 )
@@ -5785,7 +5792,12 @@ int ReportSplicedTopHits
     if (full_coverage) fprintf(ofp,"  (* Full Model)");
     fprintf(ofp,"\n");
     fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
-    if (num_found_exons) fprintf(ofp,"| + Includes Missed Exons\n");
+    for (exon_id=0; exon_id<num_exons; exon_id++)
+      fprintf(ofp,"| = Exon %d: %d..%d / %d..%d\n",exon_id+1,ExonCoordSet[5*exon_id+2],ExonCoordSet[5*exon_id+4],ExonCoordSet[5*exon_id+1],ExonCoordSet[5*exon_id+3]);
+    if (num_found_exons) 
+      fprintf(ofp,"| + Includes Missed Exons\n");
+    if (!hit_matches_coords)
+      fprintf(ofp,"| + WARNING: Exon Set NOT Well Represented in Search Output\n");
     fprintf(ofp,"|\n");
     fprintf(ofp,":\n");
   
@@ -5800,8 +5812,9 @@ int ReportSplicedTopHits
 
   // For now, if there isn't just one solid hit then we'll default to
   // standard output (this should be considered an extremely rare/bug
-  // scenario if we encounter it...)
-  if (ExonSetTopHits->N != 1) {
+  // scenario if we encounter it...) << RAT DNM1 ISOFORM 3!!!!
+  //
+  if (ExonSetTopHits->N != 1 || !hit_matches_coords) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
     if (DEBUGGING) 
@@ -5836,41 +5849,76 @@ int ReportSplicedTopHits
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: CheckHitsMatchExonCoords
+ *  Function: CheckHitMatchesExonCoords
  *
  */
-void CheckHitsMatchExonCoords
+int CheckHitMatchesExonCoords
 (P7_TOPHITS * ExonSetTopHits, int * ExonCoordSet)
 {
 
   // First off, if we have more than one hit we'll just
   // jump ship now (again, this would be considered a bad
   // outcome, but I don't think it's likely to occur...)
-  if (ExonSetTopHits->N != 1) return;
+  if (ExonSetTopHits->N != 1) return 0;
 
 
   // Grab the (possibly "adjusted") hmmfrom and hmmto coordinates
-  P7_ALIDISPLAY * AD = (&ExonSetTopHits->hit[0]->dcl[0])->ad;
+  int best_domain    = ExonSetTopHits->hit[0]->best_domain;
+  P7_ALIDISPLAY * AD = (&ExonSetTopHits->hit[0]->dcl[best_domain])->ad;
   int hit_hmmfrom = AD->hmmfrom;
   int hit_hmmto   = AD->hmmto;
 
 
-  // We could pass this in, but what's the harm?
+  // What range do we have based on our exon coordinate set?
+  int ecs_hmmfrom = ExonCoordSet[2];
+  int ecs_hmmto   = ExonCoordSet[5*(ExonCoordSet[0]-1)+4];
+
+
+  // Is there a *significant* difference between the two?
+  // If so, I don't feel confident that I can reconcile
+  // these without significant reverse-engineering.
+  int total_position_diff = abs(hit_hmmfrom-ecs_hmmfrom) + abs(hit_hmmto-ecs_hmmto);
+  if (total_position_diff > 20)
+    return 0;
+
+
+  // Which way are we pointed?
   int strand = 3;
   if (ExonCoordSet[1] > ExonCoordSet[3])
     strand = -3;
 
 
-  // If this is zero, then nothing should happen...
+  // We'll consider imperfect matches so long as
+  // they don't require cutting off an entire exon
   int start_pos_diff = hit_hmmfrom - ExonCoordSet[2];
-  ExonCoordSet[2]    = hit_hmmfrom;
-  ExonCoordSet[1]   += start_pos_diff * strand;
+  if (start_pos_diff) {
 
-  // If this is ZERO, then NOTHING should happen!
+    if (hit_hmmfrom >= ExonCoordSet[4])
+      return 0;
+
+    ExonCoordSet[2]  = hit_hmmfrom;
+    ExonCoordSet[1] += start_pos_diff * strand;
+
+  }
+
+
+  // Again, don't let a full exon fall off!
   int final_exon_index = 5 * (ExonCoordSet[0]-1);
   int end_pos_diff     = ExonCoordSet[final_exon_index+4] - hit_hmmto;
-  ExonCoordSet[final_exon_index + 4]  = hit_hmmto;
-  ExonCoordSet[final_exon_index + 3] -= end_pos_diff * strand;
+  if (end_pos_diff) {
+  
+    if (hit_hmmto <= ExonCoordSet[final_exon_index + 2])
+      return 0;
+
+    ExonCoordSet[final_exon_index + 4]  = hit_hmmto;
+    ExonCoordSet[final_exon_index + 3] -= end_pos_diff * strand;
+
+  }
+
+
+  // Whatever changes were made, they didn't bust up our
+  // understanding of how splicing should work!
+  return 1;
 
 
 }
@@ -6023,17 +6071,20 @@ void RunModelOnExonSets
     // the re-run of the pipeline is in agreement with expectations.
     // If there's discord, we defer to the pipeline.
     //
-    CheckHitsMatchExonCoords(ExonSetTopHits,ExonCoordSets[exon_set_id]);
+    int hit_matches_coords = CheckHitMatchesExonCoords(ExonSetTopHits,ExonCoordSets[exon_set_id]);
 
 
-    // If we were successful in our search, report the hit(s)
-    // that were produced!
-    // This *should* always just be a single hit, but we'll
-    // allow for the weird possibility that multiple hits were
-    // acquired...
+    // If we were successful in our search, report the hit
+    // we produced!
+    //
+    // NOTE: I'm currently being a bully and demanding a single
+    //       hit/domain.  Rat DNM1 is a good example of how it
+    //       would be a fight to accommodate the *rare* cases
+    //       where the hit gets split (and how those cases cause
+    //       tons of chaos if they pass through unaccommodated)
     //
     if (ExonSetTopHits->N)
-      ReportSplicedTopHits(Graph,ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[exon_set_id],exon_set_id+1,ofp,textw);
+      ReportSplicedTopHits(Graph,ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[exon_set_id],exon_set_id+1,hit_matches_coords,ofp,textw);
 
 
 
