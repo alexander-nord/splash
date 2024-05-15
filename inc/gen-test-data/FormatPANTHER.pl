@@ -13,7 +13,7 @@ my $panther_in_dir_name = $ARGV[0];
 $panther_in_dir_name = $panther_in_dir_name.'/' if ($panther_in_dir_name !~ /\//);
 
 my $out_dir_name = $ARGV[1];
-$out_dir_name = $out_dir_name.'/' if ($out_dir_name !~ /\//);
+$out_dir_name = $out_dir_name.'/' if ($out_dir_name !~ /\/$/);
 
 
 
