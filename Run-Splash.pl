@@ -1299,6 +1299,8 @@ sub HelpAndDie
 	print "  USAGE: ./Run-Splash.pl {OPT.S} [Gene-Super-Directory/] [Species-to-Genome.txt]\n";
 	print "\n";
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
+	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
+	print "                               we're searching each HMM against all genomes.\n";
 	print "         --err-kills        : If an hmmsearcht run fails, kill the script\n";
 	print "                               (by default the error is simply logged).\n";
 	print "         --cpus/-n    [int] : Set the number of threads to use (default:1).\n";
@@ -1386,6 +1388,10 @@ sub ParseCommandArguments
 		if (lc($Arg) =~ /^-?-?full-genome$/) 
 		{
 			$OPTIONS{'full-genome'} = 1; # Overrides existence of '.genome-range.out' files
+		}
+		elsif (lc($Arg =~ /^-?-?panther$/))
+		{
+			$OPTIONS{'panther'} = 1; # PANTHER time, baby!
 		}
 		elsif (lc($Arg =~ /^-?-?err-kills$/))
 		{
