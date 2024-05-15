@@ -17,8 +17,7 @@ sub GenomeRangeFileToTargetFile;
 sub HelpAndDie;
 sub ReadChromosomeLengths;
 sub ParseCommandArguments;
-sub ConfirmInputsToSplashDir;
-sub ConfirmGenomeDir;
+sub ValidateSpeciesGuide;
 sub ConfirmGenome;
 sub ConfirmRequiredTools;
 sub GetPct;
@@ -35,7 +34,7 @@ ConfirmRequiredTools();
 
 
 # If the user didn't provide any arguments, help 'em out
-HelpAndDie() if (@ARGV == 0);
+HelpAndDie() if (@ARGV < 2);
 
 
 # What do they want us to even do?
@@ -60,8 +59,8 @@ my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
 
 
 # Alright, let's figure this stuff out!
-if    ($OPTIONS{'meta-dir'}  ) { BigBadSplash($OPTIONS{'protein-input'}); }
-elsif ($OPTIONS{'family'}    ) { FamilySplash($OPTIONS{'protein-input'}); }
+if    ($OPTIONS{'single-gene'}) { FamilySplash($OPTIONS{'protein-input'}); }
+elsif ($OPTIONS{'meta-dir'}   ) { BigBadSplash($OPTIONS{'protein-input'}); }
 else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
 
 
@@ -106,16 +105,6 @@ sub AggregateAllResults
 	# In case we had weird / discordant output for any inputs,
 	# be sure to report that!
 	my $discord_file_name = $OPTIONS{'output-dir'}.'Discord.err';
-
-
-	# DEBUGGING
-	# If there are non-nucleotide characters listed at splice sites
-	# we'll want to do some investigating...
-	my %NuclChars;
-	$NuclChars{'a'} = 1;
-	$NuclChars{'c'} = 1;
-	$NuclChars{'g'} = 1;
-	$NuclChars{'t'} = 1;
 
 
 	# We'll want to capture the splicing dinucleotides
@@ -1307,25 +1296,15 @@ sub GenomeRangeFileToTargetFile
 sub HelpAndDie
 {
 	print "\n";
+	print "  USAGE: ./Run-Splash.pl {OPT.S} [Gene-Super-Directory/] [Species-to-Genome.txt]\n";
 	print "\n";
-	print "  Use Case 1:  Search all sequences for a gene family\n";
-	print "            :\n";
-	print "            :  ./Validate-Splash.pl {OPT.S} [gene]\n";
-	print "            '----------------------------------------------------------\n";
-	print "\n";
-	print "\n";
-	print "  Use Case 2:  Search ALL GENES in an 'inputs-to-splash' directory\n";
-	print "            :\n";
-	print "            :  ./Validate-Splash.pl {OPT.S} [path/to/inputs-to-splash]\n";
-	print "            '----------------------------------------------------------\n";
-	print "\n";
-	print "\n";
-	print "  OPT.S: --full-genome   : Force use of full genome as target sequence.\n";
-	print "         --err-kills     : If an hmmsearcht run fails, kill the script\n";
-	print "                            (by default we log the error and continue).\n";
-	print "         --cpus/-n [int] : Set the number of threads to use.\n";
-	print "\n";
-	die   "\n";
+	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
+	print "         --err-kills        : If an hmmsearcht run fails, kill the script\n";
+	print "                               (by default the error is simply logged).\n";
+	print "         --cpus/-n    [int] : Set the number of threads to use (default:1).\n";
+	print "         --out-dir/-o [str] : Name the output directory (default:'Splash-Results').\n";
+	print "         --gene/-g    [str] : Run on a single gene within the input directory.\n";
+	die   "\n\n";
 }
 
 
@@ -1381,38 +1360,30 @@ sub ReadChromosomeLengths
 sub ParseCommandArguments
 {
 
-	# Default output directory name
-	my $default_out_dir_name = 'Splash-Validation-Output';
-	my $out_dir_name = $default_out_dir_name;
-	my $attempt = 1;
-	while (-d $out_dir_name) {
-		$attempt++;
-		$out_dir_name = $default_out_dir_name.'-'.$attempt;
-	}
-	$OPTIONS{'output-dir'} = $out_dir_name.'/';
+	# SET THE DEFAULTS!
 
+	# Output directory name
+	$OPTIONS{'output-dir'} = 'Splash-Results';
 
 	# How many CPUs do we want?
 	$OPTIONS{'num-cpus'} = 1;
 
-
-	# Unless specified, we're looking for data in this directory
-	$OPTIONS{'inputs-dir'} = '../inputs-to-splash/';
-	$OPTIONS{'genome-dir'} = '../inputs-to-splash/genomes/';
-
-
 	# How much sequence do we want to pull in around any tightly
 	# defined nucleotide ranges?
 	$OPTIONS{'num-extra-nucls'} = 5000;
-	$OPTIONS{'err-kills'}       =    0;
+
+	# Do we terminate this script's execution if an error occurs?
+	$OPTIONS{'err-kills'} = 0;
 
 
+
+	# Time for non-stop fun! (parsing commandline arguments)
 	my $num_args = scalar(@ARGV);
 	for (my $arg_id=0; $arg_id<$num_args; $arg_id++) {
 
 		my $Arg = $ARGV[$arg_id];
 
-		if (lc($Arg) =~ '^-?-?full-genome$') 
+		if (lc($Arg) =~ /^-?-?full-genome$/) 
 		{
 			$OPTIONS{'full-genome'} = 1; # Overrides existence of '.genome-range.out' files
 		}
@@ -1420,7 +1391,7 @@ sub ParseCommandArguments
 		{
 			$OPTIONS{'err-kills'} = 1; # First failed run terminates script
 		}
-		elsif (lc($Arg) =~ /^-?-?cpus$/ || lc($Arg) =~ /^-?-n$/)
+		elsif (lc($Arg) =~ /^-?-?cpus$/ || lc($Arg) =~ /^-?n$/)
 		{
 			$arg_id++;
 			my $num_cpus = $ARGV[$arg_id];
@@ -1433,28 +1404,46 @@ sub ParseCommandArguments
 				die "\n  ERROR:  Apparent request for multiple CPUs was not followed by an integer? ($ARGV[$arg_id-1],$ARGV[$arg_id])\n\n";
 			}
 		}
-		elsif ($arg_id == $num_args-1 && !$OPTIONS{'protein-input'})
+		elsif (lc($Arg) =~ /^-?-?out-dir$/ || lc($Arg) =~ /^-?o$/)
 		{
-			if (-d $Arg)
-			{
-				# This is (assumed to be) a path to an 'inputs-to-splash'
-				# directory.  Verify!
-				# If so, 'protein-input' now names the 'protein-data' path
-				$OPTIONS{'protein-input'} = ConfirmInputsToSplashDir($Arg);
-				$OPTIONS{'meta-dir'}   = 1;
-				$OPTIONS{'family'}     = 0;
-			}
-			elsif (-d $OPTIONS{'inputs-dir'}.'protein-data/'.lc($Arg)) 
-			{
-				# We're working with a family in our default protein dataset
-				$OPTIONS{'protein-input'} = $OPTIONS{'inputs-dir'}.'protein-data/'.lc($Arg).'/';
-				$OPTIONS{'family'}     = 1;
-				$OPTIONS{'meta-dir'}   = 0;
-			}
-			else
+			$arg_id++;
+			$OPTIONS{'output-dir'} = $ARGV[$arg_id];
+		}
+		elsif (lc($Arg) =~ /^-?-?gene$/ || lc($Arg) =~ /^-?g$/)
+		{
+			$arg_id++;
+			$OPTIONS{'single-gene'} = lc($ARGV[$arg_id]);
+		}
+		elsif ($arg_id == $num_args-2)
+		{
+
+			if (!(-d $Arg))
 			{
 				die "\n  ERROR:  Failed to make sense of (inferred) query instruction '$Arg'\n\n";
 			}
+
+
+			# Whatever's going on, this had better be a directory!
+			$Arg = $Arg.'/' if ($Arg !~ /\//);
+			die "\n  ERROR:  Failed to locate gene super-directory '$Arg'\n\n"
+				if (!(-d $Arg));
+
+			if ($OPTIONS{'single-gene'})
+			{
+				$OPTIONS{'protein-input'} = $Arg.$OPTIONS{'single-gene'}.'/';
+				die "\n  ERROR:  No directory for gene '$OPTIONS{'single-gene'}' found in directory '$Arg'\n\n"
+					if (!(-d $OPTIONS{'protein-input'}));
+			}
+			else
+			{
+				$OPTIONS{'protein-input'} = $Arg;
+			}
+
+		}
+		elsif ($arg_id == $num_args-1)
+		{
+			$OPTIONS{'genome-map'} = ValidateSpeciesGuide($Arg);
+			BuildSpeciesToGenomeMap();
 		}
 		else
 		{
@@ -1464,14 +1453,16 @@ sub ParseCommandArguments
 	}
 
 
-	# If we don't have mapping instructions for associating species
-	# with genomes, generate them!
-	if (!$OPTIONS{'genome-map'}) 
-	{
-		$OPTIONS{'genome-map'} = ConfirmGenomeDir($OPTIONS{'genome-dir'});
+	# Determine the actual name of the output directory
+	my $base_out_dir_name = $OPTIONS{'output-dir'};
+	$base_out_dir_name =~ s/\/$//;
+	my $out_dir_name = $base_out_dir_name;
+	my $attempt = 1;
+	while (-d $out_dir_name) {
+		$attempt++;
+		$out_dir_name = $base_out_dir_name.'-'.$attempt;
 	}
-	BuildSpeciesToGenomeMap();
-
+	$OPTIONS{'output-dir'} = $out_dir_name;
 
 
 }
@@ -1517,63 +1508,29 @@ sub BuildSpeciesToGenomeMap
 
 
 
-###########################################################################
-#
-#  Subroutine: ConfirmInputsToSplashDir
-#
-sub ConfirmInputsToSplashDir
-{
-	my $dir_name = shift;
-	$dir_name = $dir_name.'/' if ($dir_name !~ /\/$/);
-
-	if (!(-d $dir_name)) {
-		die "\n  ERROR:  Presumed 'inputs-to-splash' directory was not as expected? ($dir_name)\n\n";
-	}
-
-	my $genome_dir_name = $dir_name.'genomes/';
-	if (!(-d $genome_dir_name)) {
-		die "\n  ERROR:  Expected genome directory '$genome_dir_name' (ConfirmInputsToSplashDir)\n\n";
-	}
-
-	my $protein_meta_dir_name = $dir_name.'protein-data/';
-	if (!(-d $protein_meta_dir_name)) {
-		die "\n  ERROR:  Expected protein family meta-directory '$protein_meta_dir_name' (ConfirmInputsToSplashDir)\n\n";
-	}
-
-	# Looks good enough to consider moving forward!
-	$OPTIONS{'genome-dir'} = $genome_dir_name;
-	return $protein_meta_dir_name;
-
-}
-
-
 
 
 ###########################################################################
 #
-#  Subroutine: ConfirmGenomeDir
+#  Subroutine: ValidateSpeciesGuide
 #
-sub ConfirmGenomeDir
+sub ValidateSpeciesGuide
 {
-	
-	my $genome_dir_name   = shift;
-	my $species_to_genome = $genome_dir_name.'species-to-genome';
 
-	if (!(-e $species_to_genome)) {
-		die "\n  ERROR:  Without specified genomes, species-to-genome file is required in genome directory (failed to find '$species_to_genome')\n\n";
-	}
-	open(my $SpeciesToGenome,'<',$species_to_genome)
-		|| die "\n  ERROR:  Failed to open species-to-genome file '$species_to_genome'\n\n";
+	my $species_guide_name = shift;
+
+	open(my $SpeciesGuide,'<',$species_guide_name)
+		|| die "\n  ERROR:  Failed to open species guide '$species_guide_name'\n\n";
 	
 	my @SpeciesGenomeMaps;
-	while (my $line = <$SpeciesToGenome>) {
-		if ($line =~ /^\s*(\S+)\s*(\S+)\s*$/) {
+	while (my $line = <$SpeciesGuide>) {
+		if ($line =~ /^\s*(\S+)\s+(\S+)\s/) {
 			my $species = $1;
-			my $genome  = ConfirmGenome($genome_dir_name.$2);
+			my $genome  = ConfirmGenome($2);
 			push(@SpeciesGenomeMaps,$species.'|'.$genome);
 		}
 	}
-	close($SpeciesToGenome);
+	close($SpeciesGuide);
 
 
 	my $species_genome_map_str = '';
