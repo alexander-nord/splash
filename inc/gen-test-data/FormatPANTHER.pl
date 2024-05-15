@@ -73,8 +73,8 @@ if (-e $panther_names_file_name)
 	open(my $PantherNames,'<',$panther_names_file_name)
 		|| die "\n  ERROR:  Failed to open PANTHER name guide '$panther_names_file_name'\n\n";
 
-	my $all_names_list = $out_dir_name.'../PANTHER-Name-Guide.out';
-	system("rm \"$all_names_list\"") if (-e $all_names_list);
+	my $out_name_list = $out_dir_name.'../PANTHER-Name-Guide.out';
+	system("rm \"$out_name_list\"") if (-e $out_name_list);
 
 	while (my $line = <$PantherNames>)
 	{
@@ -90,7 +90,7 @@ if (-e $panther_names_file_name)
 			my $book_out_desc_file = $book_out_dir_name.'description.txt';
 			system("echo \"$book_desc\" > $book_out_desc_file");
 
-			system("echo \"$book_name     $book_desc\" >> \"$all_names_list\"");
+			system("echo \"$book_name     $book_desc\" >> \"$out_name_list\"");
 
 		}
 	}
