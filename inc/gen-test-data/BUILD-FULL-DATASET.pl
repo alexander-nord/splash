@@ -89,8 +89,13 @@ if ($panther) {
     die "\n  ERROR:  Failed to download (or unpack) the PANTHER18.0 HMM database\n\n"
         if (system("$PANTHER_downloader"));
 
+    die "\n  ERROR:  Failed to locate PANTHER dataset (likely unexpected naming, looking for 'PANTHER18.0')\n\n"
+        if (!(-d 'PANTHER18.0'));    
+
     die "\n  ERROR:  Failed to process PANTHER into easily Splash-able format\n\n"
         if (system("perl $PANTHER_formatter \"PANTHER18.0\" \"$out_dir_name/panther-data\""));
+
+    system("rm -rf \"PANTHER18.0\"");
 
 }
 
