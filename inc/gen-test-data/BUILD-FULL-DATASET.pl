@@ -78,8 +78,8 @@ if (system("$genome_downloader")) {
 }
 
 
-system("mv \"protein-data\"      \"$out_dir_name\""         );
-system("mv \"genomes\"           \"$out_dir_name\""         );
+system("mv \"mirage-based-data\" \"$out_dir_name\"");
+system("mv \"genomes\"           \"$out_dir_name\"");
 
 
 
