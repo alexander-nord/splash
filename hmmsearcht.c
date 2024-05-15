@@ -169,10 +169,10 @@ static float SSSCORE[2]      = {-0.7,0.0}; // Non-canon vs canon splice site
 static float EDGE_FAIL_SCORE = -14773.0;   // Makes me thirsty for a latte!
 
 static char  AMINO_CHARS[21] = {'A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y','-'};
-static char    DNA_CHARS[ 5] = {'A','C','G','T','-'};
-static char LC_DNA_CHARS[ 5] = {'a','c','g','t','-'};
-static char    RNA_CHARS[ 5] = {'A','C','G','U','-'};
-static char LC_RNA_CHARS[ 5] = {'a','c','g','u','-'};
+static char    DNA_CHARS[ 6] = {'A','C','G','T','-','N'};
+static char LC_DNA_CHARS[ 6] = {'a','c','g','t','-','n'};
+static char    RNA_CHARS[ 6] = {'A','C','G','U','-','N'};
+static char LC_RNA_CHARS[ 6] = {'a','c','g','u','-','n'};
 
 
 // How many amino acids are we willing to extend to bridge two hits?  
@@ -5486,6 +5486,20 @@ void PrintExon
     }
 
   }
+
+
+  // This is a rare event (all observations during testing summed up to
+  // 20 cases, all in rat (example: ARX)), but there might be Ns infiltrating
+  // our dinucleotide sequences, so we need to catch those
+  if (LeftDinucls) {
+    if ( LeftDinucls[1] > 3)  LeftDinucls[1] = 5;
+    if ( LeftDinucls[2] > 3)  LeftDinucls[2] = 5;
+  }
+  if (RightDinucls) {
+    if (RightDinucls[1] > 3) RightDinucls[1] = 5;
+    if (RightDinucls[2] > 3) RightDinucls[2] = 5;
+  }
+
 
 
   // Prep for each row in the alignment.  Extra length in case of gaps.

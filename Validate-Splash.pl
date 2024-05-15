@@ -892,7 +892,7 @@ sub FamilySplash
 		
 		$file_to_hmmbuild =~ /^(\S+)\.[^\.]+$/;
 		my $hmm_file_name = $1.'.hmm';
-		my $hmmbuild_cmd  = "$HMMBUILD --amino \"$hmm_file_name\" \"$file_to_hmmbuild\"";
+		my $hmmbuild_cmd  = "$HMMBUILD --amino \"$hmm_file_name\" \"$file_to_hmmbuild\" 1>/dev/null";
 
 		if (system($hmmbuild_cmd)) {
 			die "\n  ERROR:  Failed to build HMM on '$file_to_hmmbuild' (command:'$hmmbuild_cmd')\n\n";
