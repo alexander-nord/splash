@@ -1324,7 +1324,7 @@ sub GenomeRangeFileToTargetFile
 sub HelpAndDie
 {
 	print "\n";
-	print "  USAGE: ./Run-Splash-Test.pl {OPT.S} [Gene-Super-Directory/] [Species-to-Genome.txt]\n";
+	print "  USAGE: ./Run-Splash-Test.pl {OPT.S} [Gene-Super-Directory/] [Species-Guide.txt]\n";
 	print "\n";
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
 	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
