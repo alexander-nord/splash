@@ -141,7 +141,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 
 
 // Ever want to know what function you're in, and how deep it
@@ -2761,6 +2761,63 @@ void GatherCTermNodes
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: EdgeWouldEraseNode
+ *
+ *  Desc. :  This is a catch for the *rare* case that using a path through
+ *           the graph could result in a node being erased because the
+ *           end of the best edge into it is beyond the start of the best
+ *           edge out of it.
+ *
+ *           When not caught, this creates an ExonCoordinate entry where
+ *           hmm_from > hmm_to.
+ *
+ */
+int EdgeWouldEraseNode
+(SPLICE_NODE * Node3, int n3_in_edge_index)
+{
+
+  // Who's the candidate upstream node for Node3?
+  SPLICE_NODE    * Node2  = Node3->UpstreamNodes[n3_in_edge_index];
+  DOMAIN_OVERLAP * DO_2_3 = Node3->InEdges[n3_in_edge_index];
+
+  // We'll use a special catch if there isn't anything
+  // upstream of Node2
+  if (Node2->num_in_edges == 0) {
+    if (DO_2_3->downstream_exon_terminus == DO_2_3->UpstreamDisplay->hmmfrom)
+      return 1;
+    return 0;
+  }
+
+
+  // Who's the best upstream node for Node2?
+  // Note that this has already been determined due to the
+  // recursive nature of 'PullUpCumulativeScore'
+  int n2_in_edge_index    = Node2->best_in_edge;
+  SPLICE_NODE    * Node1  = Node2->InEdges[n2_in_edge_index];
+  DOMAIN_OVERLAP * DO_1_2 = Node2->InEdges[n2_in_edge_index];
+
+  
+  // Would the edge connecting nodes 1 and 2 place the
+  // end of node 1 after the start of node 3 in the edge
+  // between nodes 2 and 3?
+  if (DO_1_2->upstream_exon_terminus >= DO_1_3->downstream_exon_terminus)
+    return 1;
+
+
+  // Nope! These two look fine!
+  return 0;
+
+}
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: PullUpCumulativeScore
  *
  */
@@ -2781,6 +2838,9 @@ float PullUpCumulativeScore
 
     float in_edge_score = Node->InEdges[in_edge_index]->score;
     in_edge_score += PullUpCumulativeScore(Node->UpstreamNodes[in_edge_index]);
+
+    if (EdgeWouldEraseNode(Node,in_edge_index))
+      continue;
 
     if (in_edge_score > Node->cumulative_score) {
       Node->cumulative_score = in_edge_score;
@@ -3949,12 +4009,14 @@ int * GetBoundedSearchRegions
     SearchRegionAggregate[4*x+2] = DCCSearchRegions[4*i+2];
     SearchRegionAggregate[4*x+3] = DCCSearchRegions[4*i+3];
     SearchRegionAggregate[4*x+4] = DCCSearchRegions[4*i+4];
+    x++;
   }
   for (i=0; i<MidSearchRegions[0]; i++) {
     SearchRegionAggregate[4*x+1] = MidSearchRegions[4*i+1];
     SearchRegionAggregate[4*x+2] = MidSearchRegions[4*i+2];
     SearchRegionAggregate[4*x+3] = MidSearchRegions[4*i+3];
     SearchRegionAggregate[4*x+4] = MidSearchRegions[4*i+4];
+    x++;
   }
   for (i=0; i<TermSearchRegions[0]; i++) {
     SearchRegionAggregate[4*x+1] = TermSearchRegions[4*i+1];
