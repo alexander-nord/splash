@@ -1462,7 +1462,7 @@ sub ParseCommandArguments
 
 
 			# Whatever's going on, this had better be a directory!
-			$Arg = $Arg.'/' if ($Arg !~ /\//);
+			$Arg = $Arg.'/' if ($Arg !~ /\/$/);
 			die "\n  ERROR:  Failed to locate gene super-directory '$Arg'\n\n"
 				if (!(-d $Arg));
 
