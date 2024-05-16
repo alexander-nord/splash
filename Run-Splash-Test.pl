@@ -897,48 +897,76 @@ sub FamilySplash
 
 	# Iterate over each HMM, determining the appropriate
 	# target sequence and running hmmsearcht!
+	# Note that in the case of PANTHER testing we're going
+	# to have multiple targets (each of the genomes)
 	my @FamilySuccesses;
 	my @FamilyErrors;
 	foreach my $hmm_file_name (@InputHMMs) 
 	{
 
-
-		my $target_file_name = DetermineTargetSeq($hmm_file_name);
-		
-
 		$hmm_file_name =~ /\/([^\/]+)\.hmm$/;
 		my $query_base_name = $1;
-		my $out_file_name   = $fam_out_dir_name.$query_base_name.'.out';
-		my $err_file_name   = $fam_out_dir_name.$query_base_name.'.err';
 
-		my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
 
-		if (system($hmmsearcht_cmd)) 
+		my @TargetFileNames;
+		my @QueryIDs;
+		if ($OPTIONS{'panther'})
 		{
-			push(@FamilyErrors,$query_base_name);
-			system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
-			# system("cat $err_file_name >> $ERROR_FILE");
-
-			if ($OPTIONS{'err-kills'})
+			foreach my $genome (keys %GENOME_LIST)
 			{
-				unless ($GENOME_LIST{$target_file_name}) {
-					system("rm \"$target_file_name\"");
-					system("rm \"$target_file_name.ssi\"");
-				}
-				die "\n  ERROR: Failed during execution of command: $hmmsearcht_cmd\n\n";
+				my $species  = $GENOME_LIST{$genome};
+				my $query_id = $query_base_name.'.'.$species;
+				push(@TargetFileNames,$genome);
+				push(@QueryIDs,$query_id);
 			}
-
-		} 
-		else 
+		}
+		else
 		{
-			push(@FamilySuccesses,$query_base_name);
+			# Single target
+			push(@TargetFileNames,DetermineTargetSeq($hmm_file_name));
+			push(@QueryIDs,$query_base_name);
 		}
 
 
-		# If we created a target sequence file, kill it!
-		unless ($GENOME_LIST{$target_file_name}) {
-			system("rm \"$target_file_name\"");
-			system("rm \"$target_file_name.ssi\"");
+		for (my $target_id=0; $target_id<scalar(@TargetFileNames); $target_id++)
+		{
+
+			my $target_file_name = $TargetFileNames[$target_id];
+			my $query_id         = $QueryIDs[$target_id];
+			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
+			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
+
+			my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+
+			if (system($hmmsearcht_cmd)) 
+			{
+				push(@FamilyErrors,$query_id);
+				system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
+				# system("cat $err_file_name >> $ERROR_FILE");
+
+				if ($OPTIONS{'err-kills'})
+				{
+					unless ($GENOME_LIST{$target_file_name}) {
+						system("rm \"$target_file_name\"");
+						system("rm \"$target_file_name.ssi\"");
+					}
+					die "\n  ERROR: Failed during execution of command: $hmmsearcht_cmd\n\n";
+				}
+
+			} 
+			else 
+			{
+				push(@FamilySuccesses,$query_id);
+			}
+
+
+			# If we created a target sequence file, kill it!
+			unless ($GENOME_LIST{$target_file_name}) 
+			{
+				system("rm \"$target_file_name\"");
+				system("rm \"$target_file_name.ssi\"");
+			}
+
 		}
 
 	}
@@ -1296,7 +1324,7 @@ sub GenomeRangeFileToTargetFile
 sub HelpAndDie
 {
 	print "\n";
-	print "  USAGE: ./Run-Splash.pl {OPT.S} [Gene-Super-Directory/] [Species-to-Genome.txt]\n";
+	print "  USAGE: ./Run-Splash-Test.pl {OPT.S} [Gene-Super-Directory/] [Species-to-Genome.txt]\n";
 	print "\n";
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
 	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
