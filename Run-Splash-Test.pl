@@ -17,6 +17,7 @@ sub GenomeRangeFileToTargetFile;
 sub HelpAndDie;
 sub ReadChromosomeLengths;
 sub ParseCommandArguments;
+sub GetTildeDirName;
 sub ValidateSpeciesGuide;
 sub ConfirmGenome;
 sub ConfirmRequiredTools;
@@ -59,9 +60,9 @@ my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
 
 
 # Alright, let's figure this stuff out!
-if    ($OPTIONS{'single-gene'}) { FamilySplash($OPTIONS{'protein-input'}); }
-elsif ($OPTIONS{'meta-dir'}   ) { BigBadSplash($OPTIONS{'protein-input'}); }
-else {   die "\n  ERROR:  Failed to recognize protein input\n\n";         }
+if    ($OPTIONS{'single-gene'}  ) { FamilySplash($OPTIONS{'protein-input'}); }
+elsif ($OPTIONS{'protein-input'}) { BigBadSplash($OPTIONS{'protein-input'}); }
+else  {   die "\n  ERROR:  Failed to recognize protein input\n\n";           }
 
 
 1;
@@ -1405,6 +1406,9 @@ sub ParseCommandArguments
 	# Do we terminate this script's execution if an error occurs?
 	$OPTIONS{'err-kills'} = 0;
 
+	# Not really an option, but we'll call it one...
+	# What does '~' mean?
+	$OPTIONS{'tilde-dir'} = GetTildeDirName();
 
 
 	# Time for non-stop fun! (parsing commandline arguments)
@@ -1496,11 +1500,34 @@ sub ParseCommandArguments
 		$attempt++;
 		$out_dir_name = $base_out_dir_name.'-'.$attempt;
 	}
-	$OPTIONS{'output-dir'} = $out_dir_name;
+	$OPTIONS{'output-dir'} = $out_dir_name.'/';
 
 
 }
 
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: GetTildeDirName
+#
+sub GetTildeDirName
+{
+	open(my $TildeCheck,'echo ~ |') 
+		|| die "\n  ERROR:  Failed to run tilde dir check\n\n";
+
+	my $tilde_dir_name = <$TildeCheck>;
+	$tilde_dir_name =~ s/\n|\r//g;
+	$tilde_dir_name = $tilde_dir_name.'/' if ($tilde_dir_name !~ /\/$/);
+
+	close($TildeCheck);
+
+	return $tilde_dir_name;
+}
 
 
 
@@ -1591,7 +1618,21 @@ sub ValidateSpeciesGuide
 #
 sub ConfirmGenome
 {
+
 	my $genome = shift;
+
+
+	if ($genome =~ /^\~\//) 
+	{
+		$genome =~ s/^\~\///;
+		$genome = $OPTIONS{'tilde-dir'}.$genome;
+	} 
+	elsif ($genome =~ /^\$HOME\//)
+	{
+		$genome =~ s/^\$HOME\///;
+		$genome = $OPTIONS{'tilde-dir'}.$genome;
+	}
+
 
 	if (!(-e $genome)) {
 		die "\n  ERROR:  Failed to locate genomic file '$genome'\n\n";
