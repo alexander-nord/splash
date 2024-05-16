@@ -2113,7 +2113,12 @@ int HitsAreSpliceCompatible
 
   // If the upstream ain't upstream, then obviously we can't treat
   // these as splice-compatible!
-  if (!(amino_start_1 < amino_start_2 && amino_end_1 < amino_end_2)) {
+  //
+  // NOTE: We'll allow these to overlap fully to accommodate cases
+  //       where there's an optimal splice junction in the middle
+  //       that fixes overextension
+  //
+  if (amino_start_1 > amino_start_2 || amino_end_1 > amino_end_2) {
     if (DEBUGGING) DEBUG_OUT("'HitsAreSpliceCompatible' Complete",-1);
     return 0;
   }
@@ -2121,7 +2126,7 @@ int HitsAreSpliceCompatible
 
   // Do we have overlap OR sufficient proximity to consider
   // extending?
-  if (!(amino_end_1 + MAX_AMINO_EXT >= amino_start_2)) {
+  if (amino_end_1 + MAX_AMINO_EXT < amino_start_2) {
     if (DEBUGGING) DEBUG_OUT("'HitsAreSpliceCompatible' Complete",-1);
     return 0;
   }
@@ -3383,44 +3388,23 @@ int NodesAreDCCCompatible
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GetBoundedSearchRegions
- *
- *  Desc. :
- *
- *  Inputs:
- *
- *  Output:
+ *  Function: IdentifyDisConnComponents
  *
  */
-int * GetBoundedSearchRegions
-(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+int * IdentifyDisConnComponents
+(
+  SPLICE_GRAPH * Graph,
+  int * NoInEdgeNodes,
+  int   num_no_in_edge,
+  int * NoOutEdgeNodes,
+  int   num_no_out_edge
+)
 {
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
-
-  int i,j,x; // Just easier.
+  if (DEBUGGING) DEBUG_OUT("Starting 'IdentifyDisConnComponents'",1);
 
 
-  // Who all doesn't have an incoming / outgoing edge?
-  // (not including "genuine" terminal nodes, of course!)
-  int * NoOutEdgeNodes = malloc(Graph->num_nodes * sizeof(int));
-  int * NoInEdgeNodes  = malloc(Graph->num_nodes * sizeof(int));
-  int num_no_out_edge  = 0;
-  int num_no_in_edge   = 0;
-
-  int node_id;
-  for (node_id = 1; node_id <= Graph->num_nodes; node_id++) {
-
-    SPLICE_NODE * Node = Graph->Nodes[node_id];
-
-    if (Node->num_out_edges == 0 && Node->is_c_terminal == 0)
-      NoOutEdgeNodes[num_no_out_edge++] = node_id;
-
-    if (Node->num_in_edges == 0 && Node->is_n_terminal == 0)
-      NoInEdgeNodes[num_no_in_edge++] = node_id;
-
-  }
-
+  int i,j,x;
 
 
   // This could *surely* be optimized, but I think it's going to
@@ -3527,8 +3511,7 @@ int * GetBoundedSearchRegions
   // Now we can go through all of the hits in each of our
   // "disconnected components" and determine a maximal 
   // search area
-  int * MidSearchRegions = malloc((1 + 4 * num_live_dcc_ids) * sizeof(int));
-  MidSearchRegions[0] = num_live_dcc_ids;
+  int * DCCSearchRegions = malloc((1 + 4 * num_live_dcc_ids) * sizeof(int));
 
 
   // Once again, there is plenty of room for optimization,
@@ -3614,16 +3597,19 @@ int * GetBoundedSearchRegions
 
 
     //
-    // 3. Log it!
+    // 3. Log it! (if it's a long enough stretch to even consider...)
     //
-    MidSearchRegions[4*meta_dcc_id + 1] = dcc_hmm_start;
-    MidSearchRegions[4*meta_dcc_id + 2] = dcc_hmm_end;
-    MidSearchRegions[4*meta_dcc_id + 3] = dcc_nucl_start;
-    MidSearchRegions[4*meta_dcc_id + 4] = dcc_nucl_end;
+    if (abs(dcc_nucl_end - dcc_nucl_start) > 50) {
 
-    // Will we allow this into the final set?
-    if (abs(dcc_nucl_end - dcc_nucl_start) > 50)
+      DCCSearchRegions[4*final_num_dccs + 1] = dcc_hmm_start;
+      DCCSearchRegions[4*final_num_dccs + 2] = dcc_hmm_end;
+      DCCSearchRegions[4*final_num_dccs + 3] = dcc_nucl_start;
+      DCCSearchRegions[4*final_num_dccs + 4] = dcc_nucl_end;
+
       final_num_dccs++;
+    
+    }
+
 
   }
   free(DisConnCompOuts);
@@ -3632,14 +3618,178 @@ int * GetBoundedSearchRegions
 
 
 
-  // We also want to find terminal regions that would
-  // be worth searching.
+  if (DEBUGGING) DEBUG_OUT("'IdentifyDisConnComponents' Complete",-1);
+
+
+  DCCSearchRegions[0] = final_num_dccs;
+
+  return DCCSearchRegions;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: IdentifyMidSearchRegions
+ *
+ */
+int * IdentifyMidSearchRegions
+(SPLICE_GRAPH * Graph)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'IdentifyMidSearchRegions'",1);
+
+
+  int * MidSearchRegions = malloc((1 + 4 * Graph->num_edges) * sizeof(int));
+  int   num_mid_searches = 0;
+
+
+  int us_node_id, ds_index, ds_node_id, ad_pos, contiguous_stars;
+  for (us_node_id=1; us_node_id<=Graph->num_nodes; us_node_id++) {
+
+
+    SPLICE_NODE * USNode = Graph->Nodes[us_node_id];
+
+
+    for (ds_index=0; ds_index<USNode->num_out_edges; ds_index++) {
+
+      
+      DOMAIN_OVERLAP * DO   = USNode->OutEdges[ds_index];
+      P7_ALIDISPLAY  * USAD = DO->UpstreamDisplay;
+      P7_ALIDISPLAY  * DSAD = DO->DownstreamDisplay;
+
+
+      // Before anything else, is there enough space between the hits
+      // that we'd be well-served looking at it?
+      int   upstream_nucl_end   = (int)(USAD->sqto);
+      int downstream_nucl_start = (int)(DSAD->sqfrom);
+      if (abs(downstream_nucl_start - upstream_nucl_end) < 50)
+        continue;
+
+      
+      // What are the pHMM positions at which we've observed two '*'s
+      // in the posterior probability output?
+      int   upstream_strong_hmmto    = USAD->hmmto;
+      int downstream_strong_hmmfrom  = DSAD->hmmfrom;
+
+
+      ad_pos = USAD->N;
+      contiguous_stars = 0;
+      while (ad_pos > 0 && contiguous_stars < 2) {
+
+        ad_pos--;
+
+        if (USAD->ppline[ad_pos] == '*') 
+          contiguous_stars++;
+        else
+          contiguous_stars=0;
+
+        if (USAD->model[ad_pos] != '.')
+          upstream_strong_hmmto--;
+
+      }
+
+
+      ad_pos = 0;
+      contiguous_stars = 0;
+      while (ad_pos < DSAD->N && contiguous_stars < 2) {
+
+        if (DSAD->ppline[ad_pos] == '*')
+          contiguous_stars++;
+        else
+          contiguous_stars=0;
+
+        if (DSAD->model[ad_pos] != '.')
+          downstream_strong_hmmfrom++;
+
+        ad_pos++;
+
+      }
+
+
+      // We don't want to include the contiguous star
+      // positions, so let's nip 'em
+      upstream_strong_hmmto     += 2;
+      downstream_strong_hmmfrom -= 2;
+
+
+      // Are the hits strong enough not to warrant a little peek
+      // at the intermediate area?
+      if (downstream_strong_hmmfrom - upstream_strong_hmmto <= 6)
+        continue;
+
+
+      // Cool!  Why *not* give it a look?
+      MidSearchRegions[4*num_mid_searches+1] =   upstream_strong_hmmto;
+      MidSearchRegions[4*num_mid_searches+2] = downstream_strong_hmmfrom;
+      MidSearchRegions[4*num_mid_searches+3] =   upstream_nucl_end;
+      MidSearchRegions[4*num_mid_searches+4] = downstream_nucl_start;
+      num_mid_searches++;
+
+
+    }
+
+  }
+
+
+
+  if (DEBUGGING) DEBUG_OUT("'IdentifyMidSearchRegions' Complete",-1);
+
+
+  MidSearchRegions[0] = num_mid_searches;
+
+  return MidSearchRegions;
+
+}
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: IdentifyTermSearchRegions
+ *
+ */
+int * IdentifyTermSearchRegions
+(
+  SPLICE_GRAPH * Graph,
+  TARGET_SEQ   * TargetNuclSeq,
+  int * NoInEdgeNodes,
+  int   num_no_in_edge,
+  int * NoOutEdgeNodes,
+  int   num_no_out_edge
+)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'IdentifyTermSearchRegions'",1);
+
+
+  int i;
+
+
   // At most, there will be two search regions (N-,C-terminal).
   //
   int * TermSearchRegions = malloc(9*sizeof(int));
   int   num_term_searches = 0;
 
+
   // Start with the N-terminal scan
+  P7_DOMAIN * DomPtr;
   if (Graph->num_n_term == 0) {
 
     int upstreamest_nucl_pos  = -1;
@@ -3722,38 +3872,106 @@ int * GetBoundedSearchRegions
   }
 
 
+
+  if (DEBUGGING) DEBUG_OUT("'IdentifyTermSearchRegions' Complete",-1);
+
+
+  TermSearchRegions[0] = num_term_searches;
+
+  return TermSearchRegions;
+
+}
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: GetBoundedSearchRegions
+ *
+ *  Desc. :
+ *
+ *  Inputs:
+ *
+ *  Output:
+ *
+ */
+int * GetBoundedSearchRegions
+(SPLICE_GRAPH * Graph, TARGET_SEQ * TargetNuclSeq)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'GetBoundedSearchRegions'",1);
+
+
+  // Who all doesn't have an incoming / outgoing edge?
+  // (not including "genuine" terminal nodes, of course!)
+  int * NoOutEdgeNodes = malloc(Graph->num_nodes * sizeof(int));
+  int * NoInEdgeNodes  = malloc(Graph->num_nodes * sizeof(int));
+  int num_no_out_edge  = 0;
+  int num_no_in_edge   = 0;
+
+  int node_id;
+  for (node_id = 1; node_id <= Graph->num_nodes; node_id++) {
+
+    SPLICE_NODE * Node = Graph->Nodes[node_id];
+
+    if (Node->num_out_edges == 0 && Node->is_c_terminal == 0)
+      NoOutEdgeNodes[num_no_out_edge++] = node_id;
+
+    if (Node->num_in_edges == 0 && Node->is_n_terminal == 0)
+      NoInEdgeNodes[num_no_in_edge++] = node_id;
+
+  }
+
+
+  int *  DCCSearchRegions = IdentifyDisConnComponents(Graph,NoInEdgeNodes,num_no_in_edge,NoOutEdgeNodes,num_no_out_edge);
+  int *  MidSearchRegions = IdentifyMidSearchRegions(Graph);
+  int * TermSearchRegions = IdentifyTermSearchRegions(Graph,TargetNuclSeq,NoInEdgeNodes,num_no_in_edge,NoOutEdgeNodes,num_no_out_edge);
+
+
   // I cast thee out!
   free(NoOutEdgeNodes);
   free(NoInEdgeNodes);
 
 
-  int   final_num_searches    = final_num_dccs + num_term_searches;
+  int   final_num_searches    = DCCSearchRegions[0] + MidSearchRegions[0] + TermSearchRegions[0];
   int * SearchRegionAggregate = malloc((1 + 4*final_num_searches)*sizeof(int));
-  
-  SearchRegionAggregate[0] = final_num_searches;
-  x = 0; // The write index, as opposed to i's read index
-  for (i=0; i<num_live_dcc_ids; i++) {
-    if (abs(MidSearchRegions[4*i+4] - MidSearchRegions[4*i+3]) > 50) {
-      SearchRegionAggregate[4*x+1] = MidSearchRegions[4*i+1];
-      SearchRegionAggregate[4*x+2] = MidSearchRegions[4*i+2];
-      SearchRegionAggregate[4*x+3] = MidSearchRegions[4*i+3];
-      SearchRegionAggregate[4*x+4] = MidSearchRegions[4*i+4];
-      x++;
-    }
+
+  int x = 0;
+  int i;
+  for (i=0; i<DCCSearchRegions[0]; i++) {
+    SearchRegionAggregate[4*x+1] = DCCSearchRegions[4*i+1];
+    SearchRegionAggregate[4*x+2] = DCCSearchRegions[4*i+2];
+    SearchRegionAggregate[4*x+3] = DCCSearchRegions[4*i+3];
+    SearchRegionAggregate[4*x+4] = DCCSearchRegions[4*i+4];
   }
-  for (i=0; i<num_term_searches; i++) {
+  for (i=0; i<MidSearchRegions[0]; i++) {
+    SearchRegionAggregate[4*x+1] = MidSearchRegions[4*i+1];
+    SearchRegionAggregate[4*x+2] = MidSearchRegions[4*i+2];
+    SearchRegionAggregate[4*x+3] = MidSearchRegions[4*i+3];
+    SearchRegionAggregate[4*x+4] = MidSearchRegions[4*i+4];
+  }
+  for (i=0; i<TermSearchRegions[0]; i++) {
     SearchRegionAggregate[4*x+1] = TermSearchRegions[4*i+1];
     SearchRegionAggregate[4*x+2] = TermSearchRegions[4*i+2];
     SearchRegionAggregate[4*x+3] = TermSearchRegions[4*i+3];
     SearchRegionAggregate[4*x+4] = TermSearchRegions[4*i+4];
     x++;
   }
+  free(DCCSearchRegions);
   free(MidSearchRegions);
   free(TermSearchRegions);
 
 
   if (DEBUGGING) DEBUG_OUT("'GetBoundedSearchRegions' Complete",-1);
 
+
+  SearchRegionAggregate[0] = final_num_searches;
 
   return SearchRegionAggregate;
 
@@ -3879,6 +4097,117 @@ P7_DOMAIN ** SelectFinalSubHits
   return FinalSubHits;
 
 }
+
+
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: AminoToIndex (I'm sorry, this sucks, but I'm doing it)
+ *
+ */
+int AminoToIndex
+(char amino)
+{
+
+  // Sanity check / uppercase-ification
+  if      (amino > 96 && amino < 123) { amino -= 32; }
+  else if (amino < 65 || amino > 90 ) { return   27; }
+
+  switch (amino) {
+  case 'A':
+    return 0;
+  case 'C':
+    return 1;
+  case 'D':
+    return 2;
+  case 'E':
+    return 3;
+  case 'F':
+    return 4;
+  case 'G':
+    return 5;
+  case 'H':
+    return 6;
+  case 'I':
+    return 7;
+  case 'K':
+    return 8;
+  case 'L':
+    return 9;
+  case 'M':
+    return 10;
+  case 'N':
+    return 11;
+  case 'P':
+    return 12;
+  case 'Q':
+    return 13;
+  case 'R':
+    return 14;
+  case 'S':
+    return 15;
+  case 'T':
+    return 16;
+  case 'V':
+    return 17;
+  case 'W':
+    return 18;
+  case 'Y':
+    return 19;
+  case 'U':
+    return 20;
+  case 'O':
+    return 21;
+  default:
+    return 27;
+  }  
+
+  return 27;
+
+}
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ComputeRoughAliScore
+ *
+ */
+float ComputeRoughAliScore
+(P7_ALIDISPLAY * AD, P7_PROFILE * gm)
+{
+
+  int model_pos = AD->hmmfrom;
+  int state     = p7P_BM;
+
+  float score = 0.0;
+
+  int ad_pos,amino_index;
+  for (ad_pos=0; ad_pos<AD->N; ad_pos++) {
+
+    amino_index = AminoToIndex(AD->aseq[ad_pos]);
+
+    score += AminoScoreAtPosition(gm,amino_index,model_pos,AD,ad_pos,&state);
+
+    if (AD->model[ad_pos] != '.')
+      model_pos++;
+
+  }
+
+  return score;
+
+}
+
 
 
 
@@ -4168,7 +4497,7 @@ P7_DOMAIN ** FindSubHits
 
             // Welcome to the list, fella!
             SubHitADs[num_sub_hits]    = AD;
-            SubHitScores[num_sub_hits] = viterbi_score;
+            SubHitScores[num_sub_hits] = ComputeRoughAliScore(AD,Graph->Model);
             num_sub_hits++;
 
 
@@ -4569,9 +4898,16 @@ void AddMissingExonsToGraph
       P7_ALIDISPLAY * NodeAD = (&Graph->TopHits->hit[node_hit_id]->dcl[node_dom_id])->ad;
 
 
+      // DEBUGGING
+      fprintf(stderr,"  : Considering attaching to node %d\n",node_id);
+
+
       // Because order matters for 'HitsAreSpliceCompatible' we
       // need to have a catch for either possibility.
       if (HitsAreSpliceCompatible(NodeAD,MissedAD)) {
+
+        // DEBUGGING
+        fprintf(stderr,"    Attaching new node as downstream!\n");
 
         NewSpliceEdges[num_new_edges] = (DOMAIN_OVERLAP *)malloc(sizeof(DOMAIN_OVERLAP));
         DOMAIN_OVERLAP * Edge         = NewSpliceEdges[num_new_edges];
@@ -4589,6 +4925,9 @@ void AddMissingExonsToGraph
         num_new_edges++;
 
       } else if (HitsAreSpliceCompatible(MissedAD,NodeAD)) {
+
+        // DEBUGGING
+        fprintf(stderr,"    Attaching new node as upstream!\n");
 
         NewSpliceEdges[num_new_edges] = (DOMAIN_OVERLAP *)malloc(sizeof(DOMAIN_OVERLAP));
         DOMAIN_OVERLAP * Edge         = NewSpliceEdges[num_new_edges];
@@ -4708,7 +5047,8 @@ void AddMissingExonsToGraph
   //
   //  If I'm not mistaken.... IT'S PARTY TIME!!!!
   //
-  IntegrateMissedHits(Graph,NewSpliceEdges,num_new_edges);
+  if (num_new_edges)
+    IntegrateMissedHits(Graph,NewSpliceEdges,num_new_edges);
 
 
   if (DEBUGGING) DEBUG_OUT("'AddMissingExonsToGraph' Complete",-1);
@@ -6384,12 +6724,10 @@ void SpliceHits
 
 
 
-  // If the graph doesn't currently have a complete path,
-  // we'll see if we can find some holes to plug with small
-  // (or otherwise missed) exons
+  // Evaluate the graph for any holes (or possible holes)
+  // worth plugging
   //
-  if (Graph->has_full_path == 0)
-    AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
+  AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
 
 
 
