@@ -954,7 +954,12 @@ void SetTargetSeqRange
   TargetNuclSeq->end   = max_coord;
 
 
-  if (DEBUGGING) DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
+  if (DEBUGGING) { 
+    DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
+    fprintf(stderr,"\n");
+    fprintf(stderr,"  :  Area of operation: %s:%ld..%ld\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
+    fprintf(stderr,"\n");
+  }
 
 }
 
