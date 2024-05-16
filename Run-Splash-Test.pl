@@ -1026,7 +1026,7 @@ sub BigBadSplash
 		my $contains_seqs = 0;
 		while (my $file_check = readdir($FamilyDir)) 
 		{
-			if ($file_check =~ /\.fa$/)
+			if (lc($file_check) =~ /\.fa[sta]?$/ || lc($file_check) =~ /\.hmm$/)
 			{
 				$contains_seqs = 1;
 				last;
