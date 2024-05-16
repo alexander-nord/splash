@@ -954,12 +954,8 @@ void SetTargetSeqRange
   TargetNuclSeq->end   = max_coord;
 
 
-  if (DEBUGGING) { 
-    DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
-    fprintf(stderr,"\n");
-    fprintf(stderr,"  :  Area of operation: %s:%ld..%ld\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
-    fprintf(stderr,"\n");
-  }
+  if (DEBUGGING) DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
+
 
 }
 
@@ -1030,7 +1026,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
 
   TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
-  int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TopHits->hit[0]->name,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
+  int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
 
   esl_sqfile_Close(TmpSeqFile);
   esl_sq_Destroy(SeqInfo);
@@ -1092,7 +1088,7 @@ ESL_DSQ * GrabNuclRange
   char * Seq = malloc((len+1) * sizeof(char));
 
   // Keep in mind that DSQs are [1..n]
-  int read_index = (int)((uint64_t)start - TargetNuclSeq->start) + 1;
+  int read_index = start - (int)(TargetNuclSeq->start) + 1;
 
   if (start < end) {
   
@@ -5046,6 +5042,13 @@ void DumpExonSets
     int * ExonCoords = ExonCoordSets[exon_set_id];
     int   num_exons  = ExonCoords[0];
 
+
+    int num_nucls;
+    ESL_DSQ * NuclSeq  = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&num_nucls);
+    ESL_DSQ * TransSeq = TranslateExonSetNucls(NuclSeq,num_nucls,gcode);
+    
+
+
     fprintf(stderr,">ExonSet__%d/%d:Nucls__",exon_set_id+1,num_exon_sets);
     for (i=0; i<num_exons; i++) {
       if (i) fprintf(stderr,",");
@@ -5059,11 +5062,6 @@ void DumpExonSets
       fprintf(stderr,"%d-%d",ExonCoords[i*5 + 2],ExonCoords[i*5 + 4]);
     }
 
-
-    int num_nucls;
-    ESL_DSQ * NuclSeq  = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&num_nucls);
-    ESL_DSQ * TransSeq = TranslateExonSetNucls(NuclSeq,num_nucls,gcode);
-    
 
     int line_length = 60;
     for (i=1; i<=num_nucls; i++) {
