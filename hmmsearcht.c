@@ -2801,8 +2801,35 @@ int EdgeWouldEraseNode
   // We'll actually be even ruder and say that this exon
   // would need to contribute at least 2 aminos of its own
   // (we lose 1 to needing a strict less than, hence 3) <- terrible, awful communication
-  if (DO_1_2->upstream_exon_terminus >= DO_2_3->downstream_exon_terminus - 3)
+  if (DO_1_2->upstream_exon_terminus >= DO_2_3->downstream_exon_terminus - 3) {
+
+    // We'll actually want to sever this connection, for
+    // the purposes of being able to cleanly determine
+    // connected components
+    Node3->num_in_edges -= 1;
+    if (n3_in_edge_index < Node3->num_in_edges) {
+      Node3->InEdges[n3_in_edge_index] = Node3->InEdges[Node3->num_in_edges];
+      Node3->UpstreamNodes[n3_in_edge_index] = Node3->UpstreamNodes[Node3->num_in_edges];
+    }
+
+    Node2->num_out_edges -= 1;
+    int n2_out_edge_index;
+    for (n2_out_edge_index = 0; n2_out_edge_index < Node2->num_out_edges; n2_out_edge_index++) {
+
+      if (Node2->DownstreamNodes[n2_out_edge_index] == Node3) {
+
+        Node2->OutEdges[n2_out_edge_index] = Node2->OutEdges[Node2->num_out_edges];
+        Node2->DownstreamNodes[n2_out_edge_index] = Node2->DownstreamNodes[Node2->num_out_edges];
+
+        break;
+
+      }
+
+    }
+
     return 1;
+
+  }
 
 
   // Nope! These two look fine!
@@ -2834,8 +2861,10 @@ float PullUpCumulativeScore
   }
 
 
-  int in_edge_index;
-  for (in_edge_index = 0; in_edge_index < Node->num_in_edges; in_edge_index++) {
+  // Since 'EdgeWouldEraseNode' can remove edges we'll need to
+  // use a 'while' loop instead of a 'for' loop
+  int in_edge_index = 0;
+  while (in_edge_index < Node->num_in_edges) {
 
     float in_edge_score = Node->InEdges[in_edge_index]->score;
     in_edge_score += PullUpCumulativeScore(Node->UpstreamNodes[in_edge_index]);
@@ -2847,6 +2876,8 @@ float PullUpCumulativeScore
       Node->cumulative_score = in_edge_score;
       Node->best_in_edge     = in_edge_index;
     }
+
+    in_edge_index++;
 
   }
 
