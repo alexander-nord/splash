@@ -3082,7 +3082,7 @@ void FindBestFullPath
     Walker = Graph->Nodes[Graph->CTermNodeIDs[c_term_index]];
 
     Graph->best_full_path_length = 1;
-    while (Walker->num_in_edges) {
+    while (Walker->best_in_edge != -1) {
       Walker = Walker->UpstreamNodes[Walker->best_in_edge];
       Graph->best_full_path_length += 1;
     }
@@ -5166,7 +5166,7 @@ int * GetExonSetFromEndNode
 
   // Iterate until we're at the N-terminal node
   SPLICE_NODE * USNode;
-  while (Node->num_in_edges) {
+  while (Node->best_in_edge != -1) {
 
 
     BestPathCoords[nodes_in_path*5 + 1] = Node->InEdges[Node->best_in_edge]->downstream_spliced_nucl_start;
