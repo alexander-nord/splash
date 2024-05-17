@@ -177,7 +177,7 @@ static char LC_RNA_CHARS[ 6] = {'a','c','g','u','-','n'};
 
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
-static int MAX_AMINO_EXT     = 4;
+static int MAX_AMINO_EXT     = 6;
 static int MIN_AMINO_OVERLAP = 6;
 
 
@@ -207,6 +207,12 @@ typedef struct _target_seq {
   // NOTE that start is always less than end (even if revcomp)
   int64_t start;
   int64_t end;
+
+
+  // This is primarily used to make sure that 'in bounds' also
+  // means the right complementarity
+  int revcomp;
+
 
 } TARGET_SEQ;
 
@@ -813,17 +819,18 @@ void SetTargetSeqRange
 
   if (DEBUGGING) DEBUG_OUT("Starting 'SetTargetSeqRange'",1);
 
+
   // Our first goal is to come up with a sorting of each hit's
   // best domain's score.  Once we have those scores, we can
   // take a quick poll of the (say) 10 best domains to determine
   // where they're (generally) pointing us.
   //
-  int hit_id;
+  int hit_id,dom_id;
   int num_hits = (int)(TopHits->N);
   float * HitScores = malloc(num_hits * sizeof(float));
   for (hit_id = 0; hit_id < num_hits; hit_id++) {
-    int best_domain   = TopHits->hit[hit_id]->best_domain;
-    HitScores[hit_id] = (&TopHits->hit[hit_id]->dcl[best_domain])->envsc;
+    dom_id = TopHits->hit[hit_id]->best_domain;
+    HitScores[hit_id] = (&TopHits->hit[hit_id]->dcl[dom_id])->envsc;
   }
   int * HitScoreSort = FloatHighLowSortIndex(HitScores,num_hits);
   
@@ -835,33 +842,52 @@ void SetTargetSeqRange
   // Now, let's get polling!
   int num_polled_hits      = intMin(10,num_hits);
   char ** PolledHitTargets = malloc(num_polled_hits*sizeof(char *));
+  int   * PolledHitStrands = malloc(num_polled_hits*sizeof(int));
   int   * TargetVotes      = malloc(num_polled_hits*sizeof(int));
+
 
   int sort_id;
   int num_targets = 0;
   for (sort_id = 0; sort_id<num_polled_hits; sort_id++) {
 
+
     // The higher-scoring hits get more voting power
     int vote_power = 1 + (num_polled_hits-sort_id)/2;
 
-    int hit_id = HitScoreSort[sort_id];
+
+    hit_id = HitScoreSort[sort_id];
     char * PolledHitTarget = TopHits->hit[hit_id]->name;
+
+    
+    dom_id = TopHits->hit[hit_id]->best_domain;
+    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+
+    int revcomp = 0;
+    if (AD->sqfrom > AD->sqto)
+      revcomp = 1;
+
 
     int target_id;
     int new_target = 1;
     for (target_id=0; target_id<num_targets; target_id++) {
-      if (!strcmp(PolledHitTargets[target_id],PolledHitTarget)) {
+      if (!strcmp(PolledHitTargets[target_id],PolledHitTarget) && PolledHitStrands[target_id] == revcomp) {
+
         TargetVotes[target_id] += vote_power;
         new_target = 0;
+
         break;
+
       }
     }
 
+
     if (new_target) {
       PolledHitTargets[num_targets] = PolledHitTarget;
+      PolledHitStrands[num_targets] = revcomp;
       TargetVotes[num_targets] = vote_power;
       num_targets++;
     }
+
 
   }
 
@@ -880,8 +906,12 @@ void SetTargetSeqRange
 
   // Winner winner!
   TargetNuclSeq->SeqName = PolledHitTargets[poll_winner_id];
+  TargetNuclSeq->revcomp = PolledHitStrands[poll_winner_id];
+
+
   free(TargetVotes);
   free(PolledHitTargets);
+  free(PolledHitStrands);
 
 
   // Now that we know our preferred chromosome, define a coding region!
@@ -893,13 +923,20 @@ void SetTargetSeqRange
   int64_t max_cap;
   for (sort_id = 0; sort_id<num_hits; sort_id++) {
 
+
     int hit_id = HitScoreSort[sort_id];
 
     if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
       continue;
 
-    int best_domain    = TopHits->hit[hit_id]->best_domain;
-    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[best_domain])->ad;
+
+    dom_id = TopHits->hit[hit_id]->best_domain;
+    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+
+
+    if ( TargetNuclSeq->revcomp && AD->sqfrom < AD->sqto) continue;
+    if (!TargetNuclSeq->revcomp && AD->sqfrom > AD->sqto) continue;
+
 
     min_coord = AD->sqfrom;
     if (AD->sqto < min_coord)
@@ -912,7 +949,9 @@ void SetTargetSeqRange
     min_cap = min_coord - 1000000;
     max_cap = max_coord + 1000000;
 
+
     break;
+
 
   }
   free(HitScoreSort);
@@ -926,7 +965,6 @@ void SetTargetSeqRange
     if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
       continue;
 
-    int dom_id;
     for (dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
   
       P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
@@ -2046,7 +2084,7 @@ void SketchSpliceEdge
 
 
   // Big ol' DEBUGGING dump
-  if (DEBUGGING && 0) {
+  if (DEBUGGING && 1) {
     fprintf(stderr,"\n");
     fprintf(stderr,"  Overlap  Nucl. Range:   Upstream : %d ... %d\n",  Edge->upstream_nucl_start,  Edge->upstream_nucl_end);
     fprintf(stderr,"                                   : ");
@@ -2290,18 +2328,19 @@ int OutsideSearchArea
   if (strcmp(TargetNuclSeq->SeqName,Hit->name))
     return 1;
 
-  int dom_id;
-  for (dom_id=0; dom_id<Hit->ndom; dom_id++) {
+  int dom_id = Hit->best_domain;
 
-    int64_t sqfrom = (&Hit->dcl[dom_id])->ad->sqfrom;
-    if (sqfrom < TargetNuclSeq->start) return 1;
-    if (sqfrom > TargetNuclSeq->end  ) return 1;
+  int64_t sqfrom = (&Hit->dcl[dom_id])->ad->sqfrom;
+  int64_t sqto = (&Hit->dcl[dom_id])->ad->sqto;
 
-    int64_t sqto = (&Hit->dcl[dom_id])->ad->sqto;
-    if (sqto < TargetNuclSeq->start) return 1;
-    if (sqto > TargetNuclSeq->end  ) return 1;
+  if ( TargetNuclSeq->revcomp && sqfrom < sqto) return 1;
+  if (!TargetNuclSeq->revcomp && sqfrom > sqto) return 1;
 
-  }
+  if (sqfrom < TargetNuclSeq->start) return 1;
+  if (sqfrom > TargetNuclSeq->end  ) return 1;
+
+  if (sqto < TargetNuclSeq->start) return 1;
+  if (sqto > TargetNuclSeq->end  ) return 1;
 
   // Nice work coloring inside the lines, hit!
   return 0;
@@ -3057,12 +3096,12 @@ void FillOutGraphStructure
 
 
   // Are your hits to the reverse complement of the query nucleotide seq?
-  Graph->revcomp = 0;
-  if (Graph->TopHits->N) {
-    P7_DOMAIN * Dom = &(Graph->TopHits->hit[Graph->Nodes[1]->hit_id]->dcl[Graph->Nodes[1]->dom_id]);
-    if (Dom->ad->sqfrom > Dom->ad->sqto)
-      Graph->revcomp = 1;
-  }
+  //
+  // Even though this is redundant, there are some instances where we just
+  // pass along the graph without the TargetNuclSeq (although, really, TNS
+  // should be part of Graph, rather than a separate entity...)
+  //
+  Graph->revcomp = TargetNuclSeq->revcomp;
 
 
   int edge_id;
