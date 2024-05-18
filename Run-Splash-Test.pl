@@ -247,6 +247,17 @@ sub AggregateAllResults
 				my $exon_set_coverage    = 1 + ($exon_set_model_end - $exon_set_model_start);
 
 
+				# NOTE: Because HMMER sometimes likes to chop off the
+				#       first/last residues, we'll see if this is
+				#       close enough to count as an honorary full model
+				#       alignment
+				if ($full_coverage == 0 && $exon_set_model_start < 6 && $model_length - $exon_set_model_end < 6) {
+					$full_coverage = 1;
+					$num_full_model++;
+				}
+
+
+
 				# Nucleotide range summary for this exon set
 				$line = <$SummaryFile>;
 

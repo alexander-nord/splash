@@ -118,3 +118,36 @@
      be worth looking closely just to make sure there isn't something going wrong in the splicer...
 
 
+
+[7.] Back to the topic of annoying gappiness, we see this in ABCC10:
+
+      Alignments for each domain:
+      == domain 1  score: 140.9 bits;  conditional E-value: 2.9e-44
+               mus_musculus.1 1329  r  s  q  l  a  v  i  p  q  e  p  f  l  f  s  g  t  i  r  e  n  l  d  p  q  g  l  h  1356
+                                    r  s  q  l  a  v  i  p  q  e  p  f  l  f  s  g  t  i  r  e  n  l  d  p  q  g  l  h 
+                       orf977   41  R  S  Q  L  A  V  I  P  Q  E  P  F  L  F  S  G  T  I  R  E  N  L  D  P  Q  G  L  H  68  
+      chr17/46609419-46643858 5985 AGATCCCAGCTGGCTGTCATCCCTCAGGAGCCTTTCCTGTTCAGCGGGACTATTCGGGAGAACCTGGACCCCCAGGGCCTACAC 5902
+                                    9  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  PP
+
+               mus_musculus.1 1357  e  d  r  a  l  w  q  a  l  e  q  c  h  l  s  e  v  a  v  a  m  g  .  .  .  .  .  .  1378
+                                    e  d  r  a  l  w  q  a  l  e  q  c  h  l  s  e  v  a  v  a  m  g                   
+                       orf977   69  E  D  R  A  L  W  Q  A  L  E  Q  C  H  L  S  E  V  A  V  A  M  G  e  s  q  a  c  q  96  
+      chr17/46609419-46643858 5901 GAGGACAGGGCCCTGTGGCAAGCCTTGGAACAGTGTCACCTGAGTGAGGTGGCTGTCGCCATGGGTGAGTCCCAGGCATGTCAG 5818
+                                    *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  9  5  4  4  4  4  4  4  PP
+
+               mus_musculus.1 1379  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  g  l  d  g  e  l  g  e  r  1387
+                                                                                             g  l  d  g  e  l  g  e  r 
+                       orf977   97  r  s  q  r  e  a  k  n  g  h  w  q  c  s  a  l  l  t  g  G  L  D  G  E  L  G  E  R  124 
+      chr17/46609419-46643858 5817 AGGAGCCAGCGAGAAGCAAAGAATGGCCACTGGCAATGCAGTGCTCTGCTTACAGGTGGCCTGGATGGAGAGCTGGGAGAAAGG 5734
+                                    4  4  4  4  4  4  4  4  4  4  4  4  4  4  4  4  4  4  4  9  *  *  *  *  *  *  *  *  PP
+
+               mus_musculus.1 1388  g  q  n  l  s  l  g  q  r  q  l  l  c  l  a  r  a  l  l  t  d  a  k  i  l  c  1413
+                                    g  q  n  l  s  l  g  q  r  q  l  l  c  l  a  r  a  l  l  t  d  a  k  +       
+                       orf977  125  G  Q  N  L  S  L  G  Q  R  Q  L  L  C  L  A  R  A  L  L  T  D  A  K  V  R  W  150 
+      chr17/46609419-46643858 5733 GGCCAGAACCTGTCCCTAGGACAGAGACAGCTGCTGTGTCTGGCAAGGGCTCTTCTTACAGATGCTAAAGTAAGATGG 5656
+                                    *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  *  9  6  5  PP
+
+
+     I think this can accurately be described as a very short intron (clean GT/AG split).
+     Let's add a catch where if we have, say, 17 gaps in a row, we toss the hit
+
