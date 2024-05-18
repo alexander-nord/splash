@@ -156,6 +156,11 @@ sub RecordMappings
 		$num_exons = $1;
 
 
+		# If there's only one exon, this isn't something we
+		# want to search with Splash (duh)
+		next if ($num_exons == 1);
+
+
 		$full_seq_name =~ /\|([^\|]+)$/;
 		my $seq_id = $1;
 
