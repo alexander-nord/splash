@@ -181,6 +181,12 @@ static int MAX_AMINO_EXT     = 6;
 static int MIN_AMINO_OVERLAP = 6;
 
 
+// When we're performing sub-model search, what's the maximum size
+// range we're willing to consider?
+static int MAX_SUB_MODEL_RANGE =    100;
+static int MAX_SUB_NUCL_RANGE  = 100000;
+
+
 int intMax (int a, int b) { if (a>b) return a; return b; }
 int intMin (int a, int b) { if (a<b) return a; return b; }
 
@@ -2238,15 +2244,38 @@ int HitsAreSpliceCompatible
 int ExcessiveGapContent
 (P7_ALIDISPLAY * AD)
 {
+
   int num_gaps = 0;
+  int contiguous_gap_cutoff = 15;
+
   int ad_pos;
-  for (ad_pos=0; ad_pos<AD->N; ad_pos++)
-    if (AD->model[ad_pos] == '.' || AD->aseq[ad_pos] == '-')
+  int num_contiguous_gaps = 0;
+  for (ad_pos=0; ad_pos<AD->N; ad_pos++) {
+
+    if (AD->model[ad_pos] == '.' || AD->aseq[ad_pos] == '-') {
+
       num_gaps++;
+    
+      num_contiguous_gaps++;
+      if (num_contiguous_gaps >= contiguous_gap_cutoff)
+        return 1;
+
+    } else {
+
+      num_contiguous_gaps = 0;
+
+    }
+
+  }
+
+
   // 25% cutoff
   if (4*num_gaps > AD->N)
     return 1;
+
+
   return 0;
+
 }
 
 
@@ -3466,11 +3495,6 @@ int NodesAreDCCCompatible
 {
 
 
-  // How large of an area are we willing to consider searching?
-  int max_hmm_dist  =    50;
-  int max_nucl_dist = 50000;
-
-
   // Pull the relevant data from the upstream and downstream nodes
   P7_DOMAIN * USDom     = &(Graph->TopHits->hit[UpstreamNode->hit_id]->dcl[UpstreamNode->dom_id]);
   int upstream_hmm_to   = USDom->ad->hmmto;
@@ -3498,7 +3522,7 @@ int NodesAreDCCCompatible
 
   // Hmmm, I suppose you're oriented correctly...
   // But are you close enough?!
-  if (hmm_dist <= max_hmm_dist && nucl_dist <= max_nucl_dist)
+  if (hmm_dist <= MAX_SUB_MODEL_RANGE && nucl_dist <= MAX_SUB_NUCL_RANGE)
     return 1;
 
 
@@ -4549,9 +4573,9 @@ P7_DOMAIN ** FindSubHits
             }
 
 
-            // If this is too short or low-scoring, we'll skip it
+            // If this is too short, we'll skip it
             int ali_len = AD->hmmto - AD->hmmfrom + 1;
-            if (ali_len < sub_hmm_len / 3 || viterbi_score < -1.0 * (float)ali_len) {
+            if (ali_len < sub_hmm_len / 3) {
               p7_alidisplay_Destroy(AD);
               continue;
             }
@@ -4562,32 +4586,7 @@ P7_DOMAIN ** FindSubHits
             //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
 
 
-            // Oh, boy! Let's add this alidisplay to our array!
-
-
-            // (but first... resize?)
-            if (num_sub_hits == max_sub_hits) {
-              
-              max_sub_hits *= 2;
-              P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY *));
-              
-              float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
-              
-              int sub_hit_id;
-              for (sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
-                NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
-                NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
-              }
-              free(SubHitADs);
-              free(SubHitScores);
-              
-              SubHitADs = NewSubHitADs;
-              SubHitScores = NewSubHitScores;
-              
-            }
-            // Resize over -- back to our regularly-scheduled programming!
-
-
+            // Get the actual model range
             AD->hmmfrom += hmm_start - 1;
             AD->hmmto   += hmm_start - 1;
 
@@ -4631,7 +4630,35 @@ P7_DOMAIN ** FindSubHits
             // Welcome to the list, fella!
             SubHitADs[num_sub_hits]    = AD;
             SubHitScores[num_sub_hits] = ComputeRoughAliScore(AD,Graph->Model);
-            num_sub_hits++;
+
+
+            // Hopefully this isn't too cruel, but if your score wasn't
+            // very good we'll actually pull our support...
+            if (SubHitScores[num_sub_hits] > (float)ali_len && !ExcessiveGapContent(AD))
+              num_sub_hits++;
+
+
+            // Resize?
+            if (num_sub_hits == max_sub_hits) {
+              
+              max_sub_hits *= 2;
+              P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY *));
+              
+              float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
+              
+              int sub_hit_id;
+              for (sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
+                NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
+                NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
+              }
+              free(SubHitADs);
+              free(SubHitScores);
+              
+              SubHitADs = NewSubHitADs;
+              SubHitScores = NewSubHitScores;
+              
+            }
+            // Resize over -- back to our regularly-scheduled programming!
 
 
           }
