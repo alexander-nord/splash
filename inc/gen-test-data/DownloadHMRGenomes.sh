@@ -18,10 +18,10 @@ gunzip mm39.fa.gz
 wget 'https://hgdownload.soe.ucsc.edu/goldenPath/rn6/bigZips/rn6.fa.gz' -O rn6.fa.gz
 gunzip rn6.fa.gz
 
-echo "homo_sapiens      hg38.fa"  > "species-to-genome"
-echo "mus_musculus      mm39.fa" >> "species-to-genome"
-echo "rattus_norvegicus rn6.fa"  >> "species-to-genome"
-echo "human             hg38.fa" >> "species-to-genome"
-echo "mouse             mm39.fa" >> "species-to-genome"
-echo "rat               rn6.fa"  >> "species-to-genome"
+echo "homo_sapiens      hg38.fa -"  > "species-guide"
+echo "mus_musculus      mm39.fa -" >> "species-guide"
+echo "rattus_norvegicus rn6.fa  -" >> "species-guide"
+echo "human             hg38.fa -" >> "species-guide"
+echo "mouse             mm39.fa -" >> "species-guide"
+echo "rat               rn6.fa  -" >> "species-guide"
 
