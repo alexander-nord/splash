@@ -89,6 +89,8 @@ while (my $fam = readdir($InputDir))
 	die "\n  ERROR:  Failed to copy files from '$fam_in_dir_name' to '$fam_out_dir_name'\n\n"
 		if (system("cp $fam_in_dir_name* $fam_out_dir_name"));
 
+	$num_fams_matched++;
+
 }
 closedir($InputDir);
 
