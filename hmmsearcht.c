@@ -572,14 +572,71 @@ void SPLICE_GRAPH_Destroy
 (SPLICE_GRAPH * Graph)
 {
 
-  // Wipe them nodes *OUT*
-  int node_id;
-  for (node_id = 1; node_id <= Graph->num_nodes; node_id++)
-    SPLICE_NODE_Destroy(Graph->Nodes[node_id]);
+  if (DEBUGGING) DEBUG_OUT("Starting 'SPLICE_GRAPH_Destroy'",1);
 
-  free(Graph->CTermNodeIDs);
 
+  // Because we don't want to accidentally double-free any
+  // of the DOMAIN_OVERLAP structs, we'll put each node in
+  // charge of its incoming DOs.
+  if (Graph->Nodes) {
+    
+    int node_id, in_edge_index;
+    SPLICE_NODE * Node;
+    for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
+
+      Node = Graph->Nodes[node_id];
+
+      for (in_edge_index = 0; in_edge_index < Node->num_in_edges; in_edge_index++) 
+        DOMAIN_OVERLAP_Destroy(Node->InEdges[in_edge_index]);
+
+      free(Node->InEdges);
+      free(Node->OutEdges);
+      free(Node);
+
+    }
+    free(Graph->Nodes);
+
+    if (Graph->CTermNodeIDs)
+      free(Graph->CTermNodeIDs);
+
+  }
+
+
+  int hit_id;
+  if (Graph->TH_HitDomToNodeID) {
+  
+    for (hit_id=0; hit_id<Graph->TopHits->N; hit_id++)
+      free(Graph->TH_HitDomToNodeID[hit_id]);
+    free(Graph->TH_HitDomToNodeID);
+  
+    if (Graph->MH_HitToNodeID) 
+      free(Graph->MH_HitToNodeID);
+  
+  }
+
+
+  // We need to manually destroy the fake 'MissedHits'
+  if (Graph->MissedHits) {
+
+    for (hit_id=0; hit_id<Graph->MissedHits->N; hit_id++) {
+
+      // Luckily, the AD is for real (generally) so we should
+      // be able to use the generic destructor
+      p7_alidisplay_Destroy(Graph->MissedHits->hit[hit_id]->dcl->ad);
+      free(Graph->MissedHits->hit[hit_id]->dcl);
+      free(Graph->MissedHits->hit[hit_id]);
+
+    }
+    free(Graph->MissedHits);
+
+  }
+
+
+  free(Graph);
   Graph = NULL;
+
+
+  if (DEBUGGING) DEBUG_OUT("'SPLICE_GRAPH_Destroy' Complete",-1);
 
 }
 
@@ -3564,15 +3621,18 @@ int * IdentifyDisConnComponents
 
   // This could *surely* be optimized, but I think it's going to
   // be reasonably fast to do an all-versus-all sorta thang...
-  int * DisConnCompOuts = malloc(num_no_out_edge * sizeof(int));
-  int * DisConnCompIns  = malloc(num_no_in_edge  * sizeof(int));
-  for (i=0; i<num_no_out_edge; i++) DisConnCompOuts[i] = 0;
-  for (i=0; i<num_no_in_edge ; i++) DisConnCompIns[i]  = 0;
+  int dcc_cap = intMax(num_no_out_edge,num_no_in_edge) + 1;
+  int * DisConnCompOuts = malloc(dcc_cap * sizeof(int));
+  int * DisConnCompIns  = malloc(dcc_cap * sizeof(int));
+  for (i=0; i<dcc_cap; i++) {
+    DisConnCompOuts[i] = 0;
+    DisConnCompIns[i]  = 0;
+  }
 
 
   int dcc_ids_issued   = 0; // Note that this is more like "num_dcc_ids issued"
   int num_live_dcc_ids = 0;
-  int * LiveDCCIDs = malloc(num_no_out_edge * sizeof(int));
+  int * LiveDCCIDs = malloc(dcc_cap * sizeof(int));
   for (i=0; i<num_no_out_edge; i++) {
 
 
@@ -3609,6 +3669,17 @@ int * IdentifyDisConnComponents
 
       // This DCC ID is live, baby!
       LiveDCCIDs[num_live_dcc_ids++] = dcc_id;
+
+      // Shouldn't ever happen...
+      if (num_live_dcc_ids >= dcc_cap) {
+        dcc_cap *= 2;
+        int * TmpLive = malloc(dcc_cap*sizeof(int));
+        int y;
+        for (y=0; y<num_live_dcc_ids; y++)
+          TmpLive[y] = LiveDCCIDs[y];
+        free(LiveDCCIDs);
+        LiveDCCIDs = TmpLive;
+      }
 
 
       // Has this downstream node already made friends?
@@ -3804,7 +3875,8 @@ int * IdentifyMidSearchRegions
   if (DEBUGGING) DEBUG_OUT("Starting 'IdentifyMidSearchRegions'",1);
 
 
-  int * MidSearchRegions = malloc((1 + 4 * Graph->num_edges) * sizeof(int));
+  int   max_mid_searches = Graph->num_nodes; // Just for mem tracking
+  int * MidSearchRegions = malloc((1 + 4 * max_mid_searches) * sizeof(int));
   int   num_mid_searches = 0;
 
 
@@ -3891,6 +3963,18 @@ int * IdentifyMidSearchRegions
       num_mid_searches++;
 
 
+      // Not sure how this would ever happen...
+      if (num_mid_searches >= max_mid_searches) {
+        max_mid_searches *= 2;
+        int * TmpMSR = malloc((1 + 4 * max_mid_searches) * sizeof(int));
+        int i;
+        for (i=1; i<=4*num_mid_searches; i++)
+          TmpMSR[i] = MidSearchRegions[i];
+        free(MidSearchRegions);
+        MidSearchRegions = TmpMSR;
+      }
+
+
     }
 
   }
@@ -3939,7 +4023,7 @@ int * IdentifyTermSearchRegions
 
   // At most, there will be two search regions (N-,C-terminal).
   //
-  int * TermSearchRegions = malloc(9*sizeof(int));
+  int * TermSearchRegions = malloc(9 * sizeof(int));
   int   num_term_searches = 0;
 
 
@@ -3977,7 +4061,8 @@ int * IdentifyTermSearchRegions
       }
 
       // If this search region is too small, skip it
-      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 50)
+      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 50
+          && TermSearchRegions[4*num_term_searches+2] > 3)
         num_term_searches++;
 
     }
@@ -4005,8 +4090,8 @@ int * IdentifyTermSearchRegions
 
     }
 
-    int n_term_gap_size = Graph->Model->M - downstreamest_model_pos;
-    if (n_term_gap_size > 5 && n_term_gap_size < 50 && downstreamest_nucl_pos != -1) {
+    int c_term_gap_size = Graph->Model->M - downstreamest_model_pos;
+    if (c_term_gap_size > 5 && c_term_gap_size < 50 && downstreamest_nucl_pos != -1) {
 
       TermSearchRegions[4*num_term_searches+1] = downstreamest_model_pos;
       TermSearchRegions[4*num_term_searches+2] = Graph->Model->M;
@@ -4019,7 +4104,7 @@ int * IdentifyTermSearchRegions
       }
 
       // If this search region is too small, skip it
-      if (abs(TermSearchRegions[4*num_term_searches+4]-TermSearchRegions[4*num_term_searches+3]) > 50)
+      if (abs(TermSearchRegions[4*num_term_searches+4] - downstreamest_nucl_pos) > 50)
         num_term_searches++;
 
     }
@@ -6896,7 +6981,7 @@ void SpliceHits
 
 
   // CLEANUP
-  //SPLICE_GRAPH_Destroy(Graph);
+  SPLICE_GRAPH_Destroy(Graph);
   TARGET_SEQ_Destroy(TargetNuclSeq);
 
 
