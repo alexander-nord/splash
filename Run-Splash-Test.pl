@@ -549,7 +549,7 @@ sub CompileBasicResults
 	my $panther_species = shift;
 
 	
-	$out_dir_name =~ /\/([^\/]+)\//;
+	$out_dir_name =~ /\/([^\/]+)\/[^\/]+$/;
 	my $family = $1;
 
 	
