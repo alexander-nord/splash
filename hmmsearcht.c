@@ -1048,6 +1048,10 @@ void SetTargetSeqRange
   free(HitScoreSort);
 
 
+  // DEBUGGING
+  fprintf(stderr,"\n  Initial range: %ld..%ld\n\n",min_coord,max_coord);
+
+
   // Now that we know the absolute min/max of the search zone,
   // we can check all hits to define the actual search zone.
   //
@@ -1143,7 +1147,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
 
   // DEBUGGING
-  //fprintf(stderr,"\n  Search Sequence: %s\n\n",TargetNuclSeq->SeqName);
+  fprintf(stderr,"\n  Search Sequence: %s:%ld..%ld\n\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
 
 
   ESL_SQFILE * TmpSeqFile;
@@ -1158,7 +1162,7 @@ TARGET_SEQ * GetTargetNuclSeq
   // In case there's a terminal search region we need to consider,
   // pull in a bit of extra sequence
   TargetNuclSeq->start -= 25000;
-  if (TargetNuclSeq->start < 0)
+  if (TargetNuclSeq->start < 1)
     TargetNuclSeq->start = 1;
   
   TargetNuclSeq->end += 25000;
