@@ -328,6 +328,7 @@ sub AggregateAllResults
 
 					$line = <$SummaryFile> unless ($exon_id == 1); # Exon ID
 					$line = <$SummaryFile>; # Model range
+					$line = <$SummaryFile>; # Chromosome
 					$line = <$SummaryFile>; # Nucl. range
 
 
@@ -720,6 +721,9 @@ sub CompileBasicResults
 			my $model_end   = $2;
 
 			print $SummaryFile "  - Model Range : $model_start..$model_end\n";
+
+
+			my $target_seq_line = <$SplOutFile>;
 
 
 			my $nucl_coord_line = <$SplOutFile>;

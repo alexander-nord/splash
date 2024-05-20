@@ -6526,10 +6526,10 @@ int ReportSplicedTopHits
     fprintf(ofp,"| splash - spliced alignment of some hits\n");
     fprintf(ofp,"|\n");
     fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
-    fprintf(ofp,"| = Model Positions  %d..%d",model_start,model_end);
+    fprintf(ofp,"| = Model Positions %d..%d",model_start,model_end);
     if (full_coverage) fprintf(ofp,"  (* Full Model)");
     fprintf(ofp,"\n");
-    fprintf(ofp,"| = Target Seq Name   %s\n",TargetNuclSeq->SeqName);
+    fprintf(ofp,"| = Target Seq Name %s\n",TargetNuclSeq->SeqName);
     fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
     for (exon_id=0; exon_id<num_exons; exon_id++)
       fprintf(ofp,"| = Exon %d: %d..%d / %d..%d\n",exon_id+1,ExonCoordSet[5*exon_id+2],ExonCoordSet[5*exon_id+4],ExonCoordSet[5*exon_id+1],ExonCoordSet[5*exon_id+3]);
