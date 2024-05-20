@@ -1477,7 +1477,7 @@ sub ReadChromosomeLengths
 			|| die "\n  ERROR:  Failed to open seqstat file '$seqstat_file_name'\n\n";
 		while (my $line = <$SeqstatFile>) {
 			$line =~ s/\n|\r//g;
-			if ($line =~ /^=\s+(\S+)\s+(\d+)\s*$/) {
+			if ($line =~ /^=\s+(\S+)\s+(\d+)\s*/) {
 				my $chr = $1;
 				my $len = $2;
 				$SPECIES_CHR_TO_LEN{$species.'|'.$chr} = $len;
