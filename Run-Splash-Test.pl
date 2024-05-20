@@ -87,15 +87,26 @@ else  {   die "\n  ERROR:  Failed to recognize protein input\n\n";           }
 sub AggregateAllResults
 {
 	my $all_fams_dir_name = shift;
+	my $panther_species   = shift;
 
 
 	# The big 'Summary' file will be written at the end of this
 	# subroutine, but we'll build up this CSV file as we go
 	# (containing info related to how successful we are at splicing
 	# hits to provide full-model coverage)
-	my $coverage_csv_file_name  = $OPTIONS{'output-dir'}.'Coverage.csv';
+	my $coverage_csv_file_name;
+	if ($panther_species)
+	{
+		$coverage_csv_file_name = $OPTIONS{'output-dir'}.$panther_species.'-Coverage.csv';
+	}
+	else
+	{
+		$coverage_csv_file_name = $OPTIONS{'output-dir'}.'Coverage.csv';
+	}
+
 	open(my $CoverageFile,'>',$coverage_csv_file_name)
 		|| die "\n  ERROR:  Failed to open coverage-describing output file '$coverage_csv_file_name'\n\n";
+
 
 	# The header for our coverage file
 	print $CoverageFile "Gene,Sequence-ID,Model-Length,Num-Exon-Sets,";
@@ -132,10 +143,21 @@ sub AggregateAllResults
 		|| die "\n  ERROR:  Failed to open all-family meta-directory '$all_fams_dir_name'\n\n";
 	while (my $family = readdir($AllFamsDir)) 
 	{		
+		
 		next if ($family =~ /^\./);
 		$family =~ s/\/$//;
-		next if (!(-e $all_fams_dir_name.$family.'/summary.out'));
+
+		if ($panther_species)
+		{
+			next if (!(-e $all_fams_dir_name.$family.'/'.$panther_species.'-summary.out'));
+		}
+		else
+		{
+			next if (!(-e $all_fams_dir_name.$family.'/summary.out'));
+		}
+	
 		push(@AllFamsList,$family);
+	
 	}
 	closedir($AllFamsDir);
 
@@ -144,8 +166,16 @@ sub AggregateAllResults
 	foreach my $family (sort @AllFamsList) 
 	{
 
-		my $family_dir_name   = $all_fams_dir_name.$family.'/';
-		my $summary_file_name = $family_dir_name.'summary.out';
+		my $family_dir_name = $all_fams_dir_name.$family.'/';
+		my $summary_file_name;
+		if ($panther_species)
+		{
+			$summary_file_name = $family_dir_name.$panther_species.'-summary.out';
+		}
+		else 
+		{
+			$summary_file_name = $family_dir_name.'summary.out';
+		}
 
 
 		# Prepare to learn!
@@ -414,14 +444,25 @@ sub AggregateAllResults
 
 	# Now that we've gathered all of these summary statistics,
 	# it's time to make the good news heard!
-	my $final_results_file_name = $OPTIONS{'output-dir'}.'Splash-Summary.out';
+	my $final_results_file_name;
+	if ($panther_species)
+	{
+		$final_results_file_name = $OPTIONS{'output-dir'}.$panther_species.'-Splash-Summary.out';
+	}
+	else
+	{
+		$final_results_file_name = $OPTIONS{'output-dir'}.'Splash-Summary.out';
+	}
+
 	open(my $FinalResults,'>',$final_results_file_name)
 		|| die "\n  ERROR:  Failed to open final output file '$final_results_file_name'\n\n";
+
 
 	my $pct_spliced       = GetPct($total_num_spliced,$total_input_phmms);
 	my $pct_full_model    = GetPct($num_full_model,$total_input_phmms);
 	my $pct_with_missed   = GetPct($inputs_with_missed,$total_input_phmms);
 	my $pct_full_w_missed = GetPct($full_with_missed,$total_input_phmms);
+
 
 	# First-blush statistics
 	print $FinalResults "Total Number of Input pHMMs       : $total_input_phmms\n";
@@ -481,7 +522,9 @@ sub AggregateAllResults
 	}
 	print $FinalResults "\n";
 
+
 	close($FinalResults);
+
 
 }
 
@@ -501,27 +544,61 @@ sub AggregateAllResults
 sub CompileBasicResults
 {
 
-	my $out_dir_name   = shift;
-	my $base_names_ref = shift;
+	my $out_dir_name    = shift;
+	my $base_names_ref  = shift;
+	my $panther_species = shift;
 
 	
 	$out_dir_name =~ /\/([^\/]+)\//;
 	my $family = $1;
 
 	
-	my $summary_file_name = $out_dir_name.'summary.out';
+	my $summary_file_name;
+	if ($panther_species)
+	{
+		$summary_file_name = $out_dir_name.$panther_species.'-summary.out';
+	}
+	else
+	{ 
+		$summary_file_name = $out_dir_name.'summary.out';
+	}
+
 	open(my $SummaryFile,'>',$summary_file_name)
 		|| die "\n  ERROR:  Failed to open summary file '$summary_file_name'\n\n";
 
 	
 	my @BaseNames = @{$base_names_ref};
-	my $num_seqs  = scalar(@BaseNames);
+
+
+	# We'll need to reduce to just the hits for the species
+	# of interest if we're working with PANTHER
+	if ($panther_species)
+	{
+		my @SpeciesBaseNames;
+		foreach my $base_name (@BaseNames)
+		{
+
+			$base_name =~ /\.([^\.]+)$/;
+			my $species = $1;
+
+			push(@SpeciesBaseNames,$base_name)
+				if ($species eq $panther_species);		
+
+		}
+		@BaseNames = @SpeciesBaseNames;
+	}
+
+
+	my $num_seqs = scalar(@BaseNames);
 
 
 	print $SummaryFile "GENE FAMILY  : $family\n";
 	print $SummaryFile "NUM SPLASHED : $num_seqs\n";
 
 
+
+	# Now we'll iterate over all of the (applicable) outputs
+	# and compile some super rad info!
 	foreach my $base_name (sort @BaseNames)
 	{
 
@@ -924,9 +1001,9 @@ sub FamilySplash
 		my @QueryIDs;
 		if ($OPTIONS{'panther'})
 		{
-			foreach my $genome (keys %GENOME_LIST)
+			foreach my $species (keys %SPECIES_TO_GENOME)
 			{
-				my $species  = $GENOME_LIST{$genome};
+				my $genome   = $SPECIES_TO_GENOME{$species};
 				my $query_id = $query_base_name.'.'.$species;
 				push(@TargetFileNames,$genome);
 				push(@QueryIDs,$query_id);
@@ -986,7 +1063,17 @@ sub FamilySplash
 
 	# Compile some basic metadata about the results of
 	# splashing around
-	CompileBasicResults($fam_out_dir_name,\@FamilySuccesses);
+	if ($OPTIONS{'panther'})
+	{
+		foreach my $species (keys %SPECIES_TO_GENOME)
+		{
+			CompileBasicResults($fam_out_dir_name,\@FamilySuccesses,$species);
+		}
+	}
+	else
+	{
+		CompileBasicResults($fam_out_dir_name,\@FamilySuccesses,0);		
+	}
 
 
 	# If this is being run as part of a larger test,
@@ -1151,7 +1238,21 @@ sub BigBadSplash
 	# Now that the ugliness is over, the FUN!!!
 	# Combine all of our family-specific output data into
 	# one nice big output file.
-	AggregateAllResults($rbg_dir_name);
+	#
+	# If we're doing a PANTHER run, we'll want to break
+	# these up across species.
+	#
+	if ($OPTIONS{'panther'})
+	{
+		foreach my $species (keys %SPECIES_TO_GENOME)
+		{
+			AggregateAllResults($rbg_dir_name,$species);
+		}
+	}
+	else
+	{
+		AggregateAllResults($rbg_dir_name,0);
+	}
 
 
 }
