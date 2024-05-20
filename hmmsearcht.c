@@ -6723,11 +6723,6 @@ void RunModelOnExonSets
   if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
 
 
-  // Let's just get our grubby lil' pawz on the name of the
-  // target sequence
-  char * TargetSeqName = Graph->TopHits->hit[0]->name;
-
-
   // It's better to be re-using these than destroying
   // and re-allocating every time
   ESL_SQ      * NuclSeq           = esl_sq_Create();
@@ -6764,7 +6759,7 @@ void RunModelOnExonSets
     //
     int trans_len = coding_region_len / 3;
     ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
-    ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,TargetSeqName,ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
+    ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,TargetNuclSeq->SeqName,ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
     AminoSeq->idx = exon_set_id+1;
     strcpy(AminoSeq->orfid,"exon");
 
