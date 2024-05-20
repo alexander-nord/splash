@@ -1048,9 +1048,6 @@ void SetTargetSeqRange
   free(HitScoreSort);
 
 
-  // DEBUGGING
-  fprintf(stderr,"\n  Initial range: %ld..%ld\n\n",min_coord,max_coord);
-
 
   // Now that we know the absolute min/max of the search zone,
   // we can check all hits to define the actual search zone.
@@ -1147,7 +1144,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
 
   // DEBUGGING
-  fprintf(stderr,"\n  Search Sequence: %s:%ld..%ld\n\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
+  //fprintf(stderr,"\n  Search Sequence: %s:%ld..%ld\n\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
 
 
   ESL_SQFILE * TmpSeqFile;
@@ -1156,7 +1153,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
 
   ESL_SQ * SeqInfo = esl_sq_Create();
-  esl_sqio_FetchInfo(TmpSeqFile,TopHits->hit[0]->name,SeqInfo);
+  esl_sqio_FetchInfo(TmpSeqFile,TargetNuclSeq->SeqName,SeqInfo);
 
 
   // In case there's a terminal search region we need to consider,
