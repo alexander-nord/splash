@@ -1035,7 +1035,7 @@ void SetTargetSeqRange
 
     max_coord = AD->sqfrom;
     if (AD->sqto > max_coord)
-      max_coord = AD->sqfrom;
+      max_coord = AD->sqto;
 
     min_cap = min_coord - 1000000;
     max_cap = max_coord + 1000000;
@@ -1053,12 +1053,19 @@ void SetTargetSeqRange
   //
   for (hit_id = 0; hit_id < num_hits; hit_id++) {
 
+
     if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
       continue;
 
+
     for (dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
   
+      
       P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+
+      if ( TargetNuclSeq->revcomp && AD->sqfrom < AD->sqto) continue;
+      if (!TargetNuclSeq->revcomp && AD->sqfrom > AD->sqto) continue;
+
 
       // New minimum?
       if (AD->sqto < min_coord && AD->sqto > min_cap)
@@ -1136,7 +1143,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
 
   // DEBUGGING
-  fprintf(stderr,"\n  Search Sequence: %s\n\n",TargetNuclSeq->SeqName);
+  //fprintf(stderr,"\n  Search Sequence: %s\n\n",TargetNuclSeq->SeqName);
 
 
   ESL_SQFILE * TmpSeqFile;
@@ -1150,11 +1157,11 @@ TARGET_SEQ * GetTargetNuclSeq
 
   // In case there's a terminal search region we need to consider,
   // pull in a bit of extra sequence
-  TargetNuclSeq->start -= 10000;
+  TargetNuclSeq->start -= 25000;
   if (TargetNuclSeq->start < 0)
     TargetNuclSeq->start = 1;
   
-  TargetNuclSeq->end += 10000;
+  TargetNuclSeq->end += 25000;
   if (TargetNuclSeq->end > SeqInfo->L)
     TargetNuclSeq->end = SeqInfo->L;
 
