@@ -288,7 +288,9 @@ sub AggregateAllResults
 
 
 
-				# Nucleotide range summary for this exon set
+				# Chromosome name and nucleotide range summary for 
+				# this exon set
+				$line = <$SummaryFile>;
 				$line = <$SummaryFile>;
 
 
@@ -657,15 +659,26 @@ sub CompileBasicResults
 			$num_exon_sets++  if ($line =~ /\| = Exon Set/);
 			$has_full_hit = 1 if ($line =~ /\(\* Full Model\)/);
 
-			# This should capture a nucleotide sequence row
-			if (!$chromosome && $line =~ /^\s+(\S+)\/(\d+)-\d+\s+\d+/)
+			if ($line =~ /\| = Target Seq Name\s+(\S+)/)
 			{
 				$chromosome = $1;
+			}
+
+			# This should capture a nucleotide sequence row,
+			# if we were searching within a target sequence
+			# that was esl-sfetch'd from a larger sequence
+			if (!$chr_start && $line =~ /^\s+\S+\/(\d+)-\d+\s+\d+/)
+			{
 				$chr_start  = $2;
 			}
 
 		}
 		print $SummaryFile "  Num Exon Sets : $num_exon_sets";
+
+
+		# If it doesn't look like we were searching within a
+		# sub-range of the chromosome, we were starting at 1, baby!
+		$chr_start = 1 if (!$chr_start);
 
 
 		# We can show our excitement *just a bit* in this case:
@@ -727,6 +740,7 @@ sub CompileBasicResults
 				$nucl_start += 2;
 				$nucl_end   -= 2;
 			}
+			print $SummaryFile "  - Chromosome  : $chromosome\n";
 			print $SummaryFile "  - Nucl. Range : $nucl_start..$nucl_end\n";
 
 

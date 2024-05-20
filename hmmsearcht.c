@@ -70,11 +70,21 @@ typedef struct {
  *  Catalogue of Ships
  *  ==================
  *
+ *  Fleet 0: Structs
+ *
+ *  + TARGET_SEQ        : The chunk of genomic sequence we're searching around in
+ *  + DOMAIN_OVERLAP    : Information related to how two HMMER hits are spliced together (effectively a splice edge)
+ *  + SPLICE_NODE       : A node in the splice graph (corresponds to a HMMER hit)
+ *  + SPLICE_GRAPH      : The container for all of our splice nodes and supporting data
+ *  + EXON_DISPLAY_INFO : Content used for printing the final exon alignments
+ *
+ *
  *  Fleet 1: Pertaining to Data Preparation
  *
  *  + FloatHighLowSortIndex : 
  *  + FloatLowHighSortIndex :
  *  + GetMinAndMaxCoords    :
+ *  + SetTargetSeqRange     :
  *  + GetTargetNuclSeq      :
  *  + GrabNuclRange         :
  *  + DetermineNuclType     :
@@ -83,12 +93,17 @@ typedef struct {
  *
  *  Fleet 2: Pertaining to Splicing Hits
  *
- *  + GetSpliceOptions             :
+ *  + SelectSpliceOpt              :
+ *  + GetContestedUpstreamNucls    :
+ *  + GetContestedDownstreamNucls  :
+ *  + AminoScoreAtPosition         :
  *  + FindOptimalSpliceSite        :
  *  + SpliceOverlappingDomains     :
  *  + GetNuclRangesFromAminoCoords :
  *  + SketchSpliceEdge             :
  *  + HitsAreSpliceComaptible      :
+ *  + ExcessiveGapContent          :
+ *  + OutsideSearchArea            :
  *  + GatherViableSpliceEdges      :
  *
  *
@@ -97,8 +112,9 @@ typedef struct {
  *
  *  + InitSpliceNode        :
  *  + ConnectNodesByEdge    :
- *  + CountNTermNodes       :
  *  + GatherCTermNodes      :
+ *  + EdgeWouldEraseNode    :
+ *  + PullUpCumulativeScore :
  *  + EvaluatePaths         :
  *  + FillOutGraphStructure :
  *  + FindBestFullPath      :
@@ -108,30 +124,42 @@ typedef struct {
  *
  *  Fleet 4: Pertaining to Filling in Gaps (Sub-Model Search)
  *
- *  + ExtractSubProfile       :
- *  + NodesAreDCCCompatible   :
- *  + GetBoundedSearchRegions :
- *  + SelectFinalSubHits      :
- *  + FindSubHits             :
- *  + IntegrateMissedHits     :
- *  + SeekMissingExons        :
- *  + AddMissingExonsToGraph  :
+ *  + ExtractSubProfile         :
+ *  + NodesAreDCCCompatible     :
+ *  + IdentifyDisConnComponents :
+ *  + IdentifyMidSearchRegions  :
+ *  + IdentifyTermSearchRegions :
+ *  + GetBoundedSearchRegions   :
+ *  + SelectFinalSubHits        :
+ *  + AminoToIndex              :
+ *  + ComputeRoughAliScore      :
+ *  + FindSubHits               :
+ *  + IntegrateMissedHits       :
+ *  + SeekMissingExons          :
+ *  + AddMissingExonsToGraph    :
  *
  *
  *
  *  Fleet 5: Pertaining to the Final Alignment
  *
- *  + GetExonSetFromStartNode :
- *  + FindComponentBestStart  :
- *  + TranslateExonSetNucls   :
- *  + GrabExonCoordSetNucls   :
- *  + GetSplicedExonCoordSets :
- *  + ReportSplicedTopHits    :
- *  + RunModelOnExonSets      :
+ *  + GetExonSetFromStartNode   :
+ *  + FindComponentBestEnd      :
+ *  + TranslateExonSetNucls     :
+ *  + GrabExonCoordSetNucls     :
+ *  + GetSplicedExonCoordSets   :
+ *  + RightAlignStr             :
+ *  + IntToCharArr              :
+ *  + GetALSBlockLengths        :
+ *  + PrintExon                 :
+ *  + PrintSplicedAlignment     :
+ *  + ReportSplicedTopHits      :
+ *  + CheckHitMatchesExonCoords :
+ *  + RunModelOnExonSets        :
  *
  *
  *
- *  Flagship: SpliceHits
+ *  FLAGSHIP: SpliceHits
+ *
  *
  */
 
@@ -1097,7 +1125,7 @@ TARGET_SEQ * GetTargetNuclSeq
 
   TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
 
-  // This is somewhat deprecated.  Works well on constrained inputs,
+  // GetMinAndMaxCoords is deprecated.  Works well on constrained inputs,
   // but for anything approaching chromosome-scale we need to use
   // 'SetTargetSeqRange' (to account for hits to areas that aren't
   // coding regions)
@@ -1105,6 +1133,10 @@ TARGET_SEQ * GetTargetNuclSeq
   // GetMinAndMaxCoords(TopHits,TargetNuclSeq);
   SetTargetSeqRange(TargetNuclSeq,TopHits);
   TargetNuclSeq->abc = GenomicSeqFile->abc;
+
+
+  // DEBUGGING
+  fprintf(stderr,"\n  Search Sequence: %s\n\n",TargetNuclSeq->SeqName);
 
 
   ESL_SQFILE * TmpSeqFile;
@@ -1134,7 +1166,8 @@ TARGET_SEQ * GetTargetNuclSeq
   esl_sq_Destroy(SeqInfo);
 
   if (fetch_err_code != eslOK) {
-    fprintf(stderr,"\n  ERROR: Failed to fetch target subsequence (is there an .ssi index for the sequence file?)\n\n");
+    fprintf(stderr,"\n  ERROR: Failed to fetch target subsequence (is there an .ssi index for the sequence file?)\n");
+    fprintf(stderr,"         Requested search area: %s:%ld..%ld\n\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
     exit(1);
   }
 
@@ -2330,64 +2363,6 @@ int ExcessiveGapContent
   if (4*num_gaps > AD->N)
     return 1;
 
-
-  return 0;
-
-}
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: HighCTermGapContent < DEPRECATED (Now using ExcessiveGapContent)
- *
- */
-int HighCTermGapContent
-(P7_ALIDISPLAY * AD)
-{
-
-  int model_c_term_gaps   =  0;
-  int num_check_positions = 10;
-  if (AD->N < 10) 
-    num_check_positions = AD->N;
-
-  int i;
-  for (i=AD->N-1; i>=(AD->N-num_check_positions); i--) {
-    if (AD->aseq[i]      == '-') model_c_term_gaps++;
-    if (AD->ntseq[3*i+1] == '-') model_c_term_gaps++;
-  }
-
-  if (model_c_term_gaps > num_check_positions / 2)
-    return 1;
-
-  return 0;
-
-}
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: HighNTermGapContent < DEPRECATED (Now using ExcessiveGapContent)
- *
- */
-int HighNTermGapContent
-(P7_ALIDISPLAY * AD)
-{
-
-  int model_n_term_gaps   =  0;
-  int num_check_positions = 10;
-  if (AD->N < 10) 
-    num_check_positions = AD->N;
-
-  int i;
-  for (i=0; i<num_check_positions; i++) {
-    if (AD->aseq[i]      == '-') model_n_term_gaps++;
-    if (AD->ntseq[3*i+1] == '-') model_n_term_gaps++;
-  }
-
-  if (model_n_term_gaps > num_check_positions / 2)
-    return 1;
 
   return 0;
 
@@ -5902,15 +5877,6 @@ int ** GetSplicedExonCoordSets
 
 
 
-
-
-
-
-
-
-
-
-
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: RightAlignStr
@@ -6555,6 +6521,7 @@ int ReportSplicedTopHits
     fprintf(ofp,"| = Model Positions  %d..%d",model_start,model_end);
     if (full_coverage) fprintf(ofp,"  (* Full Model)");
     fprintf(ofp,"\n");
+    fprintf(ofp,"| = Target Seq Name   %s\n",TargetNuclSeq->SeqName);
     fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
     for (exon_id=0; exon_id<num_exons; exon_id++)
       fprintf(ofp,"| = Exon %d: %d..%d / %d..%d\n",exon_id+1,ExonCoordSet[5*exon_id+2],ExonCoordSet[5*exon_id+4],ExonCoordSet[5*exon_id+1],ExonCoordSet[5*exon_id+3]);
@@ -6985,10 +6952,12 @@ void SpliceHits
   TARGET_SEQ_Destroy(TargetNuclSeq);
 
 
+
   if (DEBUGGING) {
     DEBUG_OUT("'SpliceHits' Complete",-1);
     fprintf(stderr,"\n\n");
   }
+
 
 
   // Very last thing we'll do -- how long were we working on
