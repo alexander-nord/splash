@@ -128,6 +128,17 @@ sub AggregateAllResults
 	my %FivePrimeTwo;
 
 
+	# For large-scale debugging, do we see splice signals that don't
+	# match standard nucleotide codes?
+	my %ValidSpliceNucls;
+	$ValidSpliceNucls{'a'} = 1;
+	$ValidSpliceNucls{'c'} = 1;
+	$ValidSpliceNucls{'g'} = 1;
+	$ValidSpliceNucls{'t'} = 1;
+	$ValidSpliceNucls{'n'} = 1;
+	$ValidSpliceNucls{'-'} = 1;
+
+
 	# How many sequences had some splicing action?
 	# How many covered the full length of the model?
 	# How many (of each of the above) incorporated 'missed' exons?
@@ -328,17 +339,29 @@ sub AggregateAllResults
 
 					$line = <$SummaryFile> unless ($exon_id == 1); # Exon ID
 					$line = <$SummaryFile>; # Model range
-					$line = <$SummaryFile>; # Chromosome
 					$line = <$SummaryFile>; # Nucl. range
 
 
 					$line = <$SummaryFile>; # Splice signal
+					if ($line !~ /\S\S\|\S\S/) {
+						$line =~ s/\n|\r//g;
+					}
+
 					$line =~ /: (\S)(\S)\|(\S)(\S)/;
 
 					my $three_one = lc($1);
 					my $three_two = lc($2);
 					my $five_one  = lc($3);
 					my $five_two  = lc($4);
+
+
+					# DEBUGGING
+					if (!($ValidSpliceNucls{$three_one} && $ValidSpliceNucls{$three_two} && $ValidSpliceNucls{$five_one} && $ValidSpliceNucls{$five_two})) 
+					{
+						print "Unexpected splice signature observed in '$fam_input_name'\n";
+						next;
+					}
+
 
 					my $three = $three_one.$three_two;
 					my $five  = $five_one.$five_two;
@@ -1043,7 +1066,7 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $hmmsearcht_cmd = "$HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			my $hmmsearcht_cmd = "/usr/bin/time -v $HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
 
 			if (system($hmmsearcht_cmd)) 
 			{

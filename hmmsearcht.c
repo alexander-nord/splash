@@ -142,7 +142,7 @@ typedef struct {
  *
  *  Fleet 5: Pertaining to the Final Alignment
  *
- *  + GetExonSetFromStartNode   :
+ *  + GetExonSetFromEndNode     :
  *  + FindComponentBestEnd      :
  *  + TranslateExonSetNucls     :
  *  + GrabExonCoordSetNucls     :
@@ -154,6 +154,7 @@ typedef struct {
  *  + PrintSplicedAlignment     :
  *  + ReportSplicedTopHits      :
  *  + CheckHitMatchesExonCoords :
+ *  + ExonSetCleanup            : [SHOULD BE UNNECESSARY] Checks for exons that move backwards throught the model
  *  + RunModelOnExonSets        :
  *
  *
@@ -4643,7 +4644,7 @@ P7_DOMAIN ** FindSubHits
 
             // If this is too short, we'll skip it
             int ali_len = AD->hmmto - AD->hmmfrom + 1;
-            if (ali_len < sub_hmm_len / 3) {
+            if (ali_len < sub_hmm_len / 3 && ali_len < 12) {
               p7_alidisplay_Destroy(AD);
               continue;
             }
@@ -5284,7 +5285,7 @@ void AddMissingExonsToGraph
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: GetExonSetFromStartNode
+ *  Function: GetExonSetFromEndNode
  *
  *  Desc. :
  *
@@ -6669,6 +6670,106 @@ int CheckHitMatchesExonCoords
 
 
 
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: ExonSetCleanup
+ *
+ */
+void ExonSetCleanup
+(int * ExonCoordSet)
+{
+
+  int num_exons = ExonCoordSet[0];
+
+  int i;
+  int exon_id = 0;
+  while (exon_id < num_exons) {
+
+    if (ExonCoordSet[5*exon_id+2] < ExonCoordSet[5*exon_id+4]) {
+      exon_id++;
+      continue;
+    }
+
+    // UH OH! This exon's gotta go!
+
+
+    // If this is the first exon, just chop it
+    if (exon_id == 0) {
+
+      for (i=exon_id; i<num_exons-1; i++) {
+        ExonCoordSet[5*i+1] = ExonCoordSet[5*(i+1)+1];
+        ExonCoordSet[5*i+2] = ExonCoordSet[5*(i+1)+2];
+        ExonCoordSet[5*i+3] = ExonCoordSet[5*(i+1)+3];
+        ExonCoordSet[5*i+4] = ExonCoordSet[5*(i+1)+4];
+        ExonCoordSet[5*i+5] = ExonCoordSet[5*(i+1)+5];
+      }
+      
+      num_exons--;
+      continue;
+
+    }
+
+
+    // If this is the last exon, also just chop it!
+    if (exon_id == num_exons-1) {
+
+      num_exons--;
+      continue;
+
+    }
+
+
+    // We're somewhere in the middle... Let's see if we can
+    // easily connect up the last upstream and next downstream
+    // exons.
+    // OTHERWISE, I'm going to kill this exon coordinate set,
+    // since it's unreliable.
+    int us_exon_id = exon_id-1;
+    int ds_exon_id = exon_id+1;
+    if (ExonCoordSet[5*us_exon_id+4] + 1 == ExonCoordSet[5*ds_exon_id+2]) {
+
+      // PHEW!
+      for (i=exon_id; i<num_exons-1; i++) {
+        ExonCoordSet[5*i+1] = ExonCoordSet[5*(i+1)+1];
+        ExonCoordSet[5*i+2] = ExonCoordSet[5*(i+1)+2];
+        ExonCoordSet[5*i+3] = ExonCoordSet[5*(i+1)+3];
+        ExonCoordSet[5*i+4] = ExonCoordSet[5*(i+1)+4];
+        ExonCoordSet[5*i+5] = ExonCoordSet[5*(i+1)+5];
+      }
+
+      num_exons--;
+      continue;
+
+    } else {
+
+      fprintf(stderr,"  WARNING:  Exon set terminated for having a reverse-model entry!\n");
+      ExonCoordSet[0] = 0;
+      return;
+
+    }
+
+  }
+
+  ExonCoordSet[0] = num_exons;
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
  *  Function: RunModelOnExonSets
@@ -6736,11 +6837,20 @@ void RunModelOnExonSets
   int exon_set_id;
   for (exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
 
+
+
+    // This is a remnant patch that shouldn't get triggered
+    // (maybe worth running a test where we report if it is...)
+    // but catches cases where a supposed exon goes backwards
+    // in the model.
+    //
+    ExonSetCleanup(ExonCoordSets[exon_set_id]);
+
     
     // If there's only one exon in this set of exons, we'll
     // skip reporting it (maybe have this be a user option?)
     //
-    if (ExonCoordSets[exon_set_id][0] == 1)
+    if (ExonCoordSets[exon_set_id][0] <= 1)
       continue;
 
 
