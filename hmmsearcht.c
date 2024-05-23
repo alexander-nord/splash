@@ -79,87 +79,90 @@ typedef struct {
  *  + EXON_DISPLAY_INFO : Content used for printing the final exon alignments
  *
  *
- *  Fleet 1: Pertaining to Data Preparation
+ *  Fleet 1: Data Preparation / Management
  *
- *  + FloatHighLowSortIndex : 
- *  + FloatLowHighSortIndex :
- *  + GetMinAndMaxCoords    :
- *  + SetTargetSeqRange     :
- *  + GetTargetNuclSeq      :
- *  + GrabNuclRange         :
- *  + DetermineNuclType     :
+ *  + FloatHighLowSortIndex : Generate an index that sorts an array of floats in descending order
+ *  + FloatLowHighSortIndex : Generate an index that sorts an array of floats in  ascending order
+ *  + GetMinAndMaxCoords    : [DEPRECATED] Get the minimum and maximum nucleotide coordinates in a P7_TOPHITS set
+ *  + SetTargetSeqRange     : Given a P7_TOPHITS object, predict what the true coding region is for a protein
+ *  + GetTargetNuclSeq      : Extract the nucleotides corresponding to the range chosen by 'SetTargetSeqRange'
+ *  + GrabNuclRange         : Get the nucleotide sequence of a window within the range extracted by 'GetTargetNuclSeq'
+ *  + DetermineNuclType     : [REDUNDANT WITH EASEL] Determine if a nucleotide sequence is DNA or RNA (defaults to DNA)
  *  
  *
  *
- *  Fleet 2: Pertaining to Splicing Hits
+ *  Fleet 2: Determining How to Splice Pairs of Hits
  *
- *  + SelectSpliceOpt              :
- *  + GetContestedUpstreamNucls    :
- *  + GetContestedDownstreamNucls  :
- *  + AminoScoreAtPosition         :
- *  + FindOptimalSpliceSite        :
- *  + SpliceOverlappingDomains     :
- *  + GetNuclRangesFromAminoCoords :
- *  + SketchSpliceEdge             :
- *  + HitsAreSpliceComaptible      :
- *  + ExcessiveGapContent          :
- *  + OutsideSearchArea            :
- *  + GatherViableSpliceEdges      :
- *
- *
- *
- *  Fleet 3: Pertaining to the Splice Graph
- *
- *  + InitSpliceNode        :
- *  + ConnectNodesByEdge    :
- *  + GatherCTermNodes      :
- *  + EdgeWouldEraseNode    :
- *  + PullUpCumulativeScore :
- *  + EvaluatePaths         :
- *  + FillOutGraphStructure :
- *  + FindBestFullPath      :
- *  + BuildSpliceGraph      :
+ *  + SelectSpliceOpt              : Given a model position and nucleotides, determine an optimal splice junction
+ *  + GetContestedUpstreamNucls    : Pull a nucleotide sequence corresponding to a candidate 5' splice site
+ *  + GetContestedDownstreamNucls  : Pull a nucleotide sequence corresponding to a candidate 3' splice site
+ *  + AminoScoreAtPosition         : ASSUMING THAT WE'RE MOVING THROUGH THE MODEL, determine a positional score
+ *  + FindOptimalSpliceSite        : Examine a DOMAIN_OVERLAP to determine an optimal splicing of two P7_HITs
+ *  + SpliceOverlappingDomains     : Do a bit of bookkeeping around 'FindOptimalSpliceSite'
+ *  + GetNuclRangesFromAminoCoords : Given two P7_HITs that we're considering splicing, determine their nucleotide coordinate ranges
+ *  + SketchSpliceEdge             : Perform any necessary extension to make two P7_HITs splice-able and call 'SpliceOverlappingDomains'
+ *  + HitsAreSpliceComaptible      : Determine whether two hits are positioned correctly in the model/target to be spliced
+ *  + ExcessiveGapContent          : Determine whether a hit is too gappy to be a strong initial candidate for splicing (can be recovered in sub-model search)
+ *  + OutsideSearchArea            : Determine whether a hit is outside of the area selected in 'SetTargetSeqRange'
+ *  + GatherViableSpliceEdges      : Given a P7_TOPHITS, identify all pairs of hits that might be splice-able
  *
  *
  *
- *  Fleet 4: Pertaining to Filling in Gaps (Sub-Model Search)
+ *  Fleet 3: Producing a Splice Graph According to the Spliced Hit Pairs
  *
- *  + ExtractSubProfile         :
- *  + NodesAreDCCCompatible     :
- *  + IdentifyDisConnComponents :
- *  + IdentifyMidSearchRegions  :
- *  + IdentifyTermSearchRegions :
- *  + GetBoundedSearchRegions   :
- *  + SelectFinalSubHits        :
- *  + AminoToIndex              :
- *  + ComputeRoughAliScore      :
- *  + FindSubHits               :
- *  + IntegrateMissedHits       :
- *  + SeekMissingExons          :
- *  + AddMissingExonsToGraph    :
+ *  + InitSpliceNode        : Allocate and initialize a node in our splice graph
+ *  + ConnectNodesByEdge    : Given two nodes implicated in a satisfactorily spliced DOMAIN_OVERLAP, draw an edge in the splice graph
+ *  + GatherCTermNodes      : Derive a list of all nodes in the graph whose corresponding hits terminate at the C-terminal end of the model
+ *  + EdgeWouldEraseNode    : Check if the best path through a node would (effectively) skip that node
+ *  + PullUpCumulativeScore : Recursively determine the best cumulative score leading up to each node in the graph
+ *  + EvaluatePaths         : Prepare for and call 'PullUpCumulativeScore' so we can determine the best path through the graph
+ *  + FillOutGraphStructure : Initialize the splice graph and call 'EvaluatePaths' to produce our complete splice graph
+ *  + FindBestFullPath      : Given a complete splice graph produced by 'FillOutGraphStructure' find an optimal path from model positions 1..M
+ *  + BuildSpliceGraph      : Top-level function for splice graph construction.  Calls 'GatherViableSpliceEdges', 'FillOutGraphStructure', and 'FindBestFullPath'
  *
  *
  *
- *  Fleet 5: Pertaining to the Final Alignment
+ *  Fleet 4: Filling in Gaps in the Splice Graph (Sub-Model Search)
  *
- *  + GetExonSetFromEndNode     :
- *  + FindComponentBestEnd      :
- *  + TranslateExonSetNucls     :
- *  + GrabExonCoordSetNucls     :
- *  + GetSplicedExonCoordSets   :
- *  + RightAlignStr             :
- *  + IntToCharArr              :
- *  + GetALSBlockLengths        :
- *  + PrintExon                 :
- *  + PrintSplicedAlignment     :
- *  + ReportSplicedTopHits      :
- *  + CheckHitMatchesExonCoords :
+ *  + ExtractSubProfile         : Given a P7_PROFILE, extract a portion of that model for windowed Viterbi
+ *  + NodesAreDCCCompatible     : Could a pair of nodes be upstream/downstream partners in a "disconnected component"?
+ *  + IdentifyDisConnComponents : Determine regions where sub-model search might fill in "disconnected components"
+ *  + IdentifyMidSearchRegions  : Determine regions where possible homologous overextension might benefit from sub-model search
+ *  + IdentifyTermSearchRegions : Determine regions where we might need sub-model search to recover terminal exons
+ *  + GetBoundedSearchRegions   : Call each of the 'Identify___' functions and organize sub-model search
+ *  + SelectFinalSubHits        : Given a collection of sub-model hits, determine which ones we like as candidate exons
+ *  + AminoToIndex              : [PROBABLY REDUNDANT WITH SOMETHING] Go from an amino acid character to a numeric index
+ *  + ComputeRoughAliScore      : Use 'AminoScoreAtPosition' to get a quick sense of the score a Viterbi alignment
+ *  + FindSubHits               : Given ranges on the model and the nucleotide target, look for high-scoring missed exons using Viterbi
+ *  + IntegrateMissedHits       : Add the missed exons chosen by 'SelectFinalSubHits' to the splice graph
+ *  + SeekMissingExons          : Manage the search for missed exons, calls 'GetBoundedSearchRegions' and 'FindSubHits'
+ *  + AddMissingExonsToGraph    : Manage filling in holes in the splice graph, calls 'SeekMissingExons' and 'IntegrateMissedHits' (among others)
+ *
+ *
+ *
+ *  Fleet 5: Producing the Final "Exon Set" Alignments
+ *
+ *  + GetExonSetFromEndNode     : Given a node in the splice graph, trace an optimal path to that node and record the implicated model and target coordinates
+ *  + FindComponentBestEnd      : Determine which node in a connected component has the best cumulative score
+ *  + TranslateExonSetNucls     : Translate a nucleotide sequence to amino acids (to serve as the final target for Forward/Backward/Stuff)
+ *  + GrabExonCoordSetNucls     : For a set of exon coordinates, extract their single (spliced) nucleotide sequence
+ *  + GetSplicedExonCoordSets   : Uses 'FindComponentBestEnd' and 'GetExonSetFromEndNode' to determine which paths through the graph we want to report
+ *  + RightAlignStr             : Given a string, return a string with a specific length where the input string's characters are right-aligned
+ *  + IntToCharArr              : Convert an integer to a string
+ *  + GetALSBlockLengths        : Determine the length of strings needed for aesthetically pleasing alignment output
+ *  + PrintExon                 : Output a single exon from a spliced exon set
+ *  + PrintSplicedAlignment     : Output a collection of spliced exons
+ *  + ReportSplicedTopHits      : Manage output
+ *  + CheckHitMatchesExonCoords : Make sure that the results of the P7 pipeline match the exon set we fed into it
  *  + ExonSetCleanup            : [SHOULD BE UNNECESSARY] Checks for exons that move backwards throught the model
- *  + RunModelOnExonSets        :
+ *  + RunModelOnExonSets        : Calls 'GetSplicedExonCoordSets', runs the P7 pipeline on the resulting translations, and calls 'ReportSplicedTopHits'
  *
  *
  *
- *  FLAGSHIP: SpliceHits
+ *  FLAGSHIP: SpliceHits : Calls 'GetTargetNuclSeq' to acquire a general coding region on the nucleotide target
+ *                       : Calls 'BuildSpliceGraph' to build a first pass of the splice graph using the results from translated HMMER
+ *                       : Calls 'AddMissingExonsToGraph' to identify and patch any potential holes in the splice graph (missing exons)
+ *                       : Calls 'RunModelOnExonSets' to generate the final spliced alignments of sets of exons to the model
  *
  *
  */
