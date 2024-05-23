@@ -10,6 +10,7 @@ sub Min { my $A = shift; my $B = shift; return $A if ($A<$B); return $B; }
 
 sub AggregateAllResults;
 sub CompileBasicResults;
+sub GetSumPctCoverage;
 sub FamilySplash;
 sub BigBadSplash;
 sub DetermineTargetSeq;
@@ -111,7 +112,8 @@ sub AggregateAllResults
 	# The header for our coverage file
 	print $CoverageFile "Gene,Sequence-ID,Model-Length,Num-Exon-Sets,";
 	print $CoverageFile "Model-Coverage-of-Best-Exon-Set,Best-ES-Pct-Coverage,";
-	print $CoverageFile "Best-ES-Start-Pos,Best-ES-End-Pos,Time-in-Splash\n";
+	print $CoverageFile "Best-ES-Start-Pos,Best-ES-End-Pos,";
+	print $CoverageFile "Sum-ES-Pct-Coverage,Time-in-Splash\n";
 
 
 	# In case we had weird / discordant output for any inputs,
@@ -260,6 +262,11 @@ sub AggregateAllResults
 			my $best_coverage_set_id; # Probably useless, but *whatever*
 
 
+			# We'll also want to know the sum coverage achieved by
+			# all of the spliced exons
+			my @ExonSetModelRanges;
+
+
 			# In case this hit looked good according to the splice
 			# graph but we couldn't make our data play nicely with
 			# the model, we'll need to be prepared to adjust our
@@ -318,6 +325,12 @@ sub AggregateAllResults
 					$num_discord_exon_sets++;
 					next;
 				}
+
+
+				# Since this exon set isn't "discordant" we can include
+				# it in our understanding of the total coverage of the
+				# model.
+				push(@ExonSetModelRanges,$exon_set_model_start.'..'.$exon_set_model_end);
 
 
 				# Now that we know we didn't have discord with the
@@ -415,12 +428,17 @@ sub AggregateAllResults
 				my $best_coverage_pct = GetPct($best_coverage_len,$model_length);
 
 
+				# Determine the total coverage of the model by all spliced
+				# exons
+				my $sum_coverage_pct = GetSumPctCoverage(\@ExonSetModelRanges,$model_length);
+
+
 				# Hell yeah! We sure were given an input, did something with
 				# it, and then produced an output!  Way to go, us!
 				print $CoverageFile "$family,$fam_input_name,$model_length,";
 				print $CoverageFile "$num_exon_sets,$best_coverage_len,$best_coverage_pct\%,";
 				print $CoverageFile "$best_coverage_start,$best_coverage_end,";
-				print $CoverageFile "$fam_input_runtime\n";
+				print $CoverageFile "$sum_coverage_pct\%,$fam_input_runtime\n";
 
 
 				# Wrap up this input with whether it made use of missed exons
@@ -496,6 +514,14 @@ sub AggregateAllResults
 	print $FinalResults "Inputs w/ Full-Model Splicing     : $num_full_model ($pct_full_model\%)\n";
 	print $FinalResults "Inputs w/ Hits Using Missed Exons : $inputs_with_missed ($pct_with_missed\%)\n";
 	print $FinalResults "Full-Model Hits w/ Missed Exons   : $full_with_missed ($pct_full_w_missed\%)\n";
+
+
+	# The BAD ending
+	if ($total_num_spliced == 0)
+	{
+		close($FinalResults);
+		return;
+	}
 
 
 	# What did splice signals look like?
@@ -922,6 +948,62 @@ sub CompileBasicResults
 	}
 
 	close($SummaryFile);
+
+}
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: GetSumPctCoverage
+#
+sub GetSumPctCoverage
+{
+
+	my $model_ranges_ref = shift;
+	my $model_length = shift;
+
+	my @ModelRanges = @{$model_ranges_ref};
+
+
+	# This is the stupid AND lazy way of doing this,
+	# so it's perfect for me!
+	my @Covered;
+	for (my $i=1; $i<=$model_length; $i++) 
+	{
+		$Covered[$i] = 0;
+	}
+
+
+	foreach my $model_range (@ModelRanges)
+	{
+		
+		$model_range =~ /^(\d+)\.\.(\d+)$/;
+		my $model_start = $1;
+		my $model_end   = $2;
+
+		for (my $i=$model_start; $i<=$model_end; $i++)
+		{
+			$Covered[$i] = 1;
+		}
+
+	}
+
+
+	my $sum_coverage = 0;
+	for (my $i=1; $i<=$model_length; $i++)
+	{
+		$sum_coverage += $Covered[$i];
+	}
+
+
+	return GetPct($sum_coverage,$model_length);
 
 }
 
