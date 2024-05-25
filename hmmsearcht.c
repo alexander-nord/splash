@@ -6110,6 +6110,7 @@ void PrintExon
   while ((EDI->revcomp && current_nucl_pos >= EDI->nucl_end)
          || (!EDI->revcomp && current_nucl_pos <= EDI->nucl_end)) {
 
+
     NuclAli[write_pos] = AD->ntseq[*ad_nucl_read_pos];
     if (NuclAli[write_pos] != '-') {
       if (EDI->revcomp) {
@@ -6119,6 +6120,7 @@ void PrintExon
       }
     }
     *ad_nucl_read_pos += 1;
+
 
     if (*codon_pos == 1) {
       ModelAli[write_pos]   = AD->model[*ad_amino_read_pos];
@@ -6633,67 +6635,39 @@ int * DetermineHitExonCoords
 
     if (AD->model[ali_pos] != '.')
       model_pos++;
-
     
     if (AD->aseq[ali_pos] != '-') {
+      if (revcomp) nucl_pos -= 3;
+      else         nucl_pos += 3;
+    }
+
+
+    // Did we just pass into a new exon?
+    if (model_pos > ExonCoords[5*exon_id+4]) {
+
+      HitExonCoords[5*final_num_exons+3] = ExonCoords[5*exon_id+3];
+      HitExonCoords[5*final_num_exons+4] = model_pos-1;
+      HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
+
+      exon_id++;
 
       if (revcomp) {
-
-        nucl_pos -= 3;
-
-        // Special catch: Don't change exon!
-        if (model_pos == AD->hmmto)
-          break;
-
-        if (nucl_pos < ExonCoords[5*exon_id+3]) {
-
-          HitExonCoords[5*final_num_exons+3] = ExonCoords[5*exon_id+3];
-          HitExonCoords[5*final_num_exons+4] = model_pos-1;
-          HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
-
-          int nucl_offset = (ExonCoords[5*exon_id+3] - nucl_pos) - 1;
-
-          exon_id++;
-          nucl_pos = ExonCoords[5*exon_id+1] - nucl_offset;
-
-          final_num_exons++;
-          HitExonCoords[5*final_num_exons+1] = ExonCoords[5*exon_id+1];
-          HitExonCoords[5*final_num_exons+2] = model_pos;
-
-        }
-
-
+        int nucl_offset = (ExonCoords[5*exon_id+3] - nucl_pos) - 1;
+        nucl_pos = ExonCoords[5*exon_id+1] - nucl_offset;
       } else {
-
-        nucl_pos += 3;
-
-        // Special catch: Don't change exon!
-        if (model_pos == AD->hmmto)
-          break;
-        
-        if (nucl_pos > ExonCoords[5*exon_id+3]) {
-
-          HitExonCoords[5*final_num_exons+3] = ExonCoords[5*exon_id+3];
-          HitExonCoords[5*final_num_exons+4] = model_pos-1;
-          HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
-
-          int nucl_offset = (nucl_pos - ExonCoords[5*exon_id+3]) - 1;
-
-          exon_id++;
-          nucl_pos = ExonCoords[5*exon_id+1] + nucl_offset;
-
-          final_num_exons++;
-          HitExonCoords[5*final_num_exons+1] = ExonCoords[5*exon_id+1];
-          HitExonCoords[5*final_num_exons+2] = model_pos;
-
-
-        }
-
+        int nucl_offset = (nucl_pos - ExonCoords[5*exon_id+3]) - 1;
+        nucl_pos = ExonCoords[5*exon_id+1] + nucl_offset;
       }
+
+      final_num_exons++;
+      HitExonCoords[5*final_num_exons+1] = ExonCoords[5*exon_id+1];
+      HitExonCoords[5*final_num_exons+2] = model_pos;
 
     }
 
+
     ali_pos++;
+
 
   }
 
