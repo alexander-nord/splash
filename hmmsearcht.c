@@ -207,6 +207,10 @@ static char    RNA_CHARS[ 6] = {'A','C','G','U','-','N'};
 static char LC_RNA_CHARS[ 6] = {'a','c','g','u','-','n'};
 
 
+// How many chromosome ranges are we willing to try splicing into?
+static int MAX_TARGET_REGIONS = 5;
+
+
 // How many amino acids are we willing to extend to bridge two hits?  
 // How many overlapping aminos do we require to perform bridging?
 static int MAX_AMINO_EXT     = 6;
@@ -221,6 +225,26 @@ static int MAX_SUB_NUCL_RANGE  = 100000;
 
 int intMax (int a, int b) { if (a>b) return a; return b; }
 int intMin (int a, int b) { if (a<b) return a; return b; }
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////
+//
+//  Struct: TARGET_SET
+//
+//  Desc. : 
+//
+typedef struct _target_set {
+
+  int num_target_seqs;
+
+  char    ** TargetSeqNames; // Also (individually) borrowed pointers!
+  int64_t  * TargetStarts;
+  int64_t  * TargetEnds;
+  int      * TargetIsRevcomp;
+
+} TARGET_SET;
 
 
 
@@ -527,6 +551,24 @@ void DumpGraph(SPLICE_GRAPH * Graph)
 
 
 
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function:  TARGET_SET_Destroy
+ *
+ */
+void TARGET_SET_Destroy
+(TARGET_SET * TS)
+{
+  free(TS->TargetSeqNames);
+  free(TS->TargetStarts);
+  free(TS->TargetEnds);
+  free(TS->TargetIsRevcomp);
+  free(TS);
+}
 
 
 
@@ -902,25 +944,23 @@ void GetMinAndMaxCoords
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: SetTargetSeqRange
+ *  Function: SelectTargetRanges
  *
  *  Desc.: Scan 'TopHits' to determine a bounded search range that we're
  *         inclined to consider the coding region for the input protein.
  *
  */
-void SetTargetSeqRange
-(TARGET_SEQ * TargetNuclSeq, P7_TOPHITS * TopHits)
+TARGET_SET * SelectTargetRanges
+(P7_TOPHITS * TopHits)
 {
 
-  if (DEBUGGING) DEBUG_OUT("Starting 'SetTargetSeqRange'",1);
+  if (DEBUGGING) DEBUG_OUT("Starting 'SelectTargetRanges'",1);
 
 
-  // Our first goal is to come up with a sorting of each hit's
-  // best domain's score.  Once we have those scores, we can
-  // take a quick poll of the (say) 10 best domains to determine
-  // where they're (generally) pointing us.
-  //
-  int hit_id,dom_id;
+  int hit_id, dom_id, i;
+
+
+  // Because we go through
   int num_hits = (int)(TopHits->N);
   float * HitScores = malloc(num_hits * sizeof(float));
   for (hit_id = 0; hit_id < num_hits; hit_id++) {
@@ -928,175 +968,130 @@ void SetTargetSeqRange
     HitScores[hit_id] = (&TopHits->hit[hit_id]->dcl[dom_id])->envsc;
   }
   int * HitScoreSort = FloatHighLowSortIndex(HitScores,num_hits);
-  
-
-  // Sorry, but I only needed you to sort the hits
-  free(HitScores);
 
 
-  // Now, let's get polling!
-  int num_polled_hits      = intMin(10,num_hits);
-  char ** PolledHitTargets = malloc(num_polled_hits*sizeof(char *));
-  int   * PolledHitStrands = malloc(num_polled_hits*sizeof(int));
-  int   * TargetVotes      = malloc(num_polled_hits*sizeof(int));
+  // Initialize our TARGET_SETS struct
+  TARGET_SET * TargetSet     = malloc(sizeof(TARGET_SET));
+  TargetSet->TargetSeqNames  = malloc(MAX_TARGET_REGIONS * sizeof(char *));
+  TargetSet->TargetStarts    = malloc(MAX_TARGET_REGIONS * sizeof(int64_t));
+  TargetSet->TargetEnds      = malloc(MAX_TARGET_REGIONS * sizeof(int64_t));
+  TargetSet->TargetIsRevcomp = malloc(MAX_TARGET_REGIONS * sizeof(int));
 
+
+
+  // We'll need to check each target sequence's length to make sure we don't
+  // let our range exceed the length of the chromosome.
+
+
+
+  int num_targets = 0;
 
   int sort_id;
-  int num_targets = 0;
-  for (sort_id = 0; sort_id<num_polled_hits; sort_id++) {
+  for (sort_id = 0; sort_id < num_hits; sort_id++) {
 
 
-    // The higher-scoring hits get more voting power
-    int vote_power = 1 + (num_polled_hits-sort_id)/2;
+    int base_hit_id = HitScoreSort[sort_id];
+
+    char * CandidateSeqName     = TopHits->hit[base_hit_id]->name;
+    int candidate_best_dom      = TopHits->hit[base_hit_id]->best_domain;
+    P7_ALIDISPLAY * CandidateAD = (&TopHits->hit[base_hit_id]->dcl[candidate_best_dom])->ad;
+
+    int candidate_revcomp = 0;
+    if (CandidateAD->sqfrom > CandidateAD->sqto)
+      candidate_revcomp = 1;
 
 
-    hit_id = HitScoreSort[sort_id];
-    char * PolledHitTarget = TopHits->hit[hit_id]->name;
-
-    
-    dom_id = TopHits->hit[hit_id]->best_domain;
-    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
-
-    int revcomp = 0;
-    if (AD->sqfrom > AD->sqto)
-      revcomp = 1;
-
-
-    int target_id;
     int new_target = 1;
-    for (target_id=0; target_id<num_targets; target_id++) {
-      if (!strcmp(PolledHitTargets[target_id],PolledHitTarget) && PolledHitStrands[target_id] == revcomp) {
-
-        TargetVotes[target_id] += vote_power;
+    for (i=0; i<num_targets; i++) {
+      if (!strcmp(CandidateSeqName,TargetSet->TargetSeqNames[i]) && candidate_revcomp == TargetSet->TargetIsRevcomp[i]) {
         new_target = 0;
-
         break;
-
       }
     }
 
-
-    if (new_target) {
-      PolledHitTargets[num_targets] = PolledHitTarget;
-      PolledHitStrands[num_targets] = revcomp;
-      TargetVotes[num_targets] = vote_power;
-      num_targets++;
-    }
-
-
-  }
-
-
-  // Who wins the vote?
-  int poll_id;
-  int poll_winner_id = 0;
-  int poll_winner_votes = TargetVotes[0];
-  for (poll_id=1; poll_id<num_targets; poll_id++) {
-    if (TargetVotes[poll_id] > poll_winner_votes) {
-      poll_winner_votes = TargetVotes[poll_id];
-      poll_winner_id = poll_id;
-    }
-  }
-
-
-  // Winner winner!
-  TargetNuclSeq->SeqName = PolledHitTargets[poll_winner_id];
-  TargetNuclSeq->revcomp = PolledHitStrands[poll_winner_id];
-
-
-  free(TargetVotes);
-  free(PolledHitTargets);
-  free(PolledHitStrands);
-
-
-  // Now that we know our preferred chromosome, define a coding region!
-  // First, what we'll do is define a hard maximum search area defined
-  // by the highest-scoring hit to this sequence.
-  int64_t min_coord;
-  int64_t max_coord;
-  int64_t min_cap;
-  int64_t max_cap;
-  for (sort_id = 0; sort_id<num_hits; sort_id++) {
-
-
-    int hit_id = HitScoreSort[sort_id];
-
-    if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
+    if (!new_target) 
       continue;
 
 
-    dom_id = TopHits->hit[hit_id]->best_domain;
-    P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+    // Now that we know this is a new chromosome, define a coding region!
+    // First, what we'll do is define a hard maximum search area defined
+    // by the highest-scoring hit to this sequence.
+    int64_t min_coord, max_coord;
+    if (candidate_revcomp) {
+      min_coord = CandidateAD->sqto;
+      max_coord = CandidateAD->sqfrom;
+    } else {
+      min_coord = CandidateAD->sqfrom;
+      max_coord = CandidateAD->sqto;
+    }
+
+    int64_t min_cap = min_coord - 1000000;
+    int64_t max_cap = max_coord + 1000000;
 
 
-    if ( TargetNuclSeq->revcomp && AD->sqfrom < AD->sqto) continue;
-    if (!TargetNuclSeq->revcomp && AD->sqfrom > AD->sqto) continue;
+    // The min_cap and max_cap now define the absolute furthest we're
+    // willing to go for our search region, but ideally we can shrink
+    // down to a much tighter zone
+    for (hit_id = 0; hit_id < num_hits; hit_id++) {
 
 
-    min_coord = AD->sqfrom;
-    if (AD->sqto < min_coord)
-      min_coord = AD->sqto;
-
-    max_coord = AD->sqfrom;
-    if (AD->sqto > max_coord)
-      max_coord = AD->sqto;
-
-    min_cap = min_coord - 1000000;
-    max_cap = max_coord + 1000000;
+      if (strcmp(CandidateSeqName,TopHits->hit[hit_id]->name))
+        continue;
 
 
-    break;
+      P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[0])->ad; 
+
+      if ( candidate_revcomp && AD->sqfrom < AD->sqto) continue;
+      if (!candidate_revcomp && AD->sqfrom > AD->sqto) continue;
 
 
-  }
-  free(HitScoreSort);
-
-
-
-  // Now that we know the absolute min/max of the search zone,
-  // we can check all hits to define the actual search zone.
-  //
-  for (hit_id = 0; hit_id < num_hits; hit_id++) {
-
-
-    if (strcmp(TargetNuclSeq->SeqName,TopHits->hit[hit_id]->name))
-      continue;
-
-
-    for (dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
-  
+      for (dom_id = 0; dom_id < TopHits->hit[hit_id]->ndom; dom_id++) {
       
-      P7_ALIDISPLAY * AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
+          
+        AD = (&TopHits->hit[hit_id]->dcl[dom_id])->ad;
 
-      if ( TargetNuclSeq->revcomp && AD->sqfrom < AD->sqto) continue;
-      if (!TargetNuclSeq->revcomp && AD->sqfrom > AD->sqto) continue;
+        // New minimum?
+        // We could revcomp check, but I don't know if it's any faster...
+        if (AD->sqto < min_coord && AD->sqto > min_cap)
+          min_coord = AD->sqto;
+          
+        if (AD->sqfrom < min_coord && AD->sqfrom > min_cap)
+          min_coord = AD->sqfrom;
+          
 
+        // New maximum?
+        if (AD->sqto > max_coord && AD->sqto < max_cap)
+          max_coord = AD->sqto;
+          
+        if (AD->sqfrom > max_coord && AD->sqfrom < max_cap)
+          max_coord = AD->sqfrom;
 
-      // New minimum?
-      if (AD->sqto < min_coord && AD->sqto > min_cap)
-        min_coord = AD->sqto;
-      
-      if (AD->sqfrom < min_coord && AD->sqfrom > min_cap)
-        min_coord = AD->sqfrom;
-      
-
-      // New maximum?
-      if (AD->sqto > max_coord && AD->sqto < max_cap)
-        max_coord = AD->sqto;
-      
-      if (AD->sqfrom > max_coord && AD->sqfrom < max_cap)
-        max_coord = AD->sqfrom;
+      }
 
     }
 
+
+    TargetSet->TargetSeqNames[num_targets]  = CandidateSeqName;
+    TargetSet->TargetStarts[num_targets]    = min_coord;
+    TargetSet->TargetEnds[num_targets]      = max_coord;
+    TargetSet->TargetIsRevcomp[num_targets] = candidate_revcomp;
+
+    num_targets++;
+
+    if (num_targets == MAX_TARGET_REGIONS)
+      break;
+
+
   }
 
 
-  TargetNuclSeq->start = min_coord;
-  TargetNuclSeq->end   = max_coord;
+  TargetSet->num_target_seqs = num_targets;
 
 
-  if (DEBUGGING) DEBUG_OUT("'SetTargetSeqRange' Complete",-1);
+  if (DEBUGGING) DEBUG_OUT("'SelectTargetRanges' Complete",-1);
+
+
+  return TargetSet;
 
 
 }
@@ -1130,31 +1125,25 @@ void SetTargetSeqRange
  *
  */
 TARGET_SEQ * GetTargetNuclSeq
-(ESL_SQFILE * GenomicSeqFile, P7_TOPHITS * TopHits)
+(ESL_SQFILE * GenomicSeqFile, TARGET_SET * TargetSet, int target_set_id)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'GetTargetNuclSeq'",1);
 
+
   TARGET_SEQ * TargetNuclSeq = (TARGET_SEQ *)malloc(sizeof(TARGET_SEQ));
 
-  // GetMinAndMaxCoords is deprecated.  Works well on constrained inputs,
-  // but for anything approaching chromosome-scale we need to use
-  // 'SetTargetSeqRange' (to account for hits to areas that aren't
-  // coding regions)
-  //
-  // GetMinAndMaxCoords(TopHits,TargetNuclSeq);
-  SetTargetSeqRange(TargetNuclSeq,TopHits);
-  TargetNuclSeq->abc = GenomicSeqFile->abc;
 
-
-  // DEBUGGING
-  //fprintf(stderr,"\n  Search Sequence: %s:%ld..%ld\n\n",TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end);
+  TargetNuclSeq->abc     = GenomicSeqFile->abc;
+  TargetNuclSeq->SeqName = TargetSet->TargetSeqNames[target_set_id];
+  TargetNuclSeq->start   = TargetSet->TargetStarts[target_set_id];
+  TargetNuclSeq->end     = TargetSet->TargetEnds[target_set_id];
+  TargetNuclSeq->revcomp = TargetSet->TargetIsRevcomp[target_set_id];
 
 
   ESL_SQFILE * TmpSeqFile;
   esl_sqfile_Open(GenomicSeqFile->filename,GenomicSeqFile->format,NULL,&TmpSeqFile);
   esl_sqfile_OpenSSI(TmpSeqFile,NULL);
-
 
   ESL_SQ * SeqInfo = esl_sq_Create();
   esl_sqio_FetchInfo(TmpSeqFile,TargetNuclSeq->SeqName,SeqInfo);
@@ -1162,11 +1151,11 @@ TARGET_SEQ * GetTargetNuclSeq
 
   // In case there's a terminal search region we need to consider,
   // pull in a bit of extra sequence
-  TargetNuclSeq->start -= 25000;
+  TargetNuclSeq->start -= MAX_SUB_NUCL_RANGE;
   if (TargetNuclSeq->start < 1)
     TargetNuclSeq->start = 1;
   
-  TargetNuclSeq->end += 25000;
+  TargetNuclSeq->end += MAX_SUB_NUCL_RANGE;
   if (TargetNuclSeq->end > SeqInfo->L)
     TargetNuclSeq->end = SeqInfo->L;
 
@@ -1174,8 +1163,10 @@ TARGET_SEQ * GetTargetNuclSeq
   TargetNuclSeq->esl_sq = esl_sq_CreateDigital(TargetNuclSeq->abc);
   int fetch_err_code    = esl_sqio_FetchSubseq(TmpSeqFile,TargetNuclSeq->SeqName,TargetNuclSeq->start,TargetNuclSeq->end,TargetNuclSeq->esl_sq);
 
+
   esl_sqfile_Close(TmpSeqFile);
   esl_sq_Destroy(SeqInfo);
+
 
   if (fetch_err_code != eslOK) {
     fprintf(stderr,"\n  ERROR: Failed to fetch target subsequence (is there an .ssi index for the sequence file?)\n");
@@ -1183,11 +1174,15 @@ TARGET_SEQ * GetTargetNuclSeq
     exit(1);
   }
 
+
   TargetNuclSeq->Seq = TargetNuclSeq->esl_sq->dsq;
+
 
   if (DEBUGGING) DEBUG_OUT("'GetTargetNuclSeq' Complete",-1);
 
+
   return TargetNuclSeq;
+
 
 }
 
@@ -7025,47 +7020,64 @@ void SpliceHits
 
 
 
-  // Given that our hits are organized by target sequence, we can
-  // be a bit more efficient in our file reading by only pulling
-  // target sequences as they change (wrt the upstream hit)
-  //
-  TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TopHits);
+  // We'll iterate over search regions (max-2MB ranges of chromosomes)
+  TARGET_SET * TargetSet = SelectTargetRanges(TopHits);
 
 
 
-  // This function encapsulates a *ton* of the work we do.
-  // In short, take the collection of unspliced hits and build
-  // a splice graph representing all (reasonable) ways of splicing
-  // them.
-  //
-  SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,TargetNuclSeq,gm,om,gcode);
+  int target_set_id;
+  for (target_set_id = 0; target_set_id < TargetSet->num_target_seqs; target_set_id++) {
 
 
 
-  // Evaluate the graph for any holes (or possible holes)
-  // worth plugging
-  //
-  AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
+    // Given that our hits are organized by target sequence, we can
+    // be a bit more efficient in our file reading by only pulling
+    // target sequences as they change (wrt the upstream hit)
+    //
+    TARGET_SEQ * TargetNuclSeq = GetTargetNuclSeq(GenomicSeqFile,TargetSet,target_set_id);
 
 
 
-  // If we're debugging, it might be useful to get a quick
-  // picture of what our final splice graph looks like.
-  //
-  if (DEBUGGING) DumpGraph(Graph);
+    // This function encapsulates a *ton* of the work we do.
+    // In short, take the collection of unspliced hits and build
+    // a splice graph representing all (reasonable) ways of splicing
+    // them.
+    //
+    SPLICE_GRAPH * Graph = BuildSpliceGraph(TopHits,TargetNuclSeq,gm,om,gcode);
 
 
 
-  // Re-run the model on the extracted nucleotide sequence(s)
-  // for each connected component of the graph.
-  //
-  RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go,ofp,textw);
+    // Evaluate the graph for any holes (or possible holes)
+    // worth plugging
+    //
+    AddMissingExonsToGraph(Graph,TargetNuclSeq,gcode);
 
 
 
-  // CLEANUP
-  SPLICE_GRAPH_Destroy(Graph);
-  TARGET_SEQ_Destroy(TargetNuclSeq);
+    // If we're debugging, it might be useful to get a quick
+    // picture of what our final splice graph looks like.
+    //
+    if (DEBUGGING) DumpGraph(Graph);
+
+
+
+    // Re-run the model on the extracted nucleotide sequence(s)
+    // for each connected component of the graph.
+    //
+    RunModelOnExonSets(Graph,TargetNuclSeq,gcode,go,ofp,textw);
+
+
+
+    // CLEANUP
+    SPLICE_GRAPH_Destroy(Graph);
+    TARGET_SEQ_Destroy(TargetNuclSeq);
+
+
+  }
+
+
+  // More cleanup!
+  TARGET_SET_Destroy(TargetSet);
 
 
 
