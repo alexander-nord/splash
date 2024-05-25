@@ -5810,7 +5810,7 @@ void CheckTerminusProximity
  *
  */
 int ** GetSplicedExonCoordSets
-(SPLICE_GRAPH * Graph, int * num_exon_sets)
+(SPLICE_GRAPH * Graph, int * num_coord_sets)
 {
 
   if (DEBUGGING) DEBUG_OUT("Starting 'GetSplicedExonCoordSets'",1);
@@ -5870,7 +5870,7 @@ int ** GetSplicedExonCoordSets
 
 
   // Easy!
-  *num_exon_sets = num_conn_comps;
+  *num_coord_sets = num_conn_comps;
   return ExonCoordSets;
 
 }
@@ -6352,12 +6352,12 @@ void PrintExon
  */
 void PrintSplicedAlignment
 (
-  P7_HIT     * Hit, 
-  TARGET_SEQ * TargetNuclSeq, 
-  int        * ExonCoordSet, 
-  int          exon_set_name_id, 
-  FILE       * ofp, 
-  int          textw
+  P7_ALIDISPLAY * AD, 
+  TARGET_SEQ    * TargetNuclSeq, 
+  int           * ExonCoordSet, 
+  int             exon_set_name_id, 
+  FILE          * ofp, 
+  int             textw
 )
 {
 
@@ -6366,21 +6366,18 @@ void PrintSplicedAlignment
   int i;
 
   EXON_DISPLAY_INFO * EDI = malloc(sizeof(EXON_DISPLAY_INFO));
-
-
-  int best_domain  = Hit->best_domain;
   EDI->ofp         = ofp;
   EDI->textw       = textw;
-  EDI->AD          = (&Hit->dcl[best_domain])->ad;
+  EDI->AD          = AD;
   EDI->exon_set_id = exon_set_name_id;
 
 
   GetALSBlockLengths(EDI->AD,&(EDI->name_str_len),ExonCoordSet,&(EDI->coord_str_len));
 
-  EDI->HMMName   = RightAlignStr(EDI->AD->hmmname,EDI->name_str_len);
-  EDI->TransName = RightAlignStr(EDI->AD->orfname,EDI->name_str_len);
-  EDI->NuclName  = RightAlignStr(EDI->AD->sqname ,EDI->name_str_len);
-  EDI->NameBlank = RightAlignStr(" "             ,EDI->name_str_len);
+  EDI->HMMName   = RightAlignStr(AD->hmmname,EDI->name_str_len);
+  EDI->TransName = RightAlignStr(AD->orfname,EDI->name_str_len);
+  EDI->NuclName  = RightAlignStr(AD->sqname ,EDI->name_str_len);
+  EDI->NameBlank = RightAlignStr(" "        ,EDI->name_str_len);
 
 
   EDI->CoordBlank = malloc((EDI->coord_str_len+1)*sizeof(char));
@@ -6439,6 +6436,264 @@ void PrintSplicedAlignment
 
 
 
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: DumpSplashHeader / DumpSplashFooter
+ *
+ */
+void DumpSplashHeader
+(
+  SPLICE_GRAPH * Graph,
+  TARGET_SEQ * TargetNuclSeq,
+  int exon_set_name_id,
+  int * ExonCoordSet, 
+  FILE * ofp, 
+  int textw
+)
+{
+
+  int exon_id, i;
+
+  int num_exons   = ExonCoordSet[0];
+  int model_start = ExonCoordSet[2];
+  int model_end   = ExonCoordSet[4 + 5*(num_exons-1)];
+  int nucl_start  = ExonCoordSet[1];
+  int nucl_end    = ExonCoordSet[3 + 5*(num_exons-1)];
+
+
+  int full_coverage = 0;
+  if (model_start == 1 && model_end == Graph->Model->M) 
+    full_coverage = 1;
+
+
+  int num_found_exons = 0;
+  for (exon_id=0; exon_id<num_exons; exon_id++) {
+    int node_id = ExonCoordSet[5 + 5*exon_id];
+    if (Graph->Nodes[node_id]->was_missed)
+      num_found_exons++;
+  }
+
+
+  fprintf(ofp,"\n\n+");
+  for (i=0; i<textw-2; i++)
+    fprintf(ofp,"=");
+  fprintf(ofp,"+\n");
+  fprintf(ofp,"|\n");
+  fprintf(ofp,"| splash - spliced alignment of some hits\n");
+  fprintf(ofp,"|\n");
+  fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
+  fprintf(ofp,"| = Model Positions %d..%d",model_start,model_end);
+  if (full_coverage) 
+    fprintf(ofp,"  (* Full Model)");
+  fprintf(ofp,"\n");
+  fprintf(ofp,"| = Target Seq Name %s\n",TargetNuclSeq->SeqName);
+  fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
+  for (exon_id=0; exon_id<num_exons; exon_id++)
+    fprintf(ofp,"| = Exon %d: %d..%d / %d..%d\n",exon_id+1,ExonCoordSet[5*exon_id+2],ExonCoordSet[5*exon_id+4],ExonCoordSet[5*exon_id+1],ExonCoordSet[5*exon_id+3]);
+  if (num_found_exons) 
+    fprintf(ofp,"| + Includes Missed Exons\n");
+  fprintf(ofp,"|\n");
+  fprintf(ofp,":\n");
+
+
+}
+void DumpSplashFooter
+(FILE * ofp, int textw)
+{
+  fprintf(ofp,":\n");
+  fprintf(ofp,"|\n");
+  fprintf(ofp,"+");
+  int i;
+  for (i=0; i<textw-2; i++)
+    fprintf(ofp,"=");
+  fprintf(ofp,"+\n");
+  fprintf(ofp,"\n\n"); 
+}
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ *  Function: DetermineHitExonCoords
+ *
+ *  Desc. :
+ *
+ */
+int * DetermineHitExonCoords
+(P7_ALIDISPLAY * AD, int * ExonCoords)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'DetermineHitExonCoords'",1);
+
+
+  int revcomp = 0;
+  if (ExonCoords[1] > ExonCoords[3])
+    revcomp = 1;
+
+
+  // Advance through the exon coordinates until we've hit the
+  // model position that kicks off the alignment that the
+  // HMMER pipeline wants us to use.
+  //
+  int model_pos = ExonCoords[2];
+  int nucl_pos  = ExonCoords[1];
+
+  // We want to track the center nucleotide of the codon for this
+  // portion
+  if (revcomp) nucl_pos--;
+  else         nucl_pos++;
+
+  int exon_id = 0;
+  while (model_pos < AD->hmmfrom) {
+
+
+    if (revcomp) {
+        
+      nucl_pos -= 3;
+
+      // Jump to the next exon?
+      if (nucl_pos <= ExonCoords[5*exon_id+3]) {
+
+        // We need to make sure we account for whatever the splice offset is
+        int nucl_offset = ExonCoords[5*exon_id+3] - nucl_pos;
+
+        exon_id++;
+        nucl_pos = ExonCoords[5*exon_id+1] - nucl_offset;
+
+      }
+
+    } else {
+
+      nucl_pos += 3;
+
+      if (nucl_pos >= ExonCoords[5*exon_id+3]) {
+
+        int nucl_offset = nucl_pos - ExonCoords[5*exon_id+3]; 
+
+        exon_id++;
+        nucl_pos = ExonCoords[5*exon_id+1] + nucl_offset;
+
+      }
+        
+    }
+
+    model_pos++;
+
+  }
+
+
+  // Initialize our output coordinate set to have as many exons
+  // as the input coordinate set (ideally, all we're going to do
+  // is create a copy of 'ExonCoords'...)
+  int * HitExonCoords = malloc((1 + 5 * ExonCoords[0]) * sizeof(int));
+
+  // Because we're tracking the middle nucleotide, we'll need to make
+  // a little adjustment
+  if (revcomp) HitExonCoords[1] = nucl_pos+1;
+  else         HitExonCoords[1] = nucl_pos-1;
+  HitExonCoords[2] = model_pos;
+
+  int final_num_exons = 0;
+  int ali_pos = 0;
+  while (model_pos < AD->hmmto) {
+
+
+    if (AD->model[ali_pos] != '.')
+      model_pos++;
+
+    
+    if (AD->aseq[ali_pos] != '-') {
+
+      if (revcomp) {
+
+        nucl_pos -= 3;
+
+        // Special catch: Don't change exon!
+        if (model_pos == AD->hmmto)
+          break;
+
+        if (nucl_pos < ExonCoords[5*exon_id+3]) {
+
+          HitExonCoords[5*final_num_exons+3] = ExonCoords[5*exon_id+3];
+          HitExonCoords[5*final_num_exons+4] = model_pos-1;
+          HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
+
+          int nucl_offset = (ExonCoords[5*exon_id+3] - nucl_pos) - 1;
+
+          exon_id++;
+          nucl_pos = ExonCoords[5*exon_id+1] - nucl_offset;
+
+          final_num_exons++;
+          HitExonCoords[5*final_num_exons+1] = ExonCoords[5*exon_id+1];
+          HitExonCoords[5*final_num_exons+2] = model_pos;
+
+        }
+
+
+      } else {
+
+        nucl_pos += 3;
+
+        // Special catch: Don't change exon!
+        if (model_pos == AD->hmmto)
+          break;
+        
+        if (nucl_pos > ExonCoords[5*exon_id+3]) {
+
+          HitExonCoords[5*final_num_exons+3] = ExonCoords[5*exon_id+3];
+          HitExonCoords[5*final_num_exons+4] = model_pos-1;
+          HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
+
+          int nucl_offset = (nucl_pos - ExonCoords[5*exon_id+3]) - 1;
+
+          exon_id++;
+          nucl_pos = ExonCoords[5*exon_id+1] + nucl_offset;
+
+          final_num_exons++;
+          HitExonCoords[5*final_num_exons+1] = ExonCoords[5*exon_id+1];
+          HitExonCoords[5*final_num_exons+2] = model_pos;
+
+
+        }
+
+      }
+
+    }
+
+    ali_pos++;
+
+  }
+
+
+  if (revcomp) nucl_pos--;
+  else         nucl_pos++;
+  HitExonCoords[5*final_num_exons+3] = nucl_pos;
+  HitExonCoords[5*final_num_exons+4] = model_pos;
+  HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
+
+  HitExonCoords[0] = final_num_exons+1;
+
+
+  if (DEBUGGING) DEBUG_OUT("'DetermineHitExonCoords' Complete",-1);
+
+
+  return HitExonCoords;
+
+}
+
+
+
+
+
+
+
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -6456,21 +6711,20 @@ void PrintSplicedAlignment
  *  Output:
  *
  */
-int ReportSplicedTopHits
+void ReportSplicedTopHits
 (
   SPLICE_GRAPH * Graph,
   P7_TOPHITS   * ExonSetTopHits, 
   P7_PIPELINE  * ExonSetPipeline, 
   TARGET_SEQ   * TargetNuclSeq, 
   int          * ExonCoordSet,
-  int            exon_set_name_id, // just exon_set_id+1, for output
-  int            hit_matches_coords,
+  int          * exon_set_name_id,
   FILE         * ofp,
   int            textw
 )
 {
 
-  //
+
   // FOR NOW: I'm just going to use this printing style until
   //          we're getting to this point with *every* test case,
   //          and then I'll get the 'ExonCoordSet' data integrated. 
@@ -6481,77 +6735,19 @@ int ReportSplicedTopHits
   p7_tophits_Threshold(ExonSetTopHits,ExonSetPipeline);
 
 
-  int exon_id,i;
-  //DEBUGGING
-  //fprintf(stderr,"\n\n");
-  //fprintf(ofp,"Exon Set %d (%d exons)\n",exon_set_name_id,ExonCoordSet[0]);
-  //for (exon_id=0; exon_id<ExonCoordSet[0]; exon_id++) {
-  //fprintf(ofp,"  + Exon %d\n",exon_id+1);
-  //fprintf(ofp,"    Model Range:  %d..%d\n",ExonCoordSet[exon_id*5+2],ExonCoordSet[exon_id*5+4]);
-  //fprintf(ofp,"    Nucl. Range:  %d..%d\n",ExonCoordSet[exon_id*5+1],ExonCoordSet[exon_id*5+3]);
-  //}
-  //fprintf(ofp,"\n\n");
-
-
-  int num_exons   = ExonCoordSet[0];
-  int model_start = ExonCoordSet[2];
-  int model_end   = ExonCoordSet[4 + 5*(num_exons-1)];
-  int nucl_start  = ExonCoordSet[1];
-  int nucl_end    = ExonCoordSet[3 + 5*(num_exons-1)];
-
-
-  // If Alex is running this, he probably wants to
-  // make the output as cluttered as possible (and
-  // we all love that about him... right?).
-  //
-  if (ALEX_MODE) {
-
-    int full_coverage = 0;
-    if (model_start == 1 && model_end == Graph->Model->M) 
-      full_coverage = 1;
-
-    int num_found_exons = 0;
-    for (exon_id=0; exon_id<num_exons; exon_id++) {
-      int node_id = ExonCoordSet[5 + 5*exon_id];
-      if (Graph->Nodes[node_id]->was_missed)
-        num_found_exons++;
-    }
-
-    fprintf(ofp,"\n\n+");
-    for (i=0; i<=textw; i++)
-      fprintf(ofp,"=");
-    fprintf(ofp,"+\n");
-    fprintf(ofp,"|\n");
-    fprintf(ofp,"| splash - spliced alignment of some hits\n");
-    fprintf(ofp,"|\n");
-    fprintf(ofp,"| = Exon Set %d (%d exons)\n",exon_set_name_id,num_exons);
-    fprintf(ofp,"| = Model Positions %d..%d",model_start,model_end);
-    if (full_coverage) fprintf(ofp,"  (* Full Model)");
-    fprintf(ofp,"\n");
-    fprintf(ofp,"| = Target Seq Name %s\n",TargetNuclSeq->SeqName);
-    fprintf(ofp,"| = Nucleotide Coords %d..%d\n",nucl_start,nucl_end);
-    for (exon_id=0; exon_id<num_exons; exon_id++)
-      fprintf(ofp,"| = Exon %d: %d..%d / %d..%d\n",exon_id+1,ExonCoordSet[5*exon_id+2],ExonCoordSet[5*exon_id+4],ExonCoordSet[5*exon_id+1],ExonCoordSet[5*exon_id+3]);
-    if (num_found_exons) 
-      fprintf(ofp,"| + Includes Missed Exons\n");
-    if (!hit_matches_coords)
-      fprintf(ofp,"| + WARNING: Exon Set NOT Well Represented in Search Output\n");
-    fprintf(ofp,"|\n");
-    fprintf(ofp,":\n");
-  
-  }
-
 
   // Give the standard metadata
-  fprintf(ofp,"\n\n");
-  p7_tophits_Targets(ofp, ExonSetTopHits, ExonSetPipeline, textw); 
-  fprintf(ofp,"\n\n");
+  //
+  //fprintf(ofp,"\n\n");
+  //p7_tophits_Targets(ofp, ExonSetTopHits, ExonSetPipeline, textw); 
+  //fprintf(ofp,"\n\n");
   
 
   // For now, if there isn't just one solid hit then we'll default to
   // standard output (this should be considered an extremely rare/bug
   // scenario if we encounter it...) << RAT DNM1 ISOFORM 3!!!!
   //
+  /*
   if (ExonSetTopHits->N != 1 || !hit_matches_coords) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
@@ -6559,105 +6755,36 @@ int ReportSplicedTopHits
       p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
+  */
+  int hit_id, dom_id;
+  for (hit_id = 0; hit_id < (int)(ExonSetTopHits->N); hit_id++) {
+    for (dom_id = 0; dom_id < ExonSetTopHits->hit[hit_id]->ndom; dom_id++) {
 
 
-  // You thought Alex was done making a mess of things?! HA!
-  if (ALEX_MODE) {
-    fprintf(ofp,":\n");
-    fprintf(ofp,"|\n");
-    fprintf(ofp,"+");
-    for (i=0; i<=textw; i++)
-      fprintf(ofp,"=");
-    fprintf(ofp,"+\n");
+      P7_ALIDISPLAY * AD  = (&ExonSetTopHits->hit[hit_id]->dcl[dom_id])->ad;
+      int * HitExonCoords = DetermineHitExonCoords(AD,ExonCoordSet);
+
+      *exon_set_name_id += 1;
+
+
+      // If Alex is running this, he probably wants to
+      // make the output as cluttered as possible (and
+      // we all love that about him... right?).
+      //
+      if (ALEX_MODE) DumpSplashHeader(Graph,TargetNuclSeq,*exon_set_name_id,HitExonCoords,ofp,textw);
+
+
+      PrintSplicedAlignment(AD,TargetNuclSeq,HitExonCoords,*exon_set_name_id,ofp,textw);
+
+
+      // You thought Alex was done making a mess of things?! HA!
+      if (ALEX_MODE) DumpSplashFooter(ofp,textw);
+
+
+      free(HitExonCoords);
+
+    }
   }
-  fprintf(ofp,"\n\n");
-
-
-  return 0;
-
-}
-
-
-
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- *  Function: CheckHitMatchesExonCoords
- *
- */
-int CheckHitMatchesExonCoords
-(P7_TOPHITS * ExonSetTopHits, int * ExonCoordSet)
-{
-
-  // First off, if we have more than one hit we'll just
-  // jump ship now (again, this would be considered a bad
-  // outcome, but I don't think it's likely to occur...)
-  if (ExonSetTopHits->N != 1) return 0;
-
-
-  // Grab the (possibly "adjusted") hmmfrom and hmmto coordinates
-  int best_domain    = ExonSetTopHits->hit[0]->best_domain;
-  P7_ALIDISPLAY * AD = (&ExonSetTopHits->hit[0]->dcl[best_domain])->ad;
-  int hit_hmmfrom = AD->hmmfrom;
-  int hit_hmmto   = AD->hmmto;
-
-
-  // What range do we have based on our exon coordinate set?
-  int ecs_hmmfrom = ExonCoordSet[2];
-  int ecs_hmmto   = ExonCoordSet[5*(ExonCoordSet[0]-1)+4];
-
-
-  // Is there a *significant* difference between the two?
-  // If so, I don't feel confident that I can reconcile
-  // these without significant reverse-engineering.
-  int total_position_diff = abs(hit_hmmfrom-ecs_hmmfrom) + abs(hit_hmmto-ecs_hmmto);
-  if (total_position_diff > 20)
-    return 0;
-
-
-  // Which way are we pointed?
-  int strand = 3;
-  if (ExonCoordSet[1] > ExonCoordSet[3])
-    strand = -3;
-
-
-  // We'll consider imperfect matches so long as
-  // they don't require cutting off an entire exon
-  int start_pos_diff = hit_hmmfrom - ExonCoordSet[2];
-  if (start_pos_diff) {
-
-    if (hit_hmmfrom >= ExonCoordSet[4])
-      return 0;
-
-    ExonCoordSet[2]  = hit_hmmfrom;
-    ExonCoordSet[1] += start_pos_diff * strand;
-
-  }
-
-
-  // Again, don't let a full exon fall off!
-  int final_exon_index = 5 * (ExonCoordSet[0]-1);
-  int end_pos_diff     = ExonCoordSet[final_exon_index+4] - hit_hmmto;
-  if (end_pos_diff) {
-  
-    if (hit_hmmto <= ExonCoordSet[final_exon_index + 2])
-      return 0;
-
-    ExonCoordSet[final_exon_index + 4]  = hit_hmmto;
-    ExonCoordSet[final_exon_index + 3] -= end_pos_diff * strand;
-
-  }
-
-
-  // Whatever changes were made, they didn't bust up our
-  // understanding of how splicing should work!
-  return 1;
-
 
 }
 
@@ -6802,24 +6929,11 @@ void RunModelOnExonSets
   if (DEBUGGING) DEBUG_OUT("Starting 'RunModelOnExonSets'",1);
 
 
-  int num_exon_sets;
-  int ** ExonCoordSets = GetSplicedExonCoordSets(Graph,&num_exon_sets);
+  int num_coord_sets;
+  int ** ExonCoordSets = GetSplicedExonCoordSets(Graph,&num_coord_sets);
 
 
-  // Are any of our coordinate sets obnoxiously close to
-  // either end of the model?
-  //
-  // NOTE: I'm turning this off.  It *would* be useful if I could
-  //       override the fwd/bck pipeline / force full-model alignment,
-  //       but I can't, so I'm not going to risk messing up my
-  //       bookkeeping.
-  //
-  //int i;
-  //for (i=0; i<num_exon_sets; i++)
-  //CheckTerminusProximity(ExonCoordSets[i],TargetNuclSeq,Graph,gcode);
-
-
-  if (DEBUGGING) DumpExonSets(ExonCoordSets,num_exon_sets,TargetNuclSeq,gcode);
+  if (DEBUGGING) DumpExonSets(ExonCoordSets,num_coord_sets,TargetNuclSeq,gcode);
 
 
   // It's better to be re-using these than destroying
@@ -6832,8 +6946,9 @@ void RunModelOnExonSets
   P7_BG       * ExonSetBackground = p7_bg_Create(Graph->OModel->abc);
 
 
-  int exon_set_id;
-  for (exon_set_id = 0; exon_set_id < num_exon_sets; exon_set_id++) {
+  int coord_set_id;
+  int exon_set_id = 0;
+  for (coord_set_id = 0; coord_set_id < num_coord_sets; coord_set_id++) {
 
 
 
@@ -6842,13 +6957,13 @@ void RunModelOnExonSets
     // but catches cases where a supposed exon goes backwards
     // in the model.
     //
-    ExonSetCleanup(ExonCoordSets[exon_set_id]);
+    ExonSetCleanup(ExonCoordSets[coord_set_id]);
 
     
     // If there's only one exon in this set of exons, we'll
     // skip reporting it (maybe have this be a user option?)
     //
-    if (ExonCoordSets[exon_set_id][0] <= 1)
+    if (ExonCoordSets[coord_set_id][0] <= 1)
       continue;
 
 
@@ -6856,9 +6971,9 @@ void RunModelOnExonSets
     // convert them to a textized ESL_SQ
     //
     int coding_region_len;
-    ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[exon_set_id],TargetNuclSeq,&coding_region_len);
+    ESL_DSQ * ExonSetNucls = GrabExonCoordSetNucls(ExonCoordSets[coord_set_id],TargetNuclSeq,&coding_region_len);
     ESL_SQ  * NuclSeq      = esl_sq_CreateDigitalFrom(TargetNuclSeq->abc,"Exon Set",ExonSetNucls,(int64_t)coding_region_len,NULL,NULL,NULL);
-    NuclSeq->idx = exon_set_id+1;
+    NuclSeq->idx = coord_set_id+1;
     esl_sq_Textize(NuclSeq);
 
 
@@ -6868,7 +6983,7 @@ void RunModelOnExonSets
     int trans_len = coding_region_len / 3;
     ESL_DSQ * ExonSetTrans = TranslateExonSetNucls(ExonSetNucls,coding_region_len,gcode);
     ESL_SQ  * AminoSeq     = esl_sq_CreateDigitalFrom(Graph->OModel->abc,TargetNuclSeq->SeqName,ExonSetTrans,(int64_t)trans_len,NULL,NULL,NULL);
-    AminoSeq->idx = exon_set_id+1;
+    AminoSeq->idx = coord_set_id+1;
     strcpy(AminoSeq->orfid,"exon");
 
 
@@ -6904,29 +7019,13 @@ void RunModelOnExonSets
     }
 
 
-    // In at least one well-documented case (rat/gpx5), this run
-    // of the pipeline ditches the first expected character of the
-    // model region (e.g., we're expecting hmmfrom=61, but end up
-    // with a hit with hmmfrom=62).
-    //
-    // This function is a sanity check to make sure the output of
-    // the re-run of the pipeline is in agreement with expectations.
-    // If there's discord, we defer to the pipeline.
-    //
-    int hit_matches_coords = CheckHitMatchesExonCoords(ExonSetTopHits,ExonCoordSets[exon_set_id]);
 
 
-    // If we were successful in our search, report the hit
+    // If we were successful in our search, report the hit(s)
     // we produced!
     //
-    // NOTE: I'm currently being a bully and demanding a single
-    //       hit/domain.  Rat DNM1 is a good example of how it
-    //       would be a fight to accommodate the *rare* cases
-    //       where the hit gets split (and how those cases cause
-    //       tons of chaos if they pass through unaccommodated)
-    //
     if (ExonSetTopHits->N)
-      ReportSplicedTopHits(Graph,ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[exon_set_id],exon_set_id+1,hit_matches_coords,ofp,textw);
+      ReportSplicedTopHits(Graph,ExonSetTopHits,ExonSetPipeline,TargetNuclSeq,ExonCoordSets[coord_set_id],&exon_set_id,ofp,textw);
 
 
 
@@ -6937,7 +7036,7 @@ void RunModelOnExonSets
     esl_sq_Reuse(AminoSeq); // Takes care of 'ExonSetTrans'
     p7_tophits_Reuse(ExonSetTopHits);
     p7_pipeline_Reuse(ExonSetPipeline);
-    free(ExonCoordSets[exon_set_id]);
+    free(ExonCoordSets[coord_set_id]);
 
   }
 
