@@ -1336,10 +1336,10 @@ int SelectSpliceOpt
   Codon[3] = UN[3];
 
   int amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
-  float opt_score = EDGE_FAIL_SCORE;
+  float opt_score;
   if (amino_index >= 0 && amino_index <= 20) {
 
-    opt_score = gm->rsc[amino_index][2*model_pos];
+    opt_score = p7P_MSC(gm,model_pos,amino_index);
 
     if (UN[4] == 2 && UN[5] == 3) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
@@ -1347,8 +1347,11 @@ int SelectSpliceOpt
     if (DN[4] == 0 && DN[5] == 2) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
-    *splice_score = opt_score;
-    best_opt = 0;
+    // I don't understand how this happens, but it does.
+    if (!isinf(opt_score)) {
+      *splice_score = opt_score;
+      best_opt = 0;
+    }
 
   }
 
@@ -1359,7 +1362,7 @@ int SelectSpliceOpt
   amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
   if (amino_index >= 0 && amino_index <= 20) {
 
-    opt_score = gm->rsc[amino_index][2*model_pos];
+    opt_score = p7P_MSC(gm,model_pos,amino_index);
 
     if (UN[3] == 2 && UN[4] == 3) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
@@ -1367,7 +1370,7 @@ int SelectSpliceOpt
     if (DN[3] == 0 && DN[4] == 2) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
-    if (opt_score > *splice_score) {
+    if (!isinf(opt_score) && opt_score > *splice_score) {
       *splice_score = opt_score;
       best_opt = 1;
     }
@@ -1381,7 +1384,7 @@ int SelectSpliceOpt
   amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
   if (amino_index >= 0 && amino_index <= 20) {
 
-    opt_score = gm->rsc[amino_index][2*model_pos];
+    opt_score = p7P_MSC(gm,model_pos,amino_index);
 
     if (UN[2] == 2 && UN[3] == 3) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
@@ -1389,7 +1392,7 @@ int SelectSpliceOpt
     if (DN[2] == 0 && DN[3] == 2) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
-    if (opt_score > *splice_score) {
+    if (!isinf(opt_score) && opt_score > *splice_score) {
       *splice_score = opt_score;
       best_opt = 2;
     }
@@ -1403,7 +1406,7 @@ int SelectSpliceOpt
   amino_index = esl_gencode_GetTranslation(gcode,&Codon[1]);
   if (amino_index >= 0 && amino_index <= 20) {
 
-    opt_score = gm->rsc[amino_index][2*model_pos];
+    opt_score = p7P_MSC(gm,model_pos,amino_index);
 
     if (UN[1] == 2 && UN[2] == 3) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
@@ -1411,7 +1414,7 @@ int SelectSpliceOpt
     if (DN[1] == 0 && DN[2] == 2) opt_score += SSSCORE[1];
     else                          opt_score += SSSCORE[0];
 
-    if (opt_score > *splice_score) {
+    if (!isinf(opt_score) && opt_score > *splice_score) {
       *splice_score = opt_score;
       best_opt = 3;
     }
@@ -1820,6 +1823,25 @@ float FindOptimalSpliceSite
   baseline_score      += USScores[us_pre_ext_end_pos];
 
 
+
+  // NOTE: As I note down below, too, there is currently a known
+  //   bug where infinite scores can occur.  Eventually, this should
+  //   be investigated, but for now I'm just patching it out.
+  if (isinf(baseline_score)) {
+    free(USTrans);
+    free(USModelPos);
+    free(USNuclPos);
+    free(USScores);
+    free(DSTrans);
+    free(DSModelPos);
+    free(DSNuclPos);
+    free(DSScores);
+    if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete (BUT DUE TO INFINITE SCORE ERROR)",-1);
+    return EDGE_FAIL_SCORE;
+  }
+
+
+
   // What position in the model are we splitting on?
   int   optimal_us_pos     = 0;
   int   optimal_ds_pos     = 0;
@@ -1865,8 +1887,12 @@ float FindOptimalSpliceSite
 
         float sum_score = USScores[us_pos] + DSScores[ds_pos] + splice_score;
 
-
-        if (sum_score > optimal_score) {
+        // NOTE: I'm not sure what causes scores of 'inf' but
+        //   this does seem to happen in rare cases, so for now
+        //   I'm just going to try to force it not to create
+        //   downstream chaos.
+        //
+        if (!isinf(sum_score) && sum_score > optimal_score) {
           optimal_score      = sum_score;
           optimal_us_pos     = us_pos;
           optimal_ds_pos     = ds_pos;
@@ -3039,7 +3065,7 @@ void EvaluatePaths
   int node_id;
   for (node_id=1; node_id<=Graph->num_nodes; node_id++) {
     Graph->Nodes[node_id]->best_in_edge     = -1;
-    Graph->Nodes[node_id]->cumulative_score =  EDGE_FAIL_SCORE;
+    Graph->Nodes[node_id]->cumulative_score = EDGE_FAIL_SCORE;
   }
 
 
