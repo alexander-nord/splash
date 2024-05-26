@@ -30,8 +30,10 @@ sub GetPct;
 # We'll make sure we have the necessary tools before proceeding
 my $SFETCH;
 my $SEQSTAT;
-my $HMMBUILD;
-my $HMMSEARCHT;
+# my $HMMBUILD;   # We been knowing how to BATH!
+# my $HMMSEARCHT; # BATH-splashing puppy!
+my $BATHBUILD;
+my $BATHSEARCH;
 ConfirmRequiredTools();
 
 
@@ -1044,7 +1046,7 @@ sub FamilySplash
 	opendir(my $FamilyDir,$family_dir_name) 
 		|| die "\n  ERROR:  Failed to open directory '$family_dir_name' (FamilySplash)\n\n";
 	my @InputHMMs;
-	my @FilesToHMMBUILD;
+	my @FilesToBATHBUILD;
 	while (my $file_name = readdir($FamilyDir)) 
 	{
 
@@ -1063,7 +1065,7 @@ sub FamilySplash
 			# we don't want to treat that as a query
 			if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.hmm')) 
 			{
-				push(@FilesToHMMBUILD,$family_dir_name.$file_name) 
+				push(@FilesToBATHBUILD,$family_dir_name.$file_name) 
 			}
 		}
 	}
@@ -1072,15 +1074,20 @@ sub FamilySplash
 
 
 	# Build HMMs for any sequence files that didn't have one
-	foreach my $file_to_hmmbuild (@FilesToHMMBUILD)
+	foreach my $file_to_bathbuild (@FilesToBATHBUILD)
 	{
 		
-		$file_to_hmmbuild =~ /^(\S+)\.[^\.]+$/;
+		$file_to_bathbuild =~ /^(\S+)\.([^\.]+)$/;
 		my $hmm_file_name = $1.'.hmm';
-		my $hmmbuild_cmd  = "$HMMBUILD --amino \"$hmm_file_name\" \"$file_to_hmmbuild\" 1>/dev/null";
+		my $in_file_ext   = $2;
 
-		if (system($hmmbuild_cmd)) {
-			die "\n  ERROR:  Failed to build HMM on '$file_to_hmmbuild' (command:'$hmmbuild_cmd')\n\n";
+
+		my $bathbuild_cmd  = "--amino \"$hmm_file_name\" \"$file_to_bathbuild\" 1>/dev/null";
+		$bathbuild_cmd = "--unali ".$bathbuild_cmd if ($in_file_ext !~ /^\.a/); # Looks unaligned to me
+
+		$bathbuild_cmd = $BATHBUILD.' '.$bathbuild_cmd;
+		if (system($bathbuild_cmd)) {
+			die "\n  ERROR:  Failed to build HMM on '$file_to_bathbuild' (command:'$bathbuild_cmd')\n\n";
 		}
 
 		push(@InputHMMs,$hmm_file_name);
@@ -1148,7 +1155,7 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $hmmsearcht_cmd = "/usr/bin/time -v $HMMSEARCHT -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			my $hmmsearcht_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
 
 			if (system($hmmsearcht_cmd)) 
 			{
@@ -1902,12 +1909,12 @@ sub ConfirmGenome
 sub ConfirmRequiredTools
 {
 
-	my $th_base_dir = 'trans-hmmer/';
-	die "\n  ERROR:  Failed to locate base translated HMMER3 directory '$th_base_dir'\n          Try running './Build.pl'\n\n"
-		if (!(-d $th_base_dir));
+	my $bath_base_dir = 'BATH/';
+	die "\n  ERROR:  Failed to locate base translated HMMER3 directory '$bath_base_dir'\n          Try running './Build.pl'\n\n"
+		if (!(-d $bath_base_dir));
 
 
-	my $easel_dir = $th_base_dir.'easel/';
+	my $easel_dir = $bath_base_dir.'easel/';
 	die "\n  ERROR:  Failed to locate easel...?  ('$easel_dir' should exist)\n\n"
 		if (!(-d $easel_dir));
 
@@ -1924,17 +1931,17 @@ sub ConfirmRequiredTools
 		if (!(-x $SEQSTAT));
 
 
-	my $th_src_dir = $th_base_dir.'src/';
-	die "\n  ERROR:  Failed to locate translated HMMER3 source directory '$th_src_dir'\n\n"
-		if (!(-d $th_src_dir));
+	my $bath_src_dir = $bath_base_dir.'src/';
+	die "\n  ERROR:  Failed to locate translated HMMER3 source directory '$bath_src_dir'\n\n"
+		if (!(-d $bath_src_dir));
 
-	$HMMBUILD = $th_src_dir.'hmmbuild';
-	die "\n  ERROR:  Failed to locate hmmbuild in HMMER3 source directory (looking for '$HMMBUILD')\n\n"
-		if (!(-x $HMMBUILD));
+	$BATHBUILD = $bath_src_dir.'bathbuild';
+	die "\n  ERROR:  Failed to locate hmmbuild in HMMER3 source directory (looking for '$BATHBUILD')\n\n"
+		if (!(-x $BATHBUILD));
 
-	$HMMSEARCHT = $th_src_dir.'hmmsearcht';
-	die "\n  ERROR:  Failed to locate hmmsearcht in HMMER3 source directory (looking for '$HMMSEARCHT')\n\n"
-		if (!(-x $HMMSEARCHT));
+	$BATHSEARCH = $bath_src_dir.'bathsearch';
+	die "\n  ERROR:  Failed to locate hmmsearcht in HMMER3 source directory (looking for '$BATHSEARCH')\n\n"
+		if (!(-x $BATHSEARCH));
 
 
 }

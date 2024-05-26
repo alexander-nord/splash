@@ -4,37 +4,48 @@ use strict;
 use POSIX;
 
 
-my $hmmsearcht_template = 'hmmsearcht.c';
-if (!(-e $hmmsearcht_template)) {
-    die "\n  ERROR: I can't find hmmsearcht.c!\n\n";
+my $splash_bathsearch = 'bathsearch.c';
+if (!(-e $splash_bathsearch)) {
+    die "\n  ERROR: I can't find bathsearch.c!\n\n";
 }
 
 
-my $hmmer_dir_name = 'trans-hmmer/';
+my $no_fs_pipeline = 'p7_pipeline.c';
+if (!(-e $no_fs_pipeline)) {
+    die "\n  ERROR: There should be a 'p7_pipeline.c' file here? (force-disables frameshift-aware pipeline for splash)\n\n";
+}
 
 
-if (!(-d $hmmer_dir_name)) {
+my $bath_dir_name = 'BATH/';
 
-    my $trans_hmmer_git_url = 'https://github.com/traviswheelerlab/trans-hmmer';
-    if (system("git clone $trans_hmmer_git_url")) {
-	die "\n  ERROR: Failed to clone into $trans_hmmer_git_url\n\n";
+
+if (!(-d $bath_dir_name)) {
+
+    my $bath_git_url = 'https://github.com/traviswheelerlab/BATH';
+    if (system("git clone $bath_git_url")) {
+	die "\n  ERROR: Failed to clone into $bath_git_url\n\n";
     }
     
-    chdir($hmmer_dir_name);
-    system("git submodule init");
-    system("git submodule update --remote");
-    system("cp ../inc/alt-configure.ac configure.ac");
+    chdir($bath_dir_name);
+
+    system("git clone https://github.com/TravisWheelerLab/easel");
+    chdir("easel/");
+    system("git checkout BATH");
+    chdir("../");
+
     system("autoconf");
     system("./configure");
 
-    system("cp ../$hmmsearcht_template src/");
+    system("cp ../$splash_bathsearch src/");
+    system("cp ../$no_fs_pipeline    src/");
     system("make");
     
 } else {
 
-    my $hmmer_src_name = $hmmer_dir_name.'src/';
-    system("cp $hmmsearcht_template $hmmer_src_name");
-    chdir($hmmer_src_name);
+    my $bath_src_name = $bath_dir_name.'src/';
+    system("cp $splash_bathsearch $bath_src_name");
+    system("cp $no_fs_pipeline    $bath_src_name");
+    chdir($bath_src_name);
     system("make -B");
 
 }
