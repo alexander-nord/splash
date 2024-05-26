@@ -2473,6 +2473,11 @@ int ExcessiveGapContent
     return 1;
 
 
+  if (AD->hmmfrom == 117 && AD->hmmto == 361) {
+    fprintf(stdout,"  Num total gaps: %d\n",num_gaps);
+  }
+
+
   return 0;
 
 }
@@ -5225,6 +5230,8 @@ void AddMissingExonsToGraph
 
 
       P7_ALIDISPLAY * NodeAD = (&Graph->TopHits->hit[node_hit_id]->dcl[node_dom_id])->ad;
+      if (ExcessiveGapContent(NodeAD))
+        continue;
 
 
       // Because order matters for 'HitsAreSpliceCompatible' we
@@ -6638,17 +6645,53 @@ int * DetermineHitExonCoords
   if (DEBUGGING) DEBUG_OUT("Starting 'DetermineHitExonCoords'",1);
 
 
+  // As a sanity check, we want to make sure that the pipeline
+  // hit to the same place as where we were hoping (I think
+  // this is mainly an issue in highly repetitive sequence)
+  //
+  int orig_num_exons   = ExonCoords[0];
+  int orig_model_start = ExonCoords[2];
+  int orig_model_end   = ExonCoords[5*(orig_num_exons-1)+4];
+  int orig_nucl_start  = ExonCoords[1];
+  int orig_nucl_end    = ExonCoords[5*(orig_num_exons-1)+3];
+  if (AD->hmmto <= orig_model_start || AD->hmmfrom >= orig_model_end)
+    return NULL;
+
+
   int revcomp = 0;
-  if (ExonCoords[1] > ExonCoords[3])
+  if (orig_nucl_start > orig_nucl_end)
     revcomp = 1;
+
+
+  /*
+  if (DEBUGGING) {
+    fprintf(stdout,"\n\n\n");
+    fprintf(stdout,"Original Input: %d Exons\n",ExonCoords[0]);
+    int x;
+    for (x=0; x<ExonCoords[0]; x++)
+      fprintf(stdout,"----> %d..%d / %d..%d\n",ExonCoords[5*x+1],ExonCoords[5*x+3],ExonCoords[5*x+2],ExonCoords[5*x+4]);
+    fprintf(stdout,"\n");
+    fprintf(stdout,"AD Range: %d..%d\n",AD->hmmfrom,AD->hmmto);
+    fprintf(stdout,"\n");
+  }
+  */
 
 
   // Advance through the exon coordinates until we've hit the
   // model position that kicks off the alignment that the
   // HMMER pipeline wants us to use.
   //
-  int model_pos = ExonCoords[2];
-  int nucl_pos  = ExonCoords[1];
+  int model_pos = orig_model_start;
+  int nucl_pos  = orig_nucl_start;
+
+
+  // I think this is a bug in the pipeline, but there are *very rare*
+  // situations where I've observed we end up doing some serious gapping
+  // that pushes the model beyond what we're equipped to handle with our
+  // coordinates.
+  //
+  int map_model_cap = orig_model_end;
+
 
   // We want to track the center nucleotide of the codon for this
   // portion
@@ -6697,7 +6740,7 @@ int * DetermineHitExonCoords
   // Initialize our output coordinate set to have as many exons
   // as the input coordinate set (ideally, all we're going to do
   // is create a copy of 'ExonCoords'...)
-  int * HitExonCoords = malloc((1 + 5 * ExonCoords[0]) * sizeof(int));
+  int * HitExonCoords = malloc((1 + 5 * orig_num_exons) * sizeof(int));
 
   // Because we're tracking the middle nucleotide, we'll need to make
   // a little adjustment
@@ -6707,7 +6750,7 @@ int * DetermineHitExonCoords
 
   int final_num_exons = 0;
   int ali_pos = 0;
-  while (model_pos < AD->hmmto) {
+  while (model_pos < AD->hmmto && model_pos < map_model_cap) {
 
 
     if (AD->model[ali_pos] != '.')
@@ -6822,26 +6865,39 @@ void ReportSplicedTopHits
   if (DEBUGGING) p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
 
 
-  // For now, if there isn't just one solid hit then we'll default to
-  // standard output (this should be considered an extremely rare/bug
-  // scenario if we encounter it...) << RAT DNM1 ISOFORM 3!!!!
-  //
-  /*
-  if (ExonSetTopHits->N != 1 || !hit_matches_coords) {
-    p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
-  } else {
-    PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
-  }
-  */
   int hit_id, dom_id;
   for (hit_id = 0; hit_id < (int)(ExonSetTopHits->N); hit_id++) {
     for (dom_id = 0; dom_id < ExonSetTopHits->hit[hit_id]->ndom; dom_id++) {
 
 
       P7_ALIDISPLAY * AD  = (&ExonSetTopHits->hit[hit_id]->dcl[dom_id])->ad;
+      if (ExcessiveGapContent(AD))
+        continue;
+
+
       int * HitExonCoords = DetermineHitExonCoords(AD,ExonCoordSet);
 
+
+      // If the pipeline hit to a totally different place from
+      // where we were expecting, this is the 'bail' code
+      if (HitExonCoords == NULL)
+        continue;
+
+
       *exon_set_name_id += 1;
+
+
+      // DEBUGGING
+      /*
+      fprintf(stdout,"\n");
+      fprintf(stdout,"Num Exons: %d\n",HitExonCoords[0]);
+      int x;
+      for (x=0; x<HitExonCoords[0]; x++)
+        fprintf(stdout,"  -> %d..%d / %d..%d\n",HitExonCoords[5*x+1],HitExonCoords[5*x+3],HitExonCoords[5*x+2],HitExonCoords[5*x+4]);
+      fprintf(stdout,"\n");
+      */
+      // DEBUGGING
+
 
 
       // If Alex is running this, he probably wants to
