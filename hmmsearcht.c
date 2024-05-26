@@ -1592,6 +1592,11 @@ float FindOptimalSpliceSite
   float * USScores   = malloc(us_arr_cap*sizeof(float));
 
 
+  // We need to know how many gaps we've encountered for the
+  // final position calculation
+  int * USGaps = malloc(us_arr_cap * sizeof(int));
+
+
   // We'll just assume we matched our way in
   model_state = p7P_MM;
 
@@ -1607,8 +1612,16 @@ float FindOptimalSpliceSite
 
     int amino_index = 27;
     if (Overlap->UpstreamDisplay->aseq[display_pos] != '-') {
+
       amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
       nucl_read_pos += 3;
+
+      USGaps[us_trans_len] = 0;
+
+    } else {
+
+      USGaps[us_trans_len] = 1;
+
     }
 
 
@@ -1631,23 +1644,28 @@ float FindOptimalSpliceSite
       int   * TmpTrans    = malloc(us_arr_cap*sizeof(int));
       int   * TmpModelPos = malloc(us_arr_cap*sizeof(int));
       int   * TmpNuclPos  = malloc(us_arr_cap*sizeof(int));
-      float * TmpScores   = malloc(us_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(us_arr_cap*sizeof(float));
+      int   * TmpGaps     = malloc(us_arr_cap*sizeof(int));
       int copy_index;
       for (copy_index=0; copy_index<us_trans_len; copy_index++) {
         TmpTrans[copy_index]    = USTrans[copy_index];
         TmpModelPos[copy_index] = USModelPos[copy_index];
         TmpNuclPos[copy_index]  = USNuclPos[copy_index];
         TmpScores[copy_index]   = USScores[copy_index];
+        TmpGaps[copy_index]     = USGaps[copy_index];
       }
       free(USTrans);    USTrans    = TmpTrans;
       free(USModelPos); USModelPos = TmpModelPos;
       free(USNuclPos);  USNuclPos  = TmpNuclPos;
       free(USScores);   USScores   = TmpScores;
+      free(USGaps);     USGaps     = TmpGaps;
     }
 
 
   }
   int us_pre_ext_end_pos = us_trans_len-1; // For scoring purposes
+
+
 
 
   // Incorporate the extension
@@ -1659,6 +1677,10 @@ float FindOptimalSpliceSite
 
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->UpstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
+
+
+    // Necessarily not a gap
+    USGaps[us_trans_len] = 0;
 
 
     USTrans[us_trans_len]    = amino_index;
@@ -1676,18 +1698,21 @@ float FindOptimalSpliceSite
       int   * TmpTrans    = malloc(us_arr_cap*sizeof(int));
       int   * TmpModelPos = malloc(us_arr_cap*sizeof(int));
       int   * TmpNuclPos  = malloc(us_arr_cap*sizeof(int));
-      float * TmpScores   = malloc(us_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(us_arr_cap*sizeof(float));
+      int   * TmpGaps     = malloc(us_arr_cap*sizeof(int));
       int copy_index;
       for (copy_index=0; copy_index<us_trans_len; copy_index++) {
         TmpTrans[copy_index]    = USTrans[copy_index];
         TmpModelPos[copy_index] = USModelPos[copy_index];
         TmpNuclPos[copy_index]  = USNuclPos[copy_index];
         TmpScores[copy_index]   = USScores[copy_index];
+        TmpGaps[copy_index]     = USGaps[copy_index];
       }
       free(USTrans);    USTrans    = TmpTrans;
       free(USModelPos); USModelPos = TmpModelPos;
       free(USNuclPos);  USNuclPos  = TmpNuclPos;
       free(USScores);   USScores   = TmpScores;
+      free(USGaps);     USGaps     = TmpGaps;
     }
 
   }
@@ -1708,6 +1733,8 @@ float FindOptimalSpliceSite
   int   * DSModelPos = malloc(ds_arr_cap*sizeof(int));
   int   * DSNuclPos  = malloc(ds_arr_cap*sizeof(int));
   float * DSScores   = malloc(ds_arr_cap*sizeof(float));
+  int   * DSGaps     = malloc(ds_arr_cap*sizeof(int));
+
 
   model_state = p7P_MM;
 
@@ -1722,6 +1749,10 @@ float FindOptimalSpliceSite
 
     int amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
     nucl_read_pos += 3;
+
+
+    // Again, extensions cannot be gaps
+    DSGaps[ds_trans_len] = 0;
 
 
     DSTrans[ds_trans_len]    = amino_index;
@@ -1740,18 +1771,21 @@ float FindOptimalSpliceSite
       int   * TmpTrans    = malloc(ds_arr_cap*sizeof(int));
       int   * TmpModelPos = malloc(ds_arr_cap*sizeof(int));
       int   * TmpNuclPos  = malloc(ds_arr_cap*sizeof(int));
-      float * TmpScores   = malloc(ds_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(ds_arr_cap*sizeof(float));
+      int   * TmpGaps     = malloc(ds_arr_cap*sizeof(int));
       int copy_index;
       for (copy_index=0; copy_index<ds_trans_len; copy_index++) {
         TmpTrans[copy_index]    = DSTrans[copy_index];
         TmpModelPos[copy_index] = DSModelPos[copy_index];
         TmpNuclPos[copy_index]  = DSNuclPos[copy_index];
         TmpScores[copy_index]   = DSScores[copy_index];
+        TmpGaps[copy_index]     = DSGaps[copy_index];
       }
       free(DSTrans);    DSTrans    = TmpTrans;
       free(DSModelPos); DSModelPos = TmpModelPos;
       free(DSNuclPos);  DSNuclPos  = TmpNuclPos;
       free(DSScores);   DSScores   = TmpScores;
+      free(DSGaps);     DSGaps     = TmpGaps;
     }
 
   }
@@ -1767,8 +1801,16 @@ float FindOptimalSpliceSite
 
     int amino_index = 27;
     if (Overlap->DownstreamDisplay->aseq[display_pos] != '-') {
+
       amino_index = esl_gencode_GetTranslation(gcode,&(Overlap->DownstreamNucls[nucl_read_pos]));
       nucl_read_pos += 3;
+
+      DSGaps[ds_trans_len] = 0;
+
+    } else {
+
+      DSGaps[ds_trans_len] = 1;
+
     }
 
 
@@ -1790,18 +1832,21 @@ float FindOptimalSpliceSite
       int   * TmpTrans    = malloc(ds_arr_cap*sizeof(int));
       int   * TmpModelPos = malloc(ds_arr_cap*sizeof(int));
       int   * TmpNuclPos  = malloc(ds_arr_cap*sizeof(int));
-      float * TmpScores   = malloc(ds_arr_cap*sizeof(int));
+      float * TmpScores   = malloc(ds_arr_cap*sizeof(float));
+      int   * TmpGaps     = malloc(ds_arr_cap*sizeof(int));
       int copy_index;
       for (copy_index=0; copy_index<ds_trans_len; copy_index++) {
         TmpTrans[copy_index]    = DSTrans[copy_index];
         TmpModelPos[copy_index] = DSModelPos[copy_index];
         TmpNuclPos[copy_index]  = DSNuclPos[copy_index];
         TmpScores[copy_index]   = DSScores[copy_index];
+        TmpGaps[copy_index]     = DSGaps[copy_index];
       }
       free(DSTrans);    DSTrans    = TmpTrans;
       free(DSModelPos); DSModelPos = TmpModelPos;
       free(DSNuclPos);  DSNuclPos  = TmpNuclPos;
       free(DSScores);   DSScores   = TmpScores;
+      free(DSGaps);     DSGaps     = TmpGaps;
     }
 
   }
@@ -1809,16 +1854,31 @@ float FindOptimalSpliceSite
 
 
   // We're really just interested in the sum scores on each side,
-  // so let's switch over to that
+  // so let's switch over to that.
+  // Similarly, we want the sum count of gaps up to each position.
+  //
   int i;
-  for (i=1             ; i<us_trans_len; i++) USScores[i] += USScores[i-1];
-  for (i=ds_trans_len-2; i>=0          ; i--) DSScores[i] += DSScores[i+1];
+  for (i=1; i<us_trans_len; i++) {
+    USScores[i] += USScores[i-1];
+    USGaps[i] += USGaps[i-1];
+  }
+
+  for (i=ds_trans_len-2; i>=0; i--)
+    DSScores[i] += DSScores[i+1];
+
+  // SO, this may seem weird, but because we count to the first position
+  // in the downstream hit from the left in 'SpliceOverlappingDomains'
+  // we're going to be counting gaps from the left.
+  // 
+  for (i=1; i<ds_trans_len; i++)
+    DSGaps[i] += DSGaps[i-1];
 
 
   // In order to determine the score difference created by the
   // splice, we'll find the sum score at each position right
   // before the extension, and those become the baseline to
   // remove for determining the contribution of our cut.
+  //
   float baseline_score = DSScores[Overlap->downstream_ext_len];
   baseline_score      += USScores[us_pre_ext_end_pos];
 
@@ -1887,6 +1947,7 @@ float FindOptimalSpliceSite
 
         float sum_score = USScores[us_pos] + DSScores[ds_pos] + splice_score;
 
+
         // NOTE: I'm not sure what causes scores of 'inf' but
         //   this does seem to happen in rare cases, so for now
         //   I'm just going to try to force it not to create
@@ -1943,10 +2004,14 @@ float FindOptimalSpliceSite
   // is the last / first "safe" nucelotide (inside the
   // exon).
   //
-  *upstream_splice_index   = 3 * optimal_us_pos;
-  *downstream_splice_index = 3 * optimal_ds_pos + 4;
+  *upstream_splice_index   = 3 * (optimal_us_pos - USGaps[optimal_us_pos]);
+  *downstream_splice_index = 3 * (optimal_ds_pos - DSGaps[optimal_ds_pos]) + 4;
   *split_amino_model_index = optimal_model_pos;
   *codon_split_option      = optimal_splice_opt;
+
+
+  free(USGaps);
+  free(DSGaps);
 
 
   if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete",-1);
@@ -6134,12 +6199,13 @@ void PrintExon
       TransAli[write_pos]   = ' ';
       PPAli[write_pos]      = ' ';
     }
+    write_pos++;
+
 
     *codon_pos += 1;
     if (*codon_pos == 3)
       *codon_pos = 0;
 
-    write_pos++;
 
 
     // Similar to the issue of parsing "original" ALIDISPLAYs
@@ -6641,6 +6707,8 @@ int * DetermineHitExonCoords
       else         nucl_pos += 3;
     }
 
+    ali_pos++;
+
 
     // Did we just pass into a new exon?
     if (model_pos > ExonCoords[5*exon_id+4]) {
@@ -6649,13 +6717,13 @@ int * DetermineHitExonCoords
       HitExonCoords[5*final_num_exons+4] = model_pos-1;
       HitExonCoords[5*final_num_exons+5] = ExonCoords[5*exon_id+5];
 
-      exon_id++;
-
       if (revcomp) {
         int nucl_offset = (ExonCoords[5*exon_id+3] - nucl_pos) - 1;
+        exon_id++;
         nucl_pos = ExonCoords[5*exon_id+1] - nucl_offset;
       } else {
         int nucl_offset = (nucl_pos - ExonCoords[5*exon_id+3]) - 1;
+        exon_id++;
         nucl_pos = ExonCoords[5*exon_id+1] + nucl_offset;
       }
 
@@ -6664,9 +6732,6 @@ int * DetermineHitExonCoords
       HitExonCoords[5*final_num_exons+2] = model_pos;
 
     }
-
-
-    ali_pos++;
 
 
   }
@@ -6743,6 +6808,9 @@ void ReportSplicedTopHits
   //fprintf(ofp,"\n\n");
   
 
+  if (DEBUGGING) p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
+
+
   // For now, if there isn't just one solid hit then we'll default to
   // standard output (this should be considered an extremely rare/bug
   // scenario if we encounter it...) << RAT DNM1 ISOFORM 3!!!!
@@ -6751,8 +6819,6 @@ void ReportSplicedTopHits
   if (ExonSetTopHits->N != 1 || !hit_matches_coords) {
     p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
   } else {
-    if (DEBUGGING) 
-      p7_tophits_Domains(ofp, ExonSetTopHits, ExonSetPipeline, textw);
     PrintSplicedAlignment(ExonSetTopHits->hit[0],TargetNuclSeq,ExonCoordSet,exon_set_name_id,ofp,textw);
   }
   */
