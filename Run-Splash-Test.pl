@@ -33,6 +33,7 @@ my $SEQSTAT;
 # my $HMMBUILD;   # We been knowing how to BATH!
 # my $HMMSEARCHT; # BATH-splashing puppy!
 my $BATHBUILD;
+my $BATHCONVERT;
 my $BATHSEARCH;
 ConfirmRequiredTools();
 
@@ -1046,6 +1047,7 @@ sub FamilySplash
 	opendir(my $FamilyDir,$family_dir_name) 
 		|| die "\n  ERROR:  Failed to open directory '$family_dir_name' (FamilySplash)\n\n";
 	my @InputHMMs;
+	my @FilesToBATHCONVERT;
 	my @FilesToBATHBUILD;
 	while (my $file_name = readdir($FamilyDir)) 
 	{
@@ -1055,7 +1057,26 @@ sub FamilySplash
 		# Have we stumbled upon a real-life HMM?!
 		if (lc($file_name) =~ /\.hmm$/) 
 		{
-			push(@InputHMMs,$family_dir_name.$file_name);
+			# Yes, but is it... a BATH HMM?!
+			if (lc($file_name) =~ /\.bath\.hmm$/) 
+			{
+			
+				# Very nice!
+				push(@InputHMMs,$family_dir_name.$file_name);
+			
+			}
+			else
+			{
+				# THIS isn't a BATH HMM... but it could be!
+				# If there isn't already a BATH HMM that looks like
+				# this one, queue it up for conversion.
+				my $bath_file_name = $family_dir_name.$file_name;
+				$bath_file_name =~ s/\.[^\.]+$/\.bath\.hmm/;
+				
+				push(@FilesToBATHCONVERT,$family_dir_name.$file_name)
+					if (!(-e $bath_file_name));
+			
+			}
 		}
 		elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
 		{
@@ -1063,7 +1084,7 @@ sub FamilySplash
 
 			# In case runtime was killed while there was a 'target' file,
 			# we don't want to treat that as a query
-			if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.hmm')) 
+			if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.bath.hmm')) 
 			{
 				push(@FilesToBATHBUILD,$family_dir_name.$file_name) 
 			}
@@ -1078,19 +1099,41 @@ sub FamilySplash
 	{
 		
 		$file_to_bathbuild =~ /^(\S+)\.([^\.]+)$/;
-		my $hmm_file_name = $1.'.hmm';
-		my $in_file_ext   = $2;
+		my $hmm_file_name  = $1.'.bath.hmm';
+		my $in_file_ext    = $2;
 
 
 		my $bathbuild_cmd  = "--amino \"$hmm_file_name\" \"$file_to_bathbuild\" 1>/dev/null";
-		$bathbuild_cmd = "--unali ".$bathbuild_cmd if ($in_file_ext !~ /^\.a/); # Looks unaligned to me
+
+		$bathbuild_cmd = "--unali ".$bathbuild_cmd 
+			if (lc($in_file_ext) !~ /^a/);
 
 		$bathbuild_cmd = $BATHBUILD.' '.$bathbuild_cmd;
-		if (system($bathbuild_cmd)) {
+		if (system($bathbuild_cmd)) 
+		{
 			die "\n  ERROR:  Failed to build HMM on '$file_to_bathbuild' (command:'$bathbuild_cmd')\n\n";
 		}
 
 		push(@InputHMMs,$hmm_file_name);
+
+	}
+
+
+
+	# You will become one with the BATHBORG!
+	foreach my $file_to_bathconvert (@FilesToBATHCONVERT)
+	{
+
+		$file_to_bathconvert   =~ /^(\S+)\.[^\.]+$/;
+		my $bath_hmm_file_name = $1.'.bath.hmm';
+
+		my $bathconvert_cmd = "$BATHCONVERT \"$bath_hmm_file_name\" \"$file_to_bathconvert\" 1>/dev/null";
+		if (system($bathconvert_cmd))
+		{
+			die "\n  ERROR:  Failed to convert HMM file '$file_to_bathconvert' to BATH HMM (command:'$bathconvert_cmd')\n\n";
+		}
+
+		push(@InputHMMs,$bath_hmm_file_name);
 
 	}
 
@@ -1115,7 +1158,7 @@ sub FamilySplash
 
 
 	# Iterate over each HMM, determining the appropriate
-	# target sequence and running hmmsearcht!
+	# target sequence and running bathsearch!
 	# Note that in the case of PANTHER testing we're going
 	# to have multiple targets (each of the genomes)
 	my @FamilySuccesses;
@@ -1123,7 +1166,7 @@ sub FamilySplash
 	foreach my $hmm_file_name (@InputHMMs) 
 	{
 
-		$hmm_file_name =~ /\/([^\/]+)\.hmm$/;
+		$hmm_file_name =~ /\/([^\/]+)\.bath\.hmm$/;
 		my $query_base_name = $1;
 
 
@@ -1155,14 +1198,13 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			#my $hmmsearcht_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
-			my $hmmsearcht_cmd = "$BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
-
-			if (system($hmmsearcht_cmd)) 
+			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			
+			if (system($bathsearch_cmd)) 
 			{
+
 				push(@FamilyErrors,$query_id);
-				system("echo \"\% $hmmsearcht_cmd\" >> $ERROR_FILE");
-				# system("cat $err_file_name >> $ERROR_FILE");
+				system("echo \"\% $bathsearch_cmd\" >> $ERROR_FILE");
 
 				if ($OPTIONS{'err-kills'})
 				{
@@ -1170,7 +1212,7 @@ sub FamilySplash
 						system("rm \"$target_file_name\"");
 						system("rm \"$target_file_name.ssi\"");
 					}
-					die "\n  ERROR: Failed during execution of command: $hmmsearcht_cmd\n\n";
+					die "\n  ERROR: Failed during execution of command: $bathsearch_cmd\n\n";
 				}
 
 			} 
@@ -1406,7 +1448,7 @@ sub DetermineTargetSeq
 
 	# Any chance there's a file related to this one with
 	# genome range data to pull in?
-	$hmm_file_name =~ /^(.*\/)([^\/]+)\.hmm$/;
+	$hmm_file_name =~ /^(.*\/)([^\/]+)\.bath\.hmm$/;
 	my $hmm_file_dir_name  = $1;
 	my $hmm_file_base_name = $2;
 
@@ -1442,7 +1484,7 @@ sub DetermineTargetSeq
 	if ($range_file_name)
 	{
 		my $target_file_name = $hmm_file_name;
-		$target_file_name =~ s/\.hmm$/\.target\.fa/;
+		$target_file_name =~ s/\.bath\.hmm$/\.target\.fa/;
 
 		return GenomeRangeFileToTargetFile($range_file_name,$target_file_name);
 
@@ -1573,8 +1615,8 @@ sub HelpAndDie
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
 	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
 	print "                               we're searching each HMM against all genomes.\n";
-	print "         --err-kills        : If an hmmsearcht run fails, kill the script\n";
-	print "                               (by default the error is simply logged).\n";
+	print "         --err-kills        : If a bathsearch run fails, kill the script\n";
+	print "                               (by default, the error is simply logged).\n";
 	print "         --cpus/-n    [int] : Set the number of threads to use (default:1).\n";
 	print "         --out-dir/-o [str] : Name the output directory (default:'Splash-Results').\n";
 	print "         --gene/-g    [str] : Run on a single gene within the input directory.\n";
@@ -1911,7 +1953,7 @@ sub ConfirmRequiredTools
 {
 
 	my $bath_base_dir = 'BATH/';
-	die "\n  ERROR:  Failed to locate base translated HMMER3 directory '$bath_base_dir'\n          Try running './Build.pl'\n\n"
+	die "\n  ERROR:  Failed to locate base BATH directory '$bath_base_dir'\n          Try running './Build.pl'\n\n"
 		if (!(-d $bath_base_dir));
 
 
@@ -1919,13 +1961,16 @@ sub ConfirmRequiredTools
 	die "\n  ERROR:  Failed to locate easel...?  ('$easel_dir' should exist)\n\n"
 		if (!(-d $easel_dir));
 
+
 	my $miniapps_dir = $easel_dir.'miniapps/';
 	die "\n  ERROR:  Failed to locate easel/miniapps...? ('$miniapps_dir' should exist)\n\n"
 		if (!(-d $miniapps_dir));
 
+
 	$SFETCH = $miniapps_dir.'esl-sfetch';
 	die "\n  ERROR:  Failed to locate required Easel tool sfetch (looking for '$SFETCH')\n\n"
 		if (!(-x $SFETCH));
+
 
 	$SEQSTAT = $miniapps_dir.'esl-seqstat';
 	die "\n  ERROR:  Failed to locate required Easel tool seqstat (looking for '$SEQSTAT')\n\n"
@@ -1933,15 +1978,22 @@ sub ConfirmRequiredTools
 
 
 	my $bath_src_dir = $bath_base_dir.'src/';
-	die "\n  ERROR:  Failed to locate translated HMMER3 source directory '$bath_src_dir'\n\n"
+	die "\n  ERROR:  Failed to locate BATH source directory '$bath_src_dir'\n\n"
 		if (!(-d $bath_src_dir));
 
+
 	$BATHBUILD = $bath_src_dir.'bathbuild';
-	die "\n  ERROR:  Failed to locate hmmbuild in HMMER3 source directory (looking for '$BATHBUILD')\n\n"
+	die "\n  ERROR:  Failed to locate bathbuild in BATH source directory (looking for '$BATHBUILD')\n\n"
 		if (!(-x $BATHBUILD));
 
+
+	$BATHCONVERT = $bath_src_dir.'bathconvert';
+	die "\n  ERROR:  Failed to locate bathconvert in BATH source directory (looking for '$BATHCONVERT')\n\n"
+		if (!(-x $BATHCONVERT));
+
+
 	$BATHSEARCH = $bath_src_dir.'bathsearch';
-	die "\n  ERROR:  Failed to locate hmmsearcht in HMMER3 source directory (looking for '$BATHSEARCH')\n\n"
+	die "\n  ERROR:  Failed to locate bathhsearch in BATH source directory (looking for '$BATHSEARCH')\n\n"
 		if (!(-x $BATHSEARCH));
 
 

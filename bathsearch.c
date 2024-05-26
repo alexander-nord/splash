@@ -66,6 +66,12 @@ static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_
 // I've reactivated the options that had been commented-out in 'REPOPTS'
 // and 'INCOPTS' so I can use the non-FS pipeline in 'RunModelOnExonSets'.
 //
+// MORE NOTE FROM ALEX:
+//
+// I'm actually not sure if I needed to reactivate those, now that I'm
+// using the bastard p7_pipeline_splash_Create to get around other issues...
+// Probably should check and (if so) de-change before passing off to Genevieve.
+//
 #define REPOPTS     "-E,-T,--cut_ga,--cut_nc,--cut_tc"
 #define DOMREPOPTS  "--domE,--domT,--cut_ga,--cut_nc,--cut_tc"
 #define INCOPTS     "--incE,--incT,--cut_ga,--cut_nc,--cut_tc"
@@ -195,7 +201,7 @@ static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
 
 
 // Ever want to know what function you're in, and how deep it
