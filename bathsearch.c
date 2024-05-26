@@ -56,11 +56,24 @@ typedef struct {
   int        size;
 } ID_LENGTH_LIST;
 
+static ID_LENGTH_LIST* init_id_length( int size );
+static void            destroy_id_length( ID_LENGTH_LIST *list );
+static int             add_id_length(ID_LENGTH_LIST *list, int id, int L);
+static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_list);
 
+// NOTE FROM ALEX:
+//
+// I've reactivated the options that had been commented-out in 'REPOPTS'
+// and 'INCOPTS' so I can use the non-FS pipeline in 'RunModelOnExonSets'.
+//
+#define REPOPTS     "-E,-T,--cut_ga,--cut_nc,--cut_tc"
+#define DOMREPOPTS  "--domE,--domT,--cut_ga,--cut_nc,--cut_tc"
+#define INCOPTS     "--incE,--incT,--cut_ga,--cut_nc,--cut_tc"
+#define INCDOMOPTS  "--incdomE,--incdomT,--cut_ga,--cut_nc,--cut_tc"
+#define THRESHOPTS  "-E,-T,--domE,--domT,--incE,--incT,,--incdomE,--incdomT,--cut_ga,--cut_nc,--cut_tc"
 
-
-
-
+#define CPUOPTS     NULL
+#define MPIOPTS     NULL
 
 
 
@@ -182,7 +195,7 @@ typedef struct {
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 
 
 // Ever want to know what function you're in, and how deep it
@@ -4304,7 +4317,7 @@ int * GetBoundedSearchRegions
     x++;
   }
   free(DCCSearchRegions);
-  free(MidSearchRegions);
+  //free(MidSearchRegions);
   free(TermSearchRegions);
 
 
@@ -4758,7 +4771,7 @@ P7_DOMAIN ** FindSubHits
 
             // If this is too short, we'll skip it
             int ali_len = AD->hmmto - AD->hmmfrom + 1;
-            if (ali_len < sub_hmm_len / 3 && ali_len < 12) {
+            if (ali_len < 6) {
               p7_alidisplay_Destroy(AD);
               continue;
             }
@@ -7134,7 +7147,14 @@ void RunModelOnExonSets
     // friends that we need in order to produce our full evaluation
     // of the set of exons as a coding region for this protein model
     //
-    P7_PIPELINE * ExonSetPipeline  = p7_pipeline_Create(go,Graph->OModel->M,coding_region_len,FALSE,p7_SEARCH_SEQS);
+    // NOTE: The default 'p7_pipeline_Create' in BATH is causing
+    //       option-based errors, and 'p7_pipeline_fs_Create' requires
+    //       a significant number of pieces of data that I don't have.
+    //
+    //       This function is a *heavily* simplified version of the
+    //       standard 'p7_pipeline_Create' function.
+    //
+    P7_PIPELINE * ExonSetPipeline  = p7_pipeline_splash_Create(go,Graph->OModel->M,coding_region_len,FALSE,p7_SEARCH_SEQS);
     ExonSetPipeline->is_translated = TRUE;
     ExonSetPipeline->strands       = p7_STRAND_TOPONLY;
     ExonSetPipeline->block_length  = coding_region_len;
@@ -7162,7 +7182,6 @@ void RunModelOnExonSets
 
 
 
-
     // If we were successful in our search, report the hit(s)
     // we produced!
     //
@@ -7179,6 +7198,7 @@ void RunModelOnExonSets
     p7_tophits_Reuse(ExonSetTopHits);
     p7_pipeline_Reuse(ExonSetPipeline);
     free(ExonCoordSets[coord_set_id]);
+
 
   }
 
@@ -7357,20 +7377,6 @@ void SpliceHits
 
 
 
-
-static ID_LENGTH_LIST* init_id_length( int size );
-static void            destroy_id_length( ID_LENGTH_LIST *list );
-static int             add_id_length(ID_LENGTH_LIST *list, int id, int L);
-static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_list);
-
-#define REPOPTS     "-E,-T"//--cut_ga,--cut_nc,--cut_tc"
-#define DOMREPOPTS  "--domE,--domT,--cut_ga,--cut_nc,--cut_tc"
-#define INCOPTS     "--incE,--incT"//--cut_ga,--cut_nc,--cut_tc"
-#define INCDOMOPTS  "--incdomE,--incdomT,--cut_ga,--cut_nc,--cut_tc"
-#define THRESHOPTS  "-E,-T,--domE,--domT,--incE,--incT,,--incdomE,--incdomT,--cut_ga,--cut_nc,--cut_tc"
-
-#define CPUOPTS     NULL
-#define MPIOPTS     NULL
 
 static ESL_OPTIONS options[] = {
   /* name             type            default    env          range      toggles reqs  incomp          help                                                                        docgroup*/

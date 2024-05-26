@@ -1155,7 +1155,8 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $hmmsearcht_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			#my $hmmsearcht_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			my $hmmsearcht_cmd = "$BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
 
 			if (system($hmmsearcht_cmd)) 
 			{

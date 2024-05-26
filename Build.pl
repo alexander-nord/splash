@@ -10,9 +10,15 @@ if (!(-e $splash_bathsearch)) {
 }
 
 
-my $no_fs_pipeline = 'p7_pipeline.c';
-if (!(-e $no_fs_pipeline)) {
-    die "\n  ERROR: There should be a 'p7_pipeline.c' file here? (force-disables frameshift-aware pipeline for splash)\n\n";
+my $splash_pipeline = 'p7_pipeline.c';
+if (!(-e $splash_pipeline)) {
+    die "\n  ERROR: There should be a 'p7_pipeline.c' file here? (force-disables frameshift-aware pipeline for splash / does other stuff)\n\n";
+}
+
+
+my $splash_hmmer_h = 'hmmer.h';
+if (!(-e $splash_hmmer_h)) {
+    die "\n  ERROR: There should be a 'hmmer.h' file here?\n\n";
 }
 
 
@@ -37,14 +43,16 @@ if (!(-d $bath_dir_name)) {
     system("./configure");
 
     system("cp ../$splash_bathsearch src/");
-    system("cp ../$no_fs_pipeline    src/");
+    system("cp ../$splash_pipeline   src/");
+    system("cp ../$splash_hmmer_h    src/");
     system("make");
     
 } else {
 
     my $bath_src_name = $bath_dir_name.'src/';
     system("cp $splash_bathsearch $bath_src_name");
-    system("cp $no_fs_pipeline    $bath_src_name");
+    system("cp $splash_pipeline   $bath_src_name");
+    system("cp $splash_hmmer_h    $bath_src_name");
     chdir($bath_src_name);
     system("make -B");
 

@@ -1,4 +1,14 @@
 /* hmmsearcht: search profile HMM(s) against a sequence database.*/
+//
+// NOTE: This is an archived version of the original pre-BATH
+//       implementation of splash.
+//
+//       I'm primarily putting it here in case anything weird
+//       is found and (through subsequent alterations to bathsearch)
+//       I get lost and need to come back to this.
+//
+///////////////////////////////////////////////////////////////////
+
 
 #include "p7_config.h"
 
