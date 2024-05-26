@@ -10,15 +10,15 @@ if (!(-e $splash_bathsearch)) {
 }
 
 
-my $splash_pipeline = 'p7_pipeline.c';
+my $splash_pipeline = 'inc/p7_pipeline.c';
 if (!(-e $splash_pipeline)) {
-    die "\n  ERROR: There should be a 'p7_pipeline.c' file here? (force-disables frameshift-aware pipeline for splash / does other stuff)\n\n";
+    die "\n  ERROR: There should be a 'p7_pipeline.c' file in 'inc/'? (mainly force-disables frameshift-aware pipeline for splash)\n\n";
 }
 
 
-my $splash_hmmer_h = 'hmmer.h';
+my $splash_hmmer_h = 'inc/hmmer.h';
 if (!(-e $splash_hmmer_h)) {
-    die "\n  ERROR: There should be a 'hmmer.h' file here?\n\n";
+    die "\n  ERROR: There should be a 'hmmer.h' file in 'inc/'\n\n";
 }
 
 
