@@ -1892,10 +1892,12 @@ float FindOptimalSpliceSite
     free(USModelPos);
     free(USNuclPos);
     free(USScores);
+    free(USGaps);
     free(DSTrans);
     free(DSModelPos);
     free(DSNuclPos);
     free(DSScores);
+    free(DSGaps);
     if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete (BUT DUE TO INFINITE SCORE ERROR)",-1);
     return EDGE_FAIL_SCORE;
   }
@@ -1907,7 +1909,7 @@ float FindOptimalSpliceSite
   int   optimal_ds_pos     = 0;
   int   optimal_model_pos  = 0;
   int   optimal_splice_opt = 0;
-  float optimal_score      = 0.0;
+  float optimal_score      = EDGE_FAIL_SCORE;
 
 
   // Arrays we'll use for splice site evaluation
@@ -1993,6 +1995,15 @@ float FindOptimalSpliceSite
 
   free(UN);
   free(DN);
+
+
+
+  if (optimal_score == EDGE_FAIL_SCORE) {
+    free(USGaps);
+    free(DSGaps);
+    if (DEBUGGING) DEBUG_OUT("'FindOptimalSpliceSite' Complete (but sad)",-1);
+    return EDGE_FAIL_SCORE;
+  }
   
 
   // Currently, the optimal positions share an amino,
