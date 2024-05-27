@@ -5936,6 +5936,271 @@ void CheckTerminusProximity
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
+ *  Function: ExonSetCleanup
+ *
+ */
+int ** ExonSetCleanup
+(SPLICE_GRAPH * Graph, int * InputCoordSet, int * num_split_sets)
+{
+
+  if (DEBUGGING) DEBUG_OUT("Starting 'ExonSetCleanup'",1);
+
+
+  int num_exons = InputCoordSet[0];
+
+
+  // Because we can't immediately guarantee reading frame preservation,
+  // when we find an ugly exon (coordinates that don't look like what
+  // we expect) we just pluck it out AND recover the start/end coordinates
+  // for the adjacent exons from the original hits
+  //
+  // Begin by marking extranasty bois with '-1' in the +5 (node id).
+  // We do a full first pass with this marking so that we don't
+  // end up checking against a bad downstream node in the second pass.
+  //
+  int exon_id;
+  for (exon_id = 0; exon_id < num_exons; exon_id++) {
+
+    int exon_hmm_start = InputCoordSet[5*exon_id+2];
+    int exon_hmm_end   = InputCoordSet[5*exon_id+4];
+
+    // Non-positive model movement
+    if (exon_hmm_end - exon_hmm_start <= 0) {
+      InputCoordSet[5*exon_id+5] = -1;
+      continue;
+    }
+
+    // While we're at it -- pure insanity?
+    if (exon_hmm_start <= 0 || exon_hmm_end <= 0) {
+      InputCoordSet[5*exon_id+5] = -1;
+      continue;
+    }
+
+  }
+
+
+  // Now we can check to make sure each node's coordinates make sense
+  // with its up- and downstream friends (individually)
+  //
+  // NOTE: These catches shouldn't ever be necessary, but since they've
+  //       occurred to me as conceivable I'm just going to implement them
+  //       out of an abundance of paranoia.
+  //
+  for (exon_id = 1; exon_id < num_exons-1; exon_id++) {
+
+    if (InputCoordSet[5*exon_id+5] == -1)
+      continue;
+
+
+    int exon_hmm_start = InputCoordSet[5*exon_id+2];
+    int exon_hmm_end   = InputCoordSet[5*exon_id+4];
+
+
+    if (InputCoordSet[5*(exon_id-1)+5 != -1]) {
+
+      int upstream_hmm_end = InputCoordSet[5*(exon_id-1)+4];
+
+      if (upstream_hmm_end > exon_hmm_start) {
+        InputCoordSet[5*exon_id+5] = -1;
+        continue;
+      }
+
+    }
+
+
+    if (InputCoordSet[5*(exon_id+1)+5] != -1) {
+
+      int downstream_hmm_start = InputCoordSet[5*(exon_id+1)+2];
+
+      if (downstream_hmm_start < exon_hmm_end) {
+        InputCoordSet[5*exon_id+5] = -1;
+        continue;
+      }
+
+    }
+
+  }
+
+
+  // Last catch -- do the upstream and downstream "swallow" this
+  // node?  NOTE that we should have already precluded this, but
+  // I refuse to doubt that the computer is conspiring against me.
+  //
+  for (exon_id = 1; exon_id < num_exons-1; exon_id++) {
+
+    if (InputCoordSet[ 5*(exon_id-1)+5] == -1 
+      || InputCoordSet[5* exon_id   +5] == -1 
+      || InputCoordSet[5*(exon_id+1)+5] == -1)
+      continue;
+
+
+    int   upstream_hmm_end   = InputCoordSet[5*(exon_id-1)+4];
+    int downstream_hmm_start = InputCoordSet[5*(exon_id+1)+2];
+
+    if (upstream_hmm_end+1 >= downstream_hmm_start)
+      InputCoordSet[5*exon_id+5] = -1;
+
+  }
+
+
+  // Now that we've caught all of our problem exons, we'll excise
+  // them from the coordinate set, splitting the coordinate set into
+  // non-problematic pieces.
+  //
+  // We'll start by counting how many pieces there will be
+  //
+  int num_sub_sets = 1;
+  for (exon_id = 0; exon_id < num_exons; exon_id++) {
+    if (InputCoordSet[5*exon_id+5] == -1)
+      num_sub_sets++;
+  }
+
+
+  int ** SplitCoordSets = malloc(num_sub_sets * sizeof(int *));
+
+
+  // This is what I expect to happen 99.9% of the time...
+  //
+  // Note that we don't just return '&InputCoordSet' because
+  // that would require additional bookkeeping to avoid double-frees.
+  // A little wasteful, but *whatever*
+  //
+  if (num_sub_sets == 1) {
+
+
+    SplitCoordSets[0] = malloc((5*num_exons+1)*sizeof(int));
+
+    int i;
+    for (i=0; i<=5*num_exons; i++)
+      SplitCoordSets[0][i] = InputCoordSet[i];
+
+
+    if (DEBUGGING) DEBUG_OUT("'ExonSetCleanup' Complete",-1);
+
+
+    *num_split_sets = 1;
+    return SplitCoordSets;
+
+
+  }
+
+
+
+  // BUMMER!
+  //
+  // NOTE that 'num_sub_hits' is the maximum number of subhits.
+  // If we only remove terminal exons, then we might still have only
+  // one subset of exons to return.
+  //
+  *num_split_sets = 0;
+  int scanner_exon_id = 0;
+  while (scanner_exon_id < num_exons) {
+
+
+    while (InputCoordSet[5*scanner_exon_id+5] == -1 && scanner_exon_id < num_exons)
+      scanner_exon_id++;
+
+    if (scanner_exon_id == num_exons)
+      break;
+
+    int start_exon_id = scanner_exon_id;
+
+
+    while (InputCoordSet[5*scanner_exon_id+5] != -1 && scanner_exon_id < num_exons)
+      scanner_exon_id++;
+
+    int end_exon_id = scanner_exon_id-1;
+
+
+    // If we aren't starting with the first exon, we need to recover the
+    // start bounds of the actual hit (as opposed to the now-jettisoned splice
+    // coordinates)
+    if (start_exon_id > 0) {
+
+
+      SPLICE_NODE * Node = Graph->Nodes[InputCoordSet[5*start_exon_id+5]];
+      P7_ALIDISPLAY * AD;
+      if (Node->was_missed)
+        AD = Graph->MissedHits->hit[Node->hit_id]->dcl->ad;
+      else
+        AD = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad;
+
+
+      int exon_hmm_start  = AD->hmmfrom;
+      int exon_nucl_start = AD->sqfrom;
+
+      InputCoordSet[5*start_exon_id+1] = exon_nucl_start;
+      InputCoordSet[5*start_exon_id+2] = exon_hmm_start;
+
+
+    }
+
+
+    // Similarly, if we aren't ending with the last exon we need to go back
+    // to what the hit tells us.
+    if (end_exon_id < num_exons-1) {
+
+
+      SPLICE_NODE * Node = Graph->Nodes[InputCoordSet[5*end_exon_id+5]];
+      P7_ALIDISPLAY * AD;
+      if (Node->was_missed)
+        AD = Graph->MissedHits->hit[Node->hit_id]->dcl->ad;
+      else
+        AD = (&Graph->TopHits->hit[Node->hit_id]->dcl[Node->dom_id])->ad;
+
+
+      int exon_hmm_end  = AD->hmmto;
+      int exon_nucl_end = AD->sqto;
+
+      InputCoordSet[5*end_exon_id+3] = exon_nucl_end;
+      InputCoordSet[5*end_exon_id+4] = exon_hmm_end;
+
+
+    }
+
+
+    // Record this exon set!
+    
+    int num_sub_exons = end_exon_id - start_exon_id + 1;
+    SplitCoordSets[*num_split_sets] = malloc((5*num_sub_exons+1)*sizeof(int));
+
+    SplitCoordSets[*num_split_sets][0] = num_sub_exons;
+
+    int sub_exon_id = 0;
+    for (exon_id = start_exon_id; exon_id <= end_exon_id; exon_id++) {
+      SplitCoordSets[*num_split_sets][5*sub_exon_id+1] = InputCoordSet[5*exon_id+1]; 
+      SplitCoordSets[*num_split_sets][5*sub_exon_id+2] = InputCoordSet[5*exon_id+2]; 
+      SplitCoordSets[*num_split_sets][5*sub_exon_id+3] = InputCoordSet[5*exon_id+3]; 
+      SplitCoordSets[*num_split_sets][5*sub_exon_id+4] = InputCoordSet[5*exon_id+4]; 
+      SplitCoordSets[*num_split_sets][5*sub_exon_id+5] = InputCoordSet[5*exon_id+5]; 
+      sub_exon_id++;
+    }
+
+    *num_split_sets += 1;
+
+
+  } 
+
+
+  if (DEBUGGING) DEBUG_OUT("'ExonSetCleanup' Complete",-1);
+
+
+  return SplitCoordSets;
+
+
+}
+
+
+
+
+
+
+
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
  *  Function: GetSplicedExonCoordSets
  *
  *  Desc. :
@@ -5995,11 +6260,59 @@ int ** GetSplicedExonCoordSets
   }
 
 
+
   // Cool!  Now let's grab the spliced coordinates
-  int ** ExonCoordSets = malloc(num_conn_comps * sizeof(int *));
-  int conn_comp_id;
-  for (conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++)
-    ExonCoordSets[conn_comp_id] = GetExonSetFromEndNode(Graph,EndNodes[conn_comp_id]);
+  //
+  int ecs_cap = num_conn_comps * 2;
+  int ** ExonCoordSets = malloc(ecs_cap * sizeof(int *));
+
+  *num_coord_sets = 0;
+  int conn_comp_id, sub_set_id;
+  for (conn_comp_id = 0; conn_comp_id < num_conn_comps; conn_comp_id++) {
+
+
+    int  * InitCoordSet   = GetExonSetFromEndNode(Graph,EndNodes[conn_comp_id]);
+    int    num_split_sets = 0;
+    int ** SplitCoordSets = ExonSetCleanup(Graph,InitCoordSet,&num_split_sets);
+
+
+    for (sub_set_id = 0; sub_set_id < num_split_sets; sub_set_id++) {
+
+
+      // Copy the next subset into ExonCoordSets
+
+      int * SubCoordSet = SplitCoordSets[sub_set_id];
+
+      ExonCoordSets[*num_coord_sets] = malloc((5*SubCoordSet[0]+1) * sizeof(int));
+      int x;
+      for (x=0; x<=5*SubCoordSet[0]; x++)
+        ExonCoordSets[*num_coord_sets][x] = SubCoordSet[x];
+      *num_coord_sets += 1;
+
+      free(SubCoordSet);
+
+
+      // Resize?
+      if (*num_coord_sets >= ecs_cap) {
+        ecs_cap *= 2;
+        int ** TmpECS = malloc(ecs_cap * sizeof(int *));
+        for (x=0; x<*num_coord_sets; x++)
+          TmpECS[x] = ExonCoordSets[x];
+        free(ExonCoordSets); 
+        ExonCoordSets = TmpECS;
+      }
+
+
+    }
+
+
+    // Free up and move forward!
+    free(SplitCoordSets);
+    free(InitCoordSet);
+
+
+  }
+
   free(EndNodes);
 
 
@@ -6007,7 +6320,6 @@ int ** GetSplicedExonCoordSets
 
 
   // Easy!
-  *num_coord_sets = num_conn_comps;
   return ExonCoordSets;
 
 }
@@ -6961,103 +7273,6 @@ void ReportSplicedTopHits
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *
- *  Function: ExonSetCleanup
- *
- */
-void ExonSetCleanup
-(int * ExonCoordSet)
-{
-
-  int num_exons = ExonCoordSet[0];
-
-  int i;
-  int exon_id = 0;
-  while (exon_id < num_exons) {
-
-    if (ExonCoordSet[5*exon_id+2] < ExonCoordSet[5*exon_id+4]) {
-      exon_id++;
-      continue;
-    }
-
-    // UH OH! This exon's gotta go!
-
-
-    // If this is the first exon, just chop it
-    if (exon_id == 0) {
-
-      for (i=exon_id; i<num_exons-1; i++) {
-        ExonCoordSet[5*i+1] = ExonCoordSet[5*(i+1)+1];
-        ExonCoordSet[5*i+2] = ExonCoordSet[5*(i+1)+2];
-        ExonCoordSet[5*i+3] = ExonCoordSet[5*(i+1)+3];
-        ExonCoordSet[5*i+4] = ExonCoordSet[5*(i+1)+4];
-        ExonCoordSet[5*i+5] = ExonCoordSet[5*(i+1)+5];
-      }
-      
-      num_exons--;
-      continue;
-
-    }
-
-
-    // If this is the last exon, also just chop it!
-    if (exon_id == num_exons-1) {
-
-      num_exons--;
-      continue;
-
-    }
-
-
-    // We're somewhere in the middle... Let's see if we can
-    // easily connect up the last upstream and next downstream
-    // exons.
-    // OTHERWISE, I'm going to kill this exon coordinate set,
-    // since it's unreliable.
-    int us_exon_id = exon_id-1;
-    int ds_exon_id = exon_id+1;
-    if (ExonCoordSet[5*us_exon_id+4] + 1 == ExonCoordSet[5*ds_exon_id+2]) {
-
-      // PHEW!
-      for (i=exon_id; i<num_exons-1; i++) {
-        ExonCoordSet[5*i+1] = ExonCoordSet[5*(i+1)+1];
-        ExonCoordSet[5*i+2] = ExonCoordSet[5*(i+1)+2];
-        ExonCoordSet[5*i+3] = ExonCoordSet[5*(i+1)+3];
-        ExonCoordSet[5*i+4] = ExonCoordSet[5*(i+1)+4];
-        ExonCoordSet[5*i+5] = ExonCoordSet[5*(i+1)+5];
-      }
-
-      num_exons--;
-      continue;
-
-    } else {
-
-      fprintf(stderr,"  WARNING:  Exon set terminated for having a reverse-model entry!\n");
-      ExonCoordSet[0] = 0;
-      return;
-
-    }
-
-  }
-
-  ExonCoordSet[0] = num_exons;
-
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
  *  Function: RunModelOnExonSets
  *
  *  Desc. :  This is the culmination of all of our work!
@@ -7112,15 +7327,6 @@ void RunModelOnExonSets
   for (coord_set_id = 0; coord_set_id < num_coord_sets; coord_set_id++) {
 
 
-
-    // This is a remnant patch that shouldn't get triggered
-    // (maybe worth running a test where we report if it is...)
-    // but catches cases where a supposed exon goes backwards
-    // in the model.
-    //
-    ExonSetCleanup(ExonCoordSets[coord_set_id]);
-
-    
     // If there's only one exon in this set of exons, we'll
     // skip reporting it (maybe have this be a user option?)
     //
