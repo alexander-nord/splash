@@ -116,7 +116,7 @@ sub AggregateAllResults
 	print $CoverageFile "Gene,Sequence-ID,Model-Length,Num-Exon-Sets,";
 	print $CoverageFile "Model-Coverage-of-Best-Exon-Set,Best-ES-Pct-Coverage,";
 	print $CoverageFile "Best-ES-Start-Pos,Best-ES-End-Pos,";
-	print $CoverageFile "Sum-ES-Pct-Coverage,Time-in-Splash\n";
+	print $CoverageFile "Sum-ES-Pct-Coverage,BATH-Runtime,Time-in-Splash\n";
 
 
 	# In case we had weird / discordant output for any inputs,
@@ -231,10 +231,16 @@ sub AggregateAllResults
 			$total_num_spliced++;
 
 
+			# How long did we spend running BATH, altogether?
+			$line = <$SummaryFile>;
+			$line =~ /BATH Runtime\s+: (\S+)/;
+			my $fam_input_bath_runtime = $1;
+
+
 			# How long did we spend inside the *splash* zone?
 			$line = <$SummaryFile>;
-			$line =~ /Runtime\s+: (\S+)/;
-			my $fam_input_runtime = $1;
+			$line =~ /Splash Runtime\s+: (\S+)/;
+			my $fam_input_splash_runtime = $1;
 
 
 			# Model length
@@ -245,7 +251,7 @@ sub AggregateAllResults
 
 			# How many exon sets did we arrive at?
 			$line = <$SummaryFile>;
-			$line =~ /Num Exon Sets : (\d+)/;
+			$line =~ /Num Exon Sets\s+: (\d+)/;
 			my $num_exon_sets = $1;
 
 
@@ -440,8 +446,8 @@ sub AggregateAllResults
 				# it, and then produced an output!  Way to go, us!
 				print $CoverageFile "$family,$fam_input_name,$model_length,";
 				print $CoverageFile "$num_exon_sets,$best_coverage_len,$best_coverage_pct\%,";
-				print $CoverageFile "$best_coverage_start,$best_coverage_end,";
-				print $CoverageFile "$sum_coverage_pct\%,$fam_input_runtime\n";
+				print $CoverageFile "$best_coverage_start,$best_coverage_end,$sum_coverage_pct\%,";
+				print $CoverageFile "$fam_input_bath_runtime,$fam_input_splash_runtime\n";
 
 
 				# Wrap up this input with whether it made use of missed exons
@@ -662,31 +668,51 @@ sub CompileBasicResults
 
 		# Just to get it out of the way, let's
 		# grab the timing data from the error file
-		my $runtime = 'Not timed';
+		my $splash_runtime = 'Not timed';
+		my $bath_runtime   = 'Not timed';
 		if (-e $spl_err_file_name)
 		{
 	
 			open(my $SplErrFile,'<',$spl_err_file_name)
 				|| die "\n  ERROR:  Failed to open error file '$spl_err_file_name' (looking for timing info.)\n\n";
+			
 			while (my $line = <$SplErrFile>) 
 			{
-				next if ($line !~ /Time spent splashing/);
-				$line = <$SplErrFile>;
-				if ($line =~ /Elapsed:\s+(\S+)/) 
+				if ($line =~ /Time spent splashing/)
 				{
-					$runtime = $1;
+					$line = <$SplErrFile>;
+					if ($line =~ /Elapsed:\s+(\S+)/) 
+					{
+						$splash_runtime = $1;
+					}
 				}
-				last;
+				elsif ($line =~ /Elapsed \(wall clock\) time.*:\s+(\S+)\s*$/)
+				{
+					$bath_runtime = $1;
+					if ($bath_runtime =~ /^(\d+):([^:]+)$/)
+					{
+
+						my $minutes = $1;
+						my $seconds = $2;
+						$minutes = '0'.$minutes if ($minutes < 10);
+
+						$bath_runtime = '00:'.$minutes.':'.$seconds;
+
+					}
+				}
 			}
+			
 			close($SplErrFile);
+		
 		}
 
 
 
 		# Get this stuff taken care of
 		print $SummaryFile "\n";
-		print $SummaryFile "  Input ID      : $base_name\n";
-		print $SummaryFile "  Runtime       : $runtime\n";
+		print $SummaryFile "  Input ID       : $base_name\n";
+		print $SummaryFile "  BATH Runtime   : $bath_runtime\n";
+		print $SummaryFile "  Splash Runtime : $splash_runtime\n";
 
 
 		# Now, it's time to look at the actual output!
@@ -695,7 +721,7 @@ sub CompileBasicResults
 
 		while (my $line = <$SplOutFile>) {
 			next if ($line !~ /^\s*Query:\s+\S+\s+\[M=(\d+)\]\s*$/);
-			print $SummaryFile "  Model Length  : $1\n";
+			print $SummaryFile "  Model Length   : $1\n";
 			last;
 		}
 
@@ -726,7 +752,7 @@ sub CompileBasicResults
 			}
 
 		}
-		print $SummaryFile "  Num Exon Sets : $num_exon_sets";
+		print $SummaryFile "  Num Exon Sets  : $num_exon_sets";
 
 
 		# If it doesn't look like we were searching within a
@@ -749,7 +775,7 @@ sub CompileBasicResults
 		for (my $exon_set_id = 1; $exon_set_id <= $num_exon_sets; $exon_set_id++) 
 		{
 
-			print $SummaryFile "  - Exon Set    : $exon_set_id\n";
+			print $SummaryFile "  - Exon Set     : $exon_set_id\n";
 
 
 			# Advance to the start of the next exon set
@@ -762,7 +788,7 @@ sub CompileBasicResults
 					last;
 				}
 			}
-			print $SummaryFile "  - Num Exons   : $num_exons\n";
+			print $SummaryFile "  - Num Exons    : $num_exons\n";
 
 
 			# What range of model / nucleotide positions are covered?
@@ -772,7 +798,7 @@ sub CompileBasicResults
 			my $model_start = $1;
 			my $model_end   = $2;
 
-			print $SummaryFile "  - Model Range : $model_start..$model_end\n";
+			print $SummaryFile "  - Model Range  : $model_start..$model_end\n";
 
 
 			my $target_seq_line = <$SplOutFile>;
@@ -796,8 +822,8 @@ sub CompileBasicResults
 				$nucl_start += 2;
 				$nucl_end   -= 2;
 			}
-			print $SummaryFile "  - Chromosome  : $chromosome\n";
-			print $SummaryFile "  - Nucl. Range : $nucl_start..$nucl_end\n";
+			print $SummaryFile "  - Chromosome   : $chromosome\n";
+			print $SummaryFile "  - Nucl. Range  : $nucl_start..$nucl_end\n";
 
 
 			# Did this hit incorporate "missed" exons?
@@ -819,7 +845,7 @@ sub CompileBasicResults
 				}
 			}
 
-			print $SummaryFile "  - Missed Exons? ";
+			print $SummaryFile "  - Missed Exons ? ";
 			if ($has_missed_exons) { print $SummaryFile "Yes\n"; }
 			else                   { print $SummaryFile "No\n";  }
 

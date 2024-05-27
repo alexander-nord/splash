@@ -7330,7 +7330,11 @@ void RunModelOnExonSets
     // If there's only one exon in this set of exons, we'll
     // skip reporting it (maybe have this be a user option?)
     //
-    if (ExonCoordSets[coord_set_id][0] <= 1)
+    // UNLESS: This is a (more or less) full-model hit
+    //
+    if (ExonCoordSets[coord_set_id][0] <= 1
+        && (ExonCoordSets[coord_set_id][2] > 6
+            || ExonCoordSets[coord_set_id][4] <= Graph->Model->M - 6))
       continue;
 
 
@@ -8422,14 +8426,14 @@ serial_master(ESL_GETOPTS *go, struct cfg_s *cfg)
 
 
 
-                                  ////////////////////////////////////////////////////////////////////
-                                  //                                                                //
-                                  //                          * SPLICING *                          //
-                                  //                                                                //
-    if (tophits_accumulator->N > 1) SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);  //
-                                  //                                                                //
-                                  //                                                                //
-                                  ////////////////////////////////////////////////////////////////////
+                                //////////////////////////////////////////////////////////////////
+                                //                                                              //
+                                //                         * SPLICING *                         //
+                                //                                                              //
+    if (tophits_accumulator->N) SpliceHits(tophits_accumulator,dbfp,gm,om,gcode,go,ofp,textw);  //
+                                //                                                              //
+                                //                                                              //
+                                //////////////////////////////////////////////////////////////////
 
 
 
