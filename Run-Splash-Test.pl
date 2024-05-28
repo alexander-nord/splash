@@ -813,15 +813,7 @@ sub CompileBasicResults
 			my $revcomp = 0;
 			$revcomp = 1 if ($nucl_start > $nucl_end);
 
-			# The nucleotide coordinates will include the splice signals,
-			# which is nice, but not really part of the hit, per se.
-			if ($revcomp) {
-				$nucl_start -= 2;
-				$nucl_end   += 2;
-			} else {
-				$nucl_start += 2;
-				$nucl_end   -= 2;
-			}
+
 			print $SummaryFile "  - Chromosome   : $chromosome\n";
 			print $SummaryFile "  - Nucl. Range  : $nucl_start..$nucl_end\n";
 
@@ -890,12 +882,16 @@ sub CompileBasicResults
 
 					# We need to account for the fact that the splice signal
 					# eats two of our precious nucleotides
+					#
+					# BUT: Don't trim the start of the first exon or the end
+					#      of the last exon!
+					#
 					if ($revcomp) {
-						$exon_nucl_start -= 2;
-						$exon_nucl_end   += 2;
+						$exon_nucl_start -= 2 if ($exon_id > 1         );
+						$exon_nucl_end   += 2 if ($exon_id < $num_exons);
 					} else {
-						$exon_nucl_start += 2;
-						$exon_nucl_end   -= 2;
+						$exon_nucl_start += 2 if ($exon_id > 1         );
+						$exon_nucl_end   -= 2 if ($exon_id < $num_exons);
 					}
 
 					
