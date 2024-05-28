@@ -5,7 +5,15 @@ use POSIX;
 
 
 my $pbhmms_dir_name = $0;
-$pbhmms_dir_name = $pbhmms_dir_name.'/' if ($pbhmms_dir_name !~ /\/$/);
+if ($pbhmms_dir_name eq 'PrepBathHMMs.pl')
+{
+	$pbhmms_dir_name = './';
+}
+else
+{
+	$pbhmms_dir_name =~ s/PrepBathHMMs\.pl$//;
+}
+
 
 my $BATHBUILD = $pbhmms_dir_name.'../../BATH/src/bathbuild';
 die "\n  ERROR:  Failed to locate 'bathbuild' (looking for '$BATHBUILD')\n\n"
@@ -16,7 +24,9 @@ die "\n  ERROR:  Failed to locate 'bathconvert' (looking for '$BATHCONVERT')\n\n
 	if (!(-e $BATHCONVERT));
 
 
+
 if (@ARGV != 1) { die "\n  USAGE:  ./PrepBathHMMs.pl [/path/to/gene/super-dir/]\n\n"; }
+
 
 
 my $all_genes_dir_name = $ARGV[0];
@@ -44,7 +54,7 @@ while (my $gene = readdir($AllGenesDir))
 	{
 		
 		next if ($file_name =~ /\.bath\.hmm/);
-		next if (lc($file_name) !~ /\.a?fa[sta]?$|\.hmm$/)
+		next if (lc($file_name) !~ /\.a?fa[sta]?$|\.hmm$/);
 
 		$file_name =~ /^(\S+)\.([^\.]+)$/;
 		my $file_base_name = $1;
