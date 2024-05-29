@@ -128,6 +128,8 @@ sub GetOverlapData
 			my @SplashCoordRanges;
 			while (my $line = <$Grep>) 
 			{
+				next if ($line !~ /^$gene,/);
+
 				if ($line =~ /,(\d+),(\d+)\s*$/)
 				{
 					push(@SplashCoordRanges,$1.'..'.$2);
