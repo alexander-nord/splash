@@ -168,16 +168,35 @@ sub GetOverlapData
 			{
 
 				my $splash_coord_range = $SplashCoordRanges[$spl_exon_id];
-				my $overlap_found = 0;
-				my $start_diff;
-				my $end_diff;
 
+				my $start_diff = -1;
+				my $end_diff   = -1;
 
 				foreach my $mirage_coord_range (@MirageCoordRanges)
 				{
-					($overlap_found,$start_diff,$end_diff) 
+					
+					my ($overlap_found,$exon_start_diff,$exon_end_diff) 
 						= CheckRangeOverlap($splash_coord_range,$mirage_coord_range);
-					last if ($overlap_found == 1);
+					
+					if ($overlap_found == 1)
+					{
+						if ($start_diff == -1)
+						{
+							$start_diff = $exon_start_diff;
+							$end_diff   = $exon_end_diff;
+						}
+						else
+						{
+							my       $diff_sum = $start_diff      +      $end_diff;
+							my  $exon_diff_sum = $exon_start_diff + $exon_end_diff;
+							if ($exon_diff_sum < $diff_sum)
+							{
+								$start_diff = $exon_start_diff;
+								$end_diff   = $exon_end_diff;
+							}
+						}
+					}
+
 				}
 
 
