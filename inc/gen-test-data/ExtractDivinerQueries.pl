@@ -105,8 +105,8 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 			if ($ValidSources{$next_source_species})
 			{
 
+				$num_seqs++ if ($valid_source);
 				$valid_source = 1;
-				$num_seqs++;
 				$init_msa_len=0;
 			
 				$line =~ /\/>(\S+)/;
