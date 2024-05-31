@@ -17,6 +17,11 @@ if (len(sys.argv) != 3):
         exit(1)
 
 
+# Human peaks higher, so we set a special mammal y-lim
+mammal_y_lim     = 0.043
+non_mammal_y_lim = 0.033
+
+
 # Default : Lime
 best_face_color = "#c2f08d"
 best_edge_color = "#90dc39"
@@ -86,7 +91,7 @@ for index,row in Data.iterrows():
 	SumESCoverage.append(float(PctMatch.group(1)))
 
 
-fig = plt.figure()
+fig = plt.figure(figsize=(9,5))
 gs  = (grid_spec.GridSpec(2,1))
 
 AxObjs = []
@@ -106,7 +111,12 @@ Y = Plot.get_children()[0]._y
 
 AxObjs[-1].fill_between(X,Y,color=best_face_color)
 AxObjs[-1].set_xlim(0,100)
-AxObjs[-1].set_ylim(0,0.05)
+
+if (species == "Human"):
+	AxObjs[-1].set_ylim(0,mammal_y_lim)
+else:
+	AxObjs[-1].set_ylim(0,non_mammal_y_lim)
+
 
 Rect = AxObjs[-1].patch
 Rect.set_alpha(0)
@@ -138,7 +148,13 @@ Y = Plot.get_children()[0]._y
 
 AxObjs[-1].fill_between(X,Y,color=sum_face_color)
 AxObjs[-1].set_xlim(0,100)
-AxObjs[-1].set_ylim(0,0.05)
+
+
+if (species == "Human"):
+	AxObjs[-1].set_ylim(0,mammal_y_lim)
+else:
+	AxObjs[-1].set_ylim(0,non_mammal_y_lim)
+
 
 Rect = AxObjs[-1].patch
 Rect.set_alpha(0)

@@ -10,9 +10,46 @@ import matplotlib.pyplot as plt
 
 
 
-if (len(sys.argv) != 2):
-	sys.stderr.write("\n  USAGE: ./Length-to-Time-Scatter.py [Coverage.csv]\n\n")
+if (len(sys.argv) != 3):
+	sys.stderr.write("\n  USAGE: ./Length-to-Time-Scatter.py [Coverage.csv] [species]\n\n")
 	exit(1)
+
+
+
+
+# Default : Lime
+bath_face_color   = "#90dc39"
+splash_face_color = "#c2f08d"
+
+
+species = sys.argv[2].lower()
+
+if   (species == "human"       or species == "homo_sapiens"):
+        
+	# Lavender
+	splash_face_color = "#d19efb"
+	species = "Human"
+    
+elif (species == "chicken"     or species == "gallus_gallus"):
+	
+	# Amber
+	splash_face_color = "#fcc06d"
+	species = "Chicken"
+
+
+elif (species == "fruit_fly"   or species == "drosophila_melanogaster"):
+	
+	# Rose
+	splash_face_color = "#f8b8e6"
+	species = "Fly"
+
+elif (species == "stickleback" or species == "gasterosteus_aculeatus"):
+	
+	# Aqua
+	splash_face_color = "#9df3db"
+	species = "Stickleback"
+
+
 
 
 
@@ -42,8 +79,8 @@ for index,row in Data.iterrows():
 	BathSeconds.append(bath_seconds)
 
 
-	if (bath_seconds > 100):
-		print(f"{row['Gene']}:{row['Sequence-ID']}")
+	#if (bath_seconds > 1000):
+	#print(f"{row['Gene']}:{row['Sequence-ID']}")
 
 
 	splash_time = row['Time-in-Splash']
@@ -66,11 +103,12 @@ print(f" BATH  : {total_bath_seconds  } seconds")
 print(f"splash : {total_splash_seconds} seconds")
 
 
-plt.scatter(ModelLengths,BathSeconds)
-plt.scatter(ModelLengths,SplashSeconds)
+plt.scatter(ModelLengths,BathSeconds,s=12,color=bath_face_color)
+plt.scatter(ModelLengths,SplashSeconds,s=12,color=splash_face_color)
 plt.xscale('log')
-plt.ylim((0,20))
-plt.show()
+#plt.ylim((0,20))
+
+plt.savefig(species+'.png')
 
 
 
