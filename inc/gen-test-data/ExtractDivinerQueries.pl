@@ -192,7 +192,6 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 	if (system($bathbuild_cmd))
 	{
 		system("echo \"ERROR:  bathbuild command '$bathbuild_cmd' failed\" >> div-extract.err");
-		next;
 	}
 
 
