@@ -169,16 +169,17 @@ sub GetOverlapData
 
 				my $splash_coord_range = $SplashCoordRanges[$spl_exon_id];
 
-				my $start_diff = -1;
-				my $end_diff   = -1;
+				my $overlap_found = 0;
+				my $start_diff    = -1;
+				my $end_diff      = -1;
 
 				foreach my $mirage_coord_range (@MirageCoordRanges)
 				{
 					
-					my ($overlap_found,$exon_start_diff,$exon_end_diff) 
+					my ($exon_overlap_found,$exon_start_diff,$exon_end_diff) 
 						= CheckRangeOverlap($splash_coord_range,$mirage_coord_range);
 					
-					if ($overlap_found == 1)
+					if ($exon_overlap_found == 1)
 					{
 						if ($start_diff == -1)
 						{
@@ -187,14 +188,10 @@ sub GetOverlapData
 						}
 						else
 						{
-							my       $diff_sum = $start_diff      +      $end_diff;
-							my  $exon_diff_sum = $exon_start_diff + $exon_end_diff;
-							if ($exon_diff_sum < $diff_sum)
-							{
-								$start_diff = $exon_start_diff;
-								$end_diff   = $exon_end_diff;
-							}
+							$start_diff = $exon_start_diff if ($exon_start_diff < $start_diff);
+							$end_diff   = $exon_end_diff   if ($exon_end_diff   < $end_diff  );
 						}
+						$overlap_found = 1;
 					}
 
 				}
@@ -276,25 +273,17 @@ sub CheckRangeOverlap
 	# split things up based on strand direction.
 	if ($start1 < $end1)
 	{
-		if ($start1 <= $start2 && $end1 > $start2) 
-		{
-			return (1,$diff1,$diff2);
-		}
-		elsif ($start1 < $end2 && $end1 >= $end2)
-		{
-			return (1,$diff1,$diff2);
-		}
+		return 1 if ($start1 <= $start2 && $end1 >= $start2);
+		return 1 if ($start1 <= $end2   && $end1 >= $end2  );
+		return 1 if ($start1 >= $start2 && $end1 <= $end2  );
+		return 1 if ($start2 >= $start1 && $end2 <= $end1  );
 	}
 	else
 	{
-		if ($start1 >= $start2 && $end1 < $start2) 
-		{
-			return (1,$diff1,$diff2);
-		}
-		elsif ($start1 > $end2 && $end1 <= $end2)
-		{
-			return (1,$diff1,$diff2);
-		}
+		return 1 if ($start1 >= $start2 && $end1 <= $start2);
+		return 1 if ($start1 >= $end2   && $end1 <= $end2  );
+		return 1 if ($start1 <= $start2 && $end1 >= $end2  );
+		return 1 if ($start2 <= $start1 && $end2 >= $end1  );
 	}
 
 	return (0,0,0);
