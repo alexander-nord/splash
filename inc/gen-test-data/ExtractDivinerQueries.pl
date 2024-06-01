@@ -5,6 +5,13 @@ use POSIX;
 
 
 
+sub Max;
+sub Min;
+sub ForwardOverlap;
+sub ReverseOverlap;
+
+
+
 my $BATHBUILD = $0;
 $BATHBUILD =~ s/[^\/]+$//;
 $BATHBUILD = './' if (!$BATHBUILD);
@@ -105,9 +112,9 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 			if ($ValidSources{$next_source_species})
 			{
 
-				$num_seqs++ if ($valid_source);
+				$num_seqs++;
 				$valid_source = 1;
-				$init_msa_len=0;
+				$init_msa_len = 0;
 			
 				$line =~ /\/>(\S+)/;
 				$SeqNames[$num_seqs] = $1;
@@ -188,42 +195,150 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 	}
 
 
-	# As one last thing, we'll want to record the target range we're
+	# As one last thing, we'll want to record the target range(s) we're
 	# hoping to "discover" with splashBATH
-	my @TargetRanges = split(/\//,$GenesToTargetRanges{$gene});
-	
-	$TargetRanges[0] =~ /^(\S+):(\d+)\.\.(\d+)$/;
-	my $target_chr   = $1;
-	my $target_start = $2;
-	my $target_end   = $3;
-
+	#
+	# We'll want to consolidate any that are overlapping
+	#
+	my @TargetRanges;
 	my $target_revcomp = 0;
-	$target_revcomp = 1 if ($target_chr =~ /\[revcomp\]/);
-
-	for (my $range_id=1; $range_id<scalar(@TargetRanges); $range_id++)
+	$target_revcomp    = 1 if ($GenesToTargetRanges{$gene} =~ /\[revcomp\]/);
+	my $num_target_ranges = 0;
+	foreach my $target_range (split(/\//,$GenesToTargetRanges{$gene}))
 	{
-		$TargetRanges[$range_id] =~ /:(\d+)\.\.(\d+)$/;
-		my $range_start = $1;
-		my $range_end   = $2;
+	
+		$target_range    =~ /:(\d+)\.\.(\d+)$/;
+		my $target_start = $1;
+		my $target_end   = $2;
 
-		if ($target_revcomp)
+
+		my $overlap_found = 0;
+		for (my $range_id = 0; $range_id < $num_target_ranges; $range_id++)
 		{
-			$target_start = $range_start if ($range_start > $target_start);
-			$target_end   = $range_end   if ($range_end   < $target_end);
+
+			$TargetRanges[$range_id] =~ /^(\d+)\.\.(\d+)$/;
+			my $range_start = $1;
+			my $range_end   = $2;
+
+
+			if ( $target_revcomp && ReverseOverlap($target_start,$target_end,$range_start,$range_end))
+			{
+			
+				$range_start = Max($target_start,$range_start);
+				$range_end   = Min($target_end  ,$range_end  );
+			
+				$TargetRanges[$range_id] = $range_start.'..'.$range_end;
+				
+				$overlap_found = 1;
+				last;
+			
+			}
+			if (!$target_revcomp && ForwardOverlap($target_start,$target_end,$range_start,$range_end))
+			{
+			
+				$range_start = Min($target_start,$range_start);
+				$range_end   = Max($target_end  ,$range_end  );
+			
+				$TargetRanges[$range_id] = $range_start.'..'.$range_end;
+				
+				$overlap_found = 1;
+				last;
+			
+			}
+
 		}
-		else
+
+
+		if (!$overlap_found)
 		{
-			$target_start = $range_start if ($range_start < $target_start);
-			$target_end   = $range_end   if ($range_end   > $target_end);			
+			$TargetRanges[$num_target_ranges] = $target_start.'..'.$target_end;
+			$num_target_ranges++;
 		}
+
+
 	}
 
-	my $target_out_file_name = $gene_out_dir_name.'new-exon-range.out';
-	system("echo \"CHR  : $target_chr\nRANGE: $target_start..$target_end\" > $target_out_file_name");
 
+	my $target_out_file_name = $gene_out_dir_name.'novel-exon-ranges.out';
+	open(my $TargetOutFile,'>',$target_out_file_name)
+		|| die "\n  ERROR:  Failed to open output file '$target_out_file_name'\n\n";
+
+
+	$GenesToTargetRanges{$gene} =~ /^([^:]+):/;
+	print $TargetOutFile "CHR   : $1\n";
+	
+	foreach my $target_range (@TargetRanges)
+	{
+		print $TargetOutFile "RANGE : $target_range\n";
+	}
+
+	close($TargetOutFile);
 
 }
 
 
 
 1;
+
+
+
+
+
+
+
+
+
+
+sub Min
+{	my $x = shift;
+	my $y = shift;
+	return $x if ($x < $y);
+	return $y;
+}
+sub Max
+{
+	my $x = shift;
+	my $y = shift;
+	return $x if ($x > $y);
+	return $y;
+}
+
+
+sub ForwardOverlap
+{
+	my $start1 = shift;
+	my $end1   = shift;
+
+	my $start2 = shift;
+	my $end2   = shift;
+
+	return 1 if ($start1 <= $start2 && $end1 >= $start2);
+	return 1 if ($start1 <= $end2   && $end1 >= $end2  );
+	return 1 if ($start1 >= $start2 && $end1 <= $end2  );
+	return 1 if ($start2 >= $start1 && $end2 <= $end1  );
+
+	return 0;
+}
+sub ReverseOverlap
+{
+	my $start1 = shift;
+	my $end1   = shift;
+
+	my $start2 = shift;
+	my $end2   = shift;
+
+	return 1 if ($start1 >= $start2 && $end1 <= $start2);
+	return 1 if ($start1 >= $end2   && $end1 <= $end2  );
+	return 1 if ($start1 <= $start2 && $end1 >= $end2  );
+	return 1 if ($start2 <= $start1 && $end2 >= $end1  );
+
+	return 0;
+}
+
+
+
+
+
+
+
+
