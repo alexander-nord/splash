@@ -185,13 +185,14 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 
 
 	my $hmm_out_file_name = $gene_out_dir_name.$gene.'.bath.hmm';
-	my $bathbuild_cmd = " --amino \"$hmm_out_file_name\" \"$ali_out_file_name\"";
+	my $bathbuild_cmd = " --amino \"$hmm_out_file_name\" \"$ali_out_file_name\" 1>/dev/null";
 	$bathbuild_cmd = " --unali".$bathbuild_cmd if ($num_seqs == 1);
 	$bathbuild_cmd = $BATHBUILD.$bathbuild_cmd;
 
 	if (system($bathbuild_cmd))
 	{
-		die "\n  ERROR:  bathbuild command '$bathbuild_cmd' failed\n\n";
+		system("echo \"ERROR:  bathbuild command '$bathbuild_cmd' failed\" >> div-extract.err");
+		next;
 	}
 
 
