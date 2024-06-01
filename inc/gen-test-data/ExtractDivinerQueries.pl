@@ -116,7 +116,7 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 				$valid_source = 1;
 				$init_msa_len = 0;
 			
-				$line =~ /\/>(\S+)/;
+				$line =~ /\>(\S+)/;
 				$SeqNames[$num_seqs] = $1;
 
 			}
