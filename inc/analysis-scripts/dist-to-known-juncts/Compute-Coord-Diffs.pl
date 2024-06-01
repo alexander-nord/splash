@@ -273,17 +273,17 @@ sub CheckRangeOverlap
 	# split things up based on strand direction.
 	if ($start1 < $end1)
 	{
-		return 1 if ($start1 <= $start2 && $end1 >= $start2);
-		return 1 if ($start1 <= $end2   && $end1 >= $end2  );
-		return 1 if ($start1 >= $start2 && $end1 <= $end2  );
-		return 1 if ($start2 >= $start1 && $end2 <= $end1  );
+		return (1,$diff1,$diff2) if ($start1 <= $start2 && $end1 >= $start2);
+		return (1,$diff1,$diff2) if ($start1 <= $end2   && $end1 >= $end2  );
+		return (1,$diff1,$diff2) if ($start1 >= $start2 && $end1 <= $end2  );
+		return (1,$diff1,$diff2) if ($start2 >= $start1 && $end2 <= $end1  );
 	}
 	else
 	{
-		return 1 if ($start1 >= $start2 && $end1 <= $start2);
-		return 1 if ($start1 >= $end2   && $end1 <= $end2  );
-		return 1 if ($start1 <= $start2 && $end1 >= $end2  );
-		return 1 if ($start2 <= $start1 && $end2 >= $end1  );
+		return (1,$diff1,$diff2) if ($start1 >= $start2 && $end1 <= $start2);
+		return (1,$diff1,$diff2) if ($start1 >= $end2   && $end1 <= $end2  );
+		return (1,$diff1,$diff2) if ($start1 <= $start2 && $end1 >= $end2  );
+		return (1,$diff1,$diff2) if ($start2 <= $start1 && $end2 >= $end1  );
 	}
 
 	return (0,0,0);
