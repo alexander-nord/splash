@@ -201,7 +201,7 @@ static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 0; // Print debugging output?
+static int DEBUGGING = 1; // Print debugging output?
 
 
 // Ever want to know what function you're in, and how deep it
@@ -4415,7 +4415,7 @@ P7_DOMAIN ** SelectFinalSubHits
 
 
     // No coverage?! Away with you, filth!
-    if (!added_coverage) {
+    if (added_coverage < MIN_AMINO_OVERLAP) {
       p7_alidisplay_Destroy(AD);
       SubHitADs[sub_hit_id] = NULL;
       continue;
@@ -4783,11 +4783,6 @@ P7_DOMAIN ** FindSubHits
             }
 
 
-            // DEBUGGING
-            //fprintf(stdout,"Consider: %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
-            //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
-
-
             // Get the actual model range
             AD->hmmfrom += hmm_start - 1;
             AD->hmmto   += hmm_start - 1;
@@ -4829,35 +4824,42 @@ P7_DOMAIN ** FindSubHits
             }
 
 
-            // Welcome to the list, fella!
-            SubHitADs[num_sub_hits]    = AD;
-            SubHitScores[num_sub_hits] = ComputeRoughAliScore(AD,Graph->Model);
-
-
             // Hopefully this isn't too cruel, but if your score wasn't
             // very good we'll actually pull our support...
-            if (SubHitScores[num_sub_hits] > (float)ali_len && !ExcessiveGapContent(AD))
-              num_sub_hits++;
+            SubHitScores[num_sub_hits] = ComputeRoughAliScore(AD,Graph->Model);
+            float score_cutoff         = 2.0 * (float)ali_len / 3.0;
+            if (SubHitScores[num_sub_hits] < score_cutoff || ExcessiveGapContent(AD)) {
+              p7_alidisplay_Destroy(AD);
+              continue;            
+            }
+
+
+            // Welcome to the list, fella!
+            SubHitADs[num_sub_hits] = AD;
+            num_sub_hits++;
+
+
+            // DEBUGGING
+            //fprintf(stdout,"PASSED! %d..%d (%f): %s\n",AD->hmmfrom,AD->hmmto,viterbi_score,AD->aseq);
+            //p7_trace_Dump(stdout, Trace, SubModel, ORFAminoSeq->dsq);
+
 
 
             // Resize?
             if (num_sub_hits == max_sub_hits) {
               
               max_sub_hits *= 2;
+
               P7_ALIDISPLAY ** NewSubHitADs = malloc(max_sub_hits*sizeof(P7_ALIDISPLAY *));
-              
               float * NewSubHitScores = malloc(max_sub_hits*sizeof(float));
               
               int sub_hit_id;
               for (sub_hit_id=0; sub_hit_id<num_sub_hits; sub_hit_id++) {
-                NewSubHitADs[sub_hit_id] = SubHitADs[sub_hit_id];
+                NewSubHitADs[sub_hit_id]    = SubHitADs[sub_hit_id];
                 NewSubHitScores[sub_hit_id] = SubHitScores[sub_hit_id];
               }
-              free(SubHitADs);
-              free(SubHitScores);
-              
-              SubHitADs = NewSubHitADs;
-              SubHitScores = NewSubHitScores;
+              free(SubHitADs);    SubHitADs    = NewSubHitADs;
+              free(SubHitScores); SubHitScores = NewSubHitScores;
               
             }
             // Resize over -- back to our regularly-scheduled programming!
@@ -6421,7 +6423,7 @@ void GetALSBlockLengths
 )
 {
   
-  *block_A_len = intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(AD->orfname));
+  *block_A_len = intMax(8,intMax(intMax(strlen(AD->hmmname),strlen(AD->sqname)),strlen(AD->orfname)));
 
   int max_coord = 0;
   int exon_id;
