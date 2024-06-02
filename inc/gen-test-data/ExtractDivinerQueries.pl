@@ -12,15 +12,6 @@ sub ReverseOverlap;
 
 
 
-my $BATHBUILD = $0;
-$BATHBUILD =~ s/[^\/]+$//;
-$BATHBUILD = './' if (!$BATHBUILD);
-$BATHBUILD = $BATHBUILD.'../../BATH/src/bathbuild';
-die "\n  ERROR:  Failed to locate bathbuild (looking for '$BATHBUILD')\n\n"
-	if (!(-e $BATHBUILD));
-
-
-
 if (@ARGV != 2) { die "\n  USAGE:  ./ExtractDivinerQueries.pl [Diviner-Results/] [out-dir-name/]\n\n"; }
 
 
@@ -182,17 +173,6 @@ foreach my $gene (sort keys %GenesToSourceSpecies)
 	}
 
 	close($GeneAliFile);
-
-
-	my $hmm_out_file_name = $gene_out_dir_name.$gene.'.bath.hmm';
-	my $bathbuild_cmd = " --amino \"$hmm_out_file_name\" \"$ali_out_file_name\" 1>/dev/null";
-	$bathbuild_cmd = " --unali".$bathbuild_cmd if ($num_seqs == 1);
-	$bathbuild_cmd = $BATHBUILD.$bathbuild_cmd;
-
-	if (system($bathbuild_cmd))
-	{
-		system("echo \"ERROR:  bathbuild command '$bathbuild_cmd' failed\" >> div-extract.err");
-	}
 
 
 	# As one last thing, we'll want to record the target range(s) we're
