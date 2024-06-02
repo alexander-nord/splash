@@ -201,7 +201,7 @@ static int             assign_Lengths(P7_TOPHITS *th, ID_LENGTH_LIST *id_length_
 // bureaucratic stuff to make debugging relatively (hopefully)
 // painless
 static int ALEX_MODE = 1; // Print some extra metadata around hits
-static int DEBUGGING = 1; // Print debugging output?
+static int DEBUGGING = 0; // Print debugging output?
 
 
 // Ever want to know what function you're in, and how deep it
