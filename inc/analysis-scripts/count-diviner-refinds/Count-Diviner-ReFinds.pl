@@ -158,10 +158,12 @@ while (my $gene = readdir($InputDir))
 	{
 		if ($Covered[$target_id]) 
 		{
+			print "+ $gene : $chr:$DivRanges[$target_id]\n"
 			$num_covered++;
 		}
 		else
 		{
+			print "- $gene : $chr:$DivRanges[$target_id]\n"
 			$num_missed++;
 		}
 	}
@@ -173,8 +175,10 @@ closedir($InputDir);
 
 
 
+print "\n";
 print "  $num_covered Covered\n";
 print "  $num_missed Missed\n";
+print "\n";
 
 
 
