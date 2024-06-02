@@ -196,7 +196,7 @@ sub GetHMMPosRange
 			}
 		}
 	}
-
+	$num_species++;
 	close($AliFile);
 
 
