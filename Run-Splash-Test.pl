@@ -22,6 +22,8 @@ sub GetTildeDirName;
 sub ValidateSpeciesGuide;
 sub ConfirmGenome;
 sub ConfirmRequiredTools;
+sub AnticipateMiniprot;
+sub ConfirmMiniprot;
 sub GetPct;
 
 
@@ -40,6 +42,10 @@ ConfirmRequiredTools();
 
 # If the user didn't provide any arguments, help 'em out
 HelpAndDie() if (@ARGV < 2);
+
+
+# We'll pre-load where we *expect* miniprot to be, in case we want it
+my $MINIPROT = AnticipateMiniprot();
 
 
 # What do they want us to even do?
@@ -1071,45 +1077,61 @@ sub FamilySplash
 	my @InputHMMs;
 	my @FilesToBATHCONVERT;
 	my @FilesToBATHBUILD;
+	my @InputConsSeqs; # For miniprot tests
 	while (my $file_name = readdir($FamilyDir)) 
 	{
 
 		next if ($file_name =~ /^\./);
 
-		# Have we stumbled upon a real-life HMM?!
-		if (lc($file_name) =~ /\.hmm$/) 
+		if ($OPTIONS{'miniprot'})
 		{
-			# Yes, but is it... a BATH HMM?!
-			if (lc($file_name) =~ /\.bath\.hmm$/) 
-			{
-			
-				# Very nice!
-				push(@InputHMMs,$family_dir_name.$file_name);
-			
-			}
-			else
-			{
-				# THIS isn't a BATH HMM... but it could be!
-				# If there isn't already a BATH HMM that looks like
-				# this one, queue it up for conversion.
-				my $bath_file_name = $family_dir_name.$file_name;
-				$bath_file_name =~ s/\.[^\.]+$/\.bath\.hmm/;
-				
-				push(@FilesToBATHCONVERT,$family_dir_name.$file_name)
-					if (!(-e $bath_file_name));
-			
-			}
-		}
-		elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
-		{
-			my $file_base_name = $1;
 
-			# In case runtime was killed while there was a 'target' file,
-			# we don't want to treat that as a query
-			if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.bath.hmm')) 
+			if (lc($file_name) =~ /\.cons\.fa$/)
 			{
-				push(@FilesToBATHBUILD,$family_dir_name.$file_name) 
+				# Too easy!
+				push(@InputConsSeqs,$family_dir_name.$file_name);
 			}
+
+		}
+		else
+		{
+
+			# Have we stumbled upon a real-life HMM?!
+			if (lc($file_name) =~ /\.hmm$/) 
+			{
+				# Yes, but is it... a BATH HMM?!
+				if (lc($file_name) =~ /\.bath\.hmm$/) 
+				{
+				
+					# Very nice!
+					push(@InputHMMs,$family_dir_name.$file_name);
+				
+				}
+				else
+				{
+					# THIS isn't a BATH HMM... but it could be!
+					# If there isn't already a BATH HMM that looks like
+					# this one, queue it up for conversion.
+					my $bath_file_name = $family_dir_name.$file_name;
+					$bath_file_name =~ s/\.[^\.]+$/\.bath\.hmm/;
+					
+					push(@FilesToBATHCONVERT,$family_dir_name.$file_name)
+						if (!(-e $bath_file_name));
+				
+				}
+			}
+			elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
+			{
+				my $file_base_name = $1;
+
+				# In case runtime was killed while there was a 'target' file,
+				# we don't want to treat that as a query
+				if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.bath.hmm')) 
+				{
+					push(@FilesToBATHBUILD,$family_dir_name.$file_name) 
+				}
+			}
+
 		}
 	}
 	closedir($FamilyDir);
@@ -1161,8 +1183,8 @@ sub FamilySplash
 
 
 
-	# If we didn't find any HMMs (or HMM-ables) shout, scream, and cry
-	if (scalar(@InputHMMs) == 0) 
+	# If we didn't find any HMMs (or HMM-ables, or consensus seqs) shout, scream, and cry
+	if (scalar(@InputHMMs) == 0 && scalar(@InputConsSeqs))
 	{
 		my $err_message = "Failed to locate any HMM or sequence files in directory '$family_dir_name'\n";
 		system("echo \"$err_message\" >> $ERROR_FILE");
@@ -1183,12 +1205,19 @@ sub FamilySplash
 	# target sequence and running bathsearch!
 	# Note that in the case of PANTHER testing we're going
 	# to have multiple targets (each of the genomes)
+	my @Inputs;
+	if ($OPTIONS{'miniprot'}) { @Inputs = @InputConsSeqs; }
+	else                      { @Inputs = @InputHMMs;     }
+
 	my @FamilySuccesses;
 	my @FamilyErrors;
-	foreach my $hmm_file_name (@InputHMMs) 
+	foreach my $input_file_name (@Inputs) 
 	{
 
-		$hmm_file_name =~ /\/([^\/]+)\.bath\.hmm$/;
+		$input_file_name =~ /\/([^\/]+)$/;
+		my $query_file_name = $1;
+
+		$query_file_name =~ /^([^\.]+)/;
 		my $query_base_name = $1;
 
 
@@ -1207,7 +1236,7 @@ sub FamilySplash
 		else
 		{
 			# Single target
-			push(@TargetFileNames,DetermineTargetSeq($hmm_file_name));
+			push(@TargetFileNames,DetermineTargetSeq($input_file_name));
 			push(@QueryIDs,$query_base_name);
 		}
 
@@ -1220,7 +1249,9 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH -o $out_file_name $hmm_file_name $target_file_name 2>$err_file_name";
+			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH --cpu 1";
+			$bathsearch_cmd = $bathsearch_cmd." --qformat fasta" if ($OPTIONS{'miniprot'});
+			$bathsearch_cmd = $bathsearch_cmd." -o $out_file_name $input_file_name $target_file_name 2>$err_file_name";
 			
 			if (system($bathsearch_cmd)) 
 			{
@@ -1250,6 +1281,33 @@ sub FamilySplash
 				system("rm \"$target_file_name\"");
 				system("rm \"$target_file_name.ssi\"");
 			}
+
+		}
+
+
+
+		# If we're not running miniprot, we're done with this family!
+		next if (!$OPTIONS{'miniprot'});
+
+
+		# MINIPROT TIME!
+		for (my $target_id=0; $target_id<scalar(@TargetFileNames); $target_id++)
+		{
+
+			my $mp_out_dir_name = $fam_out_dir_name.'miniprot/';
+			die "\n  ERROR:  Failed to create miniprot output directory '$mp_out_dir_name'\n\n"
+				if (system("mkdir \"$mp_out_dir_name\""));
+
+			my $target_file_name = $TargetFileNames[$target_id];
+			$target_file_name    =~ s/\.[^\.]+$/\.msi/;
+			my $query_id         = $QueryIDs[$target_id];
+			my $out_file_name    = $mp_out_dir_name.$query_id.'.out';
+			my $err_file_name    = $mp_out_dir_name.$query_id.'.err';
+
+			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t1 $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
+
+			system("echo \"\% $miniprot_cmd\" >> $ERROR_FILE")
+				if (system($miniprot_cmd));
 
 		}
 
@@ -1635,6 +1693,8 @@ sub HelpAndDie
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
 	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
 	print "                               we're searching each HMM against all genomes.\n";
+	print "         --miniprot         : Run miniprot alongside Splash.\n";
+	print "                               (This requires having pre-run 'GenPANTHERConsSeqs.pl')\n";
 	print "         --err-kills        : If a bathsearch run fails, kill the script\n";
 	print "                               (by default, the error is simply logged).\n";
 	print "         --cpus/-n    [int] : Set the number of threads to use (default:1).\n";
@@ -1704,6 +1764,9 @@ sub ParseCommandArguments
 	# How many CPUs do we want?
 	$OPTIONS{'num-cpus'} = 1;
 
+	# Are we also running miniprot?
+	$OPTIONS{'miniprot'} = 0;
+
 	# How much sequence do we want to pull in around any tightly
 	# defined nucleotide ranges?
 	$OPTIONS{'num-extra-nucls'} = 5000;
@@ -1729,6 +1792,12 @@ sub ParseCommandArguments
 		elsif (lc($Arg =~ /^-?-?panther$/))
 		{
 			$OPTIONS{'panther'} = 1; # PANTHER time, baby!
+		}
+		elsif (lc($Arg =~ /^-?-?miniprot$/))
+		{
+			ConfirmMiniprot();
+			$OPTIONS{'miniprot'} = 1;
+			$OPTIONS{'panther'}  = 1; # Miniprot forces PANTHER
 		}
 		elsif (lc($Arg =~ /^-?-?err-kills$/))
 		{
@@ -1939,20 +2008,35 @@ sub ConfirmGenome
 	}
 
 
-	if (!(-e $genome)) {
+	if (!(-e $genome)) 
+	{
 		die "\n  ERROR:  Failed to locate genomic file '$genome'\n\n";
 	}
 
 	my $ssi_file_name = $genome.'.ssi';
-	if (!(-e $ssi_file_name) && system("$SFETCH --index \"$genome\"")) {
+	if (!(-e $ssi_file_name) && system("$SFETCH --index \"$genome\"")) 
+	{
 		die "\n  ERROR:  Failed to produce an ssi index for genomic file '$genome'\n\n";
 	}
 
 	my $seqstat_file_name = $genome.'.seqstat.out';
-	if (!(-e $seqstat_file_name) && system("$SEQSTAT -a \"$genome\" > \"$seqstat_file_name\"")) {
+	if (!(-e $seqstat_file_name) && system("$SEQSTAT -a \"$genome\" > \"$seqstat_file_name\"")) 
+	{
 		die "\n  ERROR:  Failed to aggregate sequence statistics for genomic file '$genome'\n\n";
 	}
 
+
+	# If we're using miniprot, be sure we have the '.msi' index
+	# pre-computed
+	my $msi_file_name = $genome;
+	$msi_file_name =~ s/\.[^\.]+$/\.msi/;
+	if ($OPTIONS{'miniprot'}) 
+	{
+		if (!(-e $msi_file_name) && system("$MINIPROT -t1 -d \"$msi_file_name\" \"$genome\""))
+		{
+			die "\n  ERROR:  Failed to produce an msi index for genomic file '$genome'\n\n";
+		}
+	}
 
 	return $genome; # Looks like a genome to me!
 
@@ -2018,6 +2102,39 @@ sub ConfirmRequiredTools
 
 
 }
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: AnticipateMiniprot
+#
+sub AnticipateMiniprot
+{
+	my $miniprot = $0;
+	$miniprot =~ s/[^\/]+$/miniprot\/miniprot/;
+}
+
+###########################################################################
+#
+#  Subroutine: ConfirmMiniprot
+#
+sub ConfirmMiniprot
+{
+	if (!(-e $MINIPROT))
+	{
+		print "\n";
+		print "  ERROR:  Failed to locate miniprot executable (looking for '$MINIPROT')\n";
+		print "          Try: ./Build.pl --miniprot\n";
+		die   "\n";
+	}
+}
+
 
 
 

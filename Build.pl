@@ -4,6 +4,16 @@ use strict;
 use POSIX;
 
 
+if (@ARGV == 1 && lc($ARGV[0]) =~ /^\-?\-?miniprot/)
+{
+    system("git clone https://github.com/lh3/miniprot");
+    chdir("miniprot");
+    system("make");
+    exit(0);
+}
+
+
+
 my $splash_bathsearch = 'bathsearch.c';
 if (!(-e $splash_bathsearch)) {
     die "\n  ERROR: I can't find bathsearch.c!\n\n";
