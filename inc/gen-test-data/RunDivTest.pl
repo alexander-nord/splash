@@ -4,6 +4,9 @@ use strict;
 use POSIX;
 
 
+sub SquishToFASTA;
+
+
 # UNSAFE
 my $BATHSEARCH = $0;
 $BATHSEARCH =~ s/inc\/gen-test-data\/\S+$/BATH\/src\/bathsearch/;
@@ -55,10 +58,12 @@ while (my $gene = readdir($DivDir))
 	die "\n  ERROR:  Failed to create gene output directory '$out_gene_dir_name'\n\n"
 		if (system("mkdir \"$out_gene_dir_name\""));
 
+	my $gene_fasta_file_name = SquishToFASTA($gene_ali_file_name);
+
 	my $out_file_name = $out_gene_dir_name.$gene.'.out';
 	my $err_file_name = $out_gene_dir_name.$gene.'.err';
 
-	my $cmd = '/usr/bin/time -v '.$BATHSEARCH." --qformat afa -o \"$out_file_name\" \"$gene_ali_file_name\" \"$genome\" 2>\"$err_file_name\"";
+	my $cmd = '/usr/bin/time -v '.$BATHSEARCH." --qformat fasta -o \"$out_file_name\" \"$gene_fasta_file_name\" \"$genome\" 2>\"$err_file_name\"";
 	push(@Cmds,$cmd);
 
 }
@@ -117,3 +122,110 @@ while (wait() != -1) {}
 
 
 1;
+
+
+
+
+
+
+
+
+#########################################################################
+#
+#  Subroutine:  SquishToFASTA
+#
+sub SquishToFASTA
+{
+	my $msa_file_name = shift;
+
+	my $fasta_file_name = $msa_file_name;
+	$fasta_file_name =~ s/\.afa$/\.fasta/;
+
+	$fasta_file_name =~ /\/([^\/]+)\.fasta$/;
+	my $gene = $1;
+
+
+	my @MSA;
+	my $num_seqs = -1;
+	my $msa_len;
+
+	open(my $MSAFile,'<',$msa_file_name)
+		|| die "\n  ERROR:  Failed to open input MSA file '$msa_file_name'\n\n";
+
+	while (my $line = <$MSAFile>)
+	{
+		$line =~ s/\n|\r//g;
+		next if (!$line);
+
+		if ($line =~ /^\>/)
+		{
+			$num_seqs++;
+			$msa_len = 0;
+		}
+		else
+		{
+			foreach my $char (split(//,uc($line)))
+			{
+				$MSA[$num_seqs][$msa_len] = $char;
+				$msa_len++;
+			}
+		}
+	}
+
+	$num_seqs++;
+	close($MSAFile);
+
+
+	my @Seq;
+	for (my $col=0; $col<$msa_len; $col++)
+	{
+		my %CharToCount;
+		for (my $seq_id=0; $seq_id<$num_seqs; $seq_id++)
+		{
+			my $char = $MSA[$seq_id][$col];
+			if ($char =~ /[A-Z]/)
+			{
+				if ($CharToCount{$char}) { $CharToCount{$char}++; }
+				else                     { $CharToCount{$char}=1; }
+			}
+		}
+
+		my @Chars = keys %CharToCount;
+		my $top_char = $Chars[0];
+		my $top_char_count = $CharToCount{$top_char};
+
+		for (my $char_id=1; $char_id<scalar(@Chars); $char_id++)
+		{
+			if ($CharToCount{$Chars[$char_id]} > $top_char_count)
+			{
+				$top_char = $Chars[$char_id];
+				$top_char_count = $CharToCount{$top_char};
+			}
+		}
+
+		push(@Seq,$top_char);
+
+	}
+
+
+	open(my $FASTA,'>',$fasta_file_name)
+		|| die "\n  ERROR:  Failed to open output FASTA file '$fasta_file_name'\n\n";
+
+	print $FASTA ">$gene";
+	for (my $char_id=0; $char_id<$msa_len; $char_id++)
+	{
+		print $FASTA "\n" if ($char_id % 60 == 0);
+		print $FASTA "$Seq[$char_id]";
+	}
+	print $FASTA "\n";
+
+	close($FASTA);
+
+
+	return $fasta_file_name;
+
+}
+
+
+
+
