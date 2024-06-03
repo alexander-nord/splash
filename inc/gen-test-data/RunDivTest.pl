@@ -79,9 +79,6 @@ if (scalar(@Cmds) == 0)
 my $num_cmds = scalar(@Cmds);
 $num_cpus = $num_cmds if ($num_cpus > $num_cmds);
 
-my $cmd_portion = int($num_cmds/$num_cpus);
-
-
 my $thread_id = 0;
 my $active_threads = 1;
 my $pid = 0;
@@ -100,9 +97,14 @@ while ($active_threads < $num_cpus)
 }
 
 
-for (my $cmd_id = $thread_id * $cmd_portion; $cmd_id < ($thread_id+1) * $cmd_portion; $cmd_id++)
+my $cmd_portion  = int($num_cmds/$num_cpus);
+my $start_cmd_id =  $thread_id    * $cmd_portion;
+my $end_cmd_id   = ($thread_id+1) * $cmd_portion;
+$end_cmd_id = $num_cmds if ($thread_id == $num_cpus-1);
+
+
+for (my $cmd_id = $start_cmd_id; $cmd_id < $end_cmd_id; $cmd_id++)
 {
-	last if ($cmd_id >= $num_cmds);
 	if (system($Cmds[$cmd_id]))
 	{
 		print "  WARNING:  Command '$Cmds[$cmd_id]' failed!\n";

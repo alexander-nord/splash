@@ -1370,9 +1370,7 @@ sub BigBadSplash
 
 	my $start_fam_id =  $thread_id    * int($num_fams/$num_cpus);
 	my   $end_fam_id = ($thread_id+1) * int($num_fams/$num_cpus);
-	if ($end_fam_id > $num_fams) {
-		$end_fam_id = $num_fams;
-	}
+	$end_fam_id = $num_fams if ($thread_id == $num_cpus-1);
 
 
 	# DEBUGGING
