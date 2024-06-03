@@ -20,9 +20,9 @@ die "\n  ERROR:  Failed to locate Splash results directory '$spl_results_dir_nam
 $spl_results_dir_name = $spl_results_dir_name.'/' if ($spl_results_dir_name !~ /\/$/);
 
 
-my $spl_rbg_dir_name = $spl_results_dir_name.'Results-by-Gene/';
-die "\n  ERROR:  Failed to locate Splash 'Results-by-Gene' directory '$spl_rbg_dir_name'\n\n"
-	if (!(-d $spl_rbg_dir_name));
+#my $spl_rbg_dir_name = $spl_results_dir_name.'Results-by-Gene/';
+#die "\n  ERROR:  Failed to locate Splash 'Results-by-Gene' directory '$spl_rbg_dir_name'\n\n"
+#if (!(-d $spl_rbg_dir_name));
 
 
 
@@ -37,22 +37,28 @@ die "\n  ERROR:  Failed to locate Diviner 'Results-by-Gene' directory '$div_rbg_
 
 
 
-opendir(my $SplRBG,$spl_rbg_dir_name)
-	|| die "\n  ERROR:  Failed to open input directory '$spl_rbg_dir_name'\n\n";
+#opendir(my $SplRBG,$spl_rbg_dir_name)
+#|| die "\n  ERROR:  Failed to open input directory '$spl_rbg_dir_name'\n\n";
+
+opendir(my $SplDir,$spl_results_dir_name)
+	|| die "\n  ERROR:  Failed to open input directory '$spl_results_dir_name'\n\n";
+
 
 my $num_hmm_matches  = 0;
 my $num_nucl_matches = 0;
 my $num_misses       = 0;
 my $num_range_checks = 0;
 
-while (my $gene = readdir($SplRBG))
+#while (my $gene = readdir($SplRBG))
+while (my $gene = readdir($SplDir))
 {
 
 	$gene =~ s/\/$//;
 	next if ($gene =~ /^\./);
 
 
-	my $gene_spl_dir_name = $spl_rbg_dir_name.$gene.'/';
+	#my $gene_spl_dir_name = $spl_rbg_dir_name.$gene.'/';
+	my $gene_spl_dir_name = $spl_results_dir_name.$gene.'/';
 	die "\n  ERROR:  Missing gene directory '$gene_spl_dir_name'\n\n"
 		if (!(-d $gene_spl_dir_name));
 
@@ -96,7 +102,8 @@ while (my $gene = readdir($SplRBG))
 		# Check if we have an overlap in the HMM range.
 		# AND... does it overlap with the Diviner-labelled genomic window?
 		my ($hmm_range_overlap,$nucl_range_overlap)
-			= CheckHitOverlaps($gene_spl_dir_name.$gene.'.homo_sapiens.out',$div_chr_range,$div_hmm_range);
+			= CheckHitOverlaps($gene_spl_dir_name.$gene.'.out',$div_chr_range,$div_hmm_range);
+		#= CheckHitOverlaps($gene_spl_dir_name.$gene.'.homo_sapiens.out',$div_chr_range,$div_hmm_range);
 
 		$num_range_checks++;
 
@@ -129,7 +136,8 @@ while (my $gene = readdir($SplRBG))
 
 }
 
-closedir($SplRBG);
+closedir($SplDir);
+#closedir($SplRBG);
 
 
 
