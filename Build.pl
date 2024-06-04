@@ -10,9 +10,16 @@ sub CopyMiniprotMakefile;
 
 
 
-if (@ARGV == 1 && lc($ARGV[0]) =~ /^\-?\-?miniprot/)
+if (@ARGV == 1)
 {
-    SetupMiniprot();
+    if (lc($ARGV[0]) =~ /^\-?\-?miniprot/) 
+    {
+        SetupMiniprot();
+    }
+    else
+    {
+        print "\n  ERROR:  Unrecognized option '$ARGV[0]'\n\n";
+    }
     exit(0);
 }
 
