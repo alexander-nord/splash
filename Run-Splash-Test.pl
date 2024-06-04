@@ -1249,7 +1249,7 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH --cpu 1";
+			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH --cpu 4";
 			$bathsearch_cmd = $bathsearch_cmd." --qformat fasta" if ($OPTIONS{'miniprot'});
 			$bathsearch_cmd = $bathsearch_cmd." -o $out_file_name $input_file_name $target_file_name 2>$err_file_name";
 			
@@ -1304,7 +1304,7 @@ sub FamilySplash
 			my $out_file_name    = $mp_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $mp_out_dir_name.$query_id.'.err';
 
-			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t1 $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
+			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t4 $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
 
 			system("echo \"\% $miniprot_cmd\" >> $ERROR_FILE")
 				if (system($miniprot_cmd));
