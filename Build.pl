@@ -4,11 +4,15 @@ use strict;
 use POSIX;
 
 
+sub SetupMiniprot;
+sub GetLocalZlib;
+sub CopyMiniprotMakefile;
+
+
+
 if (@ARGV == 1 && lc($ARGV[0]) =~ /^\-?\-?miniprot/)
 {
-    system("git clone https://github.com/lh3/miniprot");
-    chdir("miniprot");
-    system("make");
+    SetupMiniprot();
     exit(0);
 }
 
@@ -69,3 +73,91 @@ if (!(-d $bath_dir_name)) {
 }
 
 1;
+
+
+
+
+
+
+sub SetupMiniprot
+{
+
+    if (-d 'miniprot/')
+    {
+        print "  Miniprot directory already exists -- remove to re-install\n";
+        return;
+    }
+
+
+    # We're just going to do a local install of zlib
+    my $zlib_location = GetLocalZlib();
+
+    system("git clone https://github.com/lh3/miniprot");
+    CopyMiniprotMakefile("inc/MiniprotMakefile","miniprot/Makefile",$zlib_location);
+    
+    chdir("miniprot");
+    system("make");
+    chdir("..");
+    
+}
+
+
+sub GetLocalZlib
+{
+    system("wget http://zlib.net/current/zlib.tar.gz");
+    system("gunzip zlib.tar.gz");
+    system("tar -xf zlib.tar");
+    system("rm zlib.tar");
+
+    opendir(my $CurrentDir,'.');
+    while (my $sub_dir_name = readdir($CurrentDir))
+    {
+        if (lc($sub_dir_name) =~ /^zlib/)
+        {
+            system("mv $sub_dir_name zlib") 
+                if ($sub_dir_name ne 'zlib');
+            last;
+        }
+    }
+    closedir($CurrentDir);
+
+    chdir('zlib');
+    system('./configure');
+    system('make');
+    chdir('..');
+
+    open(my $PWD,'pwd |');
+    my $pwd = <$PWD>;
+    $pwd =~ s/\n|\r//g;
+    close($PWD);
+
+    $pwd = $pwd.'/' if ($pwd !~ /\/$/);
+    return $pwd.'zlib/';
+
+}
+
+
+sub CopyMiniprotMakefile
+{
+    my $file_to_copy  = shift;
+    my $target_file   = shift;
+    my $zlib_location = shift;
+
+    open(my  $InFile,'<',$file_to_copy);
+    open(my $OutFile,'>',$target_file );
+
+    while (my $line = <$InFile>)
+    {
+        $line =~ s/\n|\r//g;
+        $line =~ s/<<SPLASH_LOCAL_ZLIB>>/$zlib_location/g;
+        print $OutFile "$line\n";
+    }
+
+    close( $InFile);
+    close($OutFile);
+}
+
+
+
+
+
