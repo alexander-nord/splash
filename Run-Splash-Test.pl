@@ -1120,7 +1120,7 @@ sub FamilySplash
 				
 				}
 			}
-			elsif (lc($file_name) =~ /^(\S+)\.a?fa[sta]?$/)
+			elsif (lc($file_name) =~ /^(\S+)[\.cons]?\.a?fa[sta]?$/)
 			{
 				my $file_base_name = $1;
 
