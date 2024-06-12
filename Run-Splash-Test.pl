@@ -1258,7 +1258,7 @@ sub FamilySplash
 			$bathsearch_cmd = $bathsearch_cmd." --qformat fasta" if ($OPTIONS{'miniprot'});
 			$bathsearch_cmd = $bathsearch_cmd." -o $out_file_name $input_file_name $target_file_name 2>$err_file_name";
 			
-			$bathsearch_cmd = $slurm_base.$bathsearch_cmd.' &' if ($OPTIONS{'slurm'});
+			$bathsearch_cmd = $slurm_base.$bathsearch_cmd if ($OPTIONS{'slurm'});
 
 			if (system($bathsearch_cmd)) 
 			{
@@ -1313,7 +1313,7 @@ sub FamilySplash
 
 			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t$OPTIONS{'threads-per-job'} $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
 
-			$miniprot_cmd = $slurm_base.$miniprot_cmd.' &' if ($OPTIONS{'slurm'});
+			$miniprot_cmd = $slurm_base.$miniprot_cmd if ($OPTIONS{'slurm'});
 
 			system("echo \"\% $miniprot_cmd\" >> $ERROR_FILE")
 				if (system($miniprot_cmd));
