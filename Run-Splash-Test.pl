@@ -1201,6 +1201,11 @@ sub FamilySplash
 	}
 
 
+	# We'll prep the slurm srun preamble, even if we aren't
+	# using slurm.
+	my $slurm_base = 'srun --mem=6G ';
+
+
 	# Iterate over each HMM, determining the appropriate
 	# target sequence and running bathsearch!
 	# Note that in the case of PANTHER testing we're going
@@ -1249,10 +1254,12 @@ sub FamilySplash
 			my $out_file_name    = $fam_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $fam_out_dir_name.$query_id.'.err';
 
-			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH --cpu 4";
+			my $bathsearch_cmd = "/usr/bin/time -v $BATHSEARCH --cpu $OPTIONS{'threads-per-job'}";
 			$bathsearch_cmd = $bathsearch_cmd." --qformat fasta" if ($OPTIONS{'miniprot'});
 			$bathsearch_cmd = $bathsearch_cmd." -o $out_file_name $input_file_name $target_file_name 2>$err_file_name";
 			
+			$bathsearch_cmd = $slurm_base.$bathsearch_cmd if ($OPTIONS{'slurm'});
+
 			if (system($bathsearch_cmd)) 
 			{
 
@@ -1304,7 +1311,9 @@ sub FamilySplash
 			my $out_file_name    = $mp_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $mp_out_dir_name.$query_id.'.err';
 
-			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t4 $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
+			my $miniprot_cmd = "/usr/bin/time -v $MINIPROT --aln --trans -t$OPTIONS{'threads-per-job'} $target_file_name $input_file_name 1>$out_file_name 2>$err_file_name";
+
+			$miniprot_cmd = $slurm_base.$miniprot_cmd if ($OPTIONS{'slurm'});
 
 			system("echo \"\% $miniprot_cmd\" >> $ERROR_FILE")
 				if (system($miniprot_cmd));
@@ -1691,6 +1700,7 @@ sub HelpAndDie
 	print "  USAGE: ./Run-Splash-Test.pl {OPT.S} [Gene-Super-Directory/] [Species-Guide.txt]\n";
 	print "\n";
 	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
+	print "         --slurm            : Use srun to guide bathsearch (and miniprot) execution\n";
 	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
 	print "                               we're searching each HMM against all genomes.\n";
 	print "         --miniprot         : Run miniprot alongside Splash.\n";
@@ -1761,11 +1771,17 @@ sub ParseCommandArguments
 	# Output directory name
 	$OPTIONS{'output-dir'} = 'Splash-Results';
 
-	# How many CPUs do we want?
+	# How many CPUs do we want? (this should probably be communicated as 'jobs' or something...)
 	$OPTIONS{'num-cpus'} = 1;
+
+	# How many threads per job?  Currently, we don't support changing this.
+	$OPTIONS{'threads-per-job'} = 8;
 
 	# Are we also running miniprot?
 	$OPTIONS{'miniprot'} = 0;
+
+	# Are we using SLURM?  If so, use an 'srun' with supporting data.
+	$OPTIONS{'slurm'} = 0;
 
 	# How much sequence do we want to pull in around any tightly
 	# defined nucleotide ranges?
@@ -1798,6 +1814,10 @@ sub ParseCommandArguments
 			ConfirmMiniprot();
 			$OPTIONS{'miniprot'} = 1;
 			$OPTIONS{'panther'}  = 1; # Miniprot forces PANTHER
+		}
+		elsif (lc($Arg =~ /^-?-?slurm$/))
+		{
+			$OPTIONS{'slurm'} = 1; # Use srun on each system call
 		}
 		elsif (lc($Arg =~ /^-?-?err-kills$/))
 		{
