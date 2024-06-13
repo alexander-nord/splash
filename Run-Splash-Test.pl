@@ -1414,9 +1414,13 @@ sub BigBadSplash
 
 
 	# Make a directory to hold the results
+	# (unless we're slurmin', in which case it already exists!)
 	my $rbg_dir_name = $OPTIONS{'output-dir'}.'Results-by-Gene/';
-	die "\n  ERROR:  Failed to create 'Results-by-Gene' directory ($rbg_dir_name)\n\n"
-		if (system("mkdir \"$rbg_dir_name\""));
+	if (!$OPTIONS{'slurm'})
+	{
+		die "\n  ERROR:  Failed to create 'Results-by-Gene' directory ($rbg_dir_name)\n\n"
+			if (system("mkdir \"$rbg_dir_name\""));
+	}
 
 
 	# Start thinking thread-ily
