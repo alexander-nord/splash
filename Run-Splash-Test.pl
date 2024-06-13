@@ -54,16 +54,24 @@ my %SPECIES_TO_GENOME;
 my %GENOME_LIST;        # So that we don't delete anything important
 ParseCommandArguments();
 
+# How many threads per job?  
+# Currently, we don't support changing this through the commandline.
+$OPTIONS{'threads-per-job'} = 8;
+
 
 # How long is a given chromosome on a species' genome?
 my %SPECIES_CHR_TO_LEN; 
 ReadChromosomeLengths();
 
 
-# We survived commandline parsing, so let's build an
-# output directory!
-die "\n  ERROR:  Failed to create output directory '$OPTIONS{'output-dir'}'\n\n"
-	if (system("mkdir \"$OPTIONS{'output-dir'}\""));
+# We survived commandline parsing, so let's build an output directory!
+# NOTE that if we're using slurm, we assume that the output directory
+#  has already been built for us.
+if (!$OPTIONS{'slurm'} && system("mkdir \"$OPTIONS{'output-dir'}\""))
+{
+	die "\n  ERROR:  Failed to create output directory '$OPTIONS{'output-dir'}'\n\n";
+}
+
 
 # Just in case...
 my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
@@ -1400,6 +1408,11 @@ sub BigBadSplash
 	closedir($ProteinMetaDir);
 
 
+	# We need to make sure that we have consistency in our accesses of
+	# family directories across runs / tasks, so sort 'em!
+	@FamilyDirs = sort @FamilyDirs;
+
+
 	# Make a directory to hold the results
 	my $rbg_dir_name = $OPTIONS{'output-dir'}.'Results-by-Gene/';
 	die "\n  ERROR:  Failed to create 'Results-by-Gene' directory ($rbg_dir_name)\n\n"
@@ -1415,18 +1428,26 @@ sub BigBadSplash
 	my $thread_id = 0;
 	my $active_threads = 1;
 	my $pid = 0;
-	while ($active_threads < $num_cpus) 
+
+	if (!$OPTIONS{'slurm'})
 	{
-		if ($pid = fork)
+		while ($active_threads < $num_cpus) 
 		{
-			die "\n  ERROR: Fork failed\n\n" if (not defined $pid);
-			$active_threads++;
+			if ($pid = fork)
+			{
+				die "\n  ERROR: Fork failed\n\n" if (not defined $pid);
+				$active_threads++;
+			}
+			else
+			{
+				$thread_id = $active_threads;
+				last;
+			}
 		}
-		else
-		{
-			$thread_id = $active_threads;
-			last;
-		}
+	}
+	else
+	{
+		$thread_id = $OPTIONS{'slurm'} - 1; # NOICE 'N' EASY!
 	}
 
 
@@ -1477,41 +1498,46 @@ sub BigBadSplash
 
 
 	# End of the real work!
-	exit(0) if ($thread_id);
-	while (wait() != -1) {}
-
-
-	# Pull in the error output from each of the helpers
-	for ($thread_id=1; $thread_id<$num_cpus; $thread_id++) 
+	if (!$OPTIONS{'slurm'})
 	{
-		my $thread_err_file = $ERROR_FILE;
-		$thread_err_file =~ s/\.err$/\.$thread_id\.err/;
 
-		if (-e $thread_err_file)
+		exit(0) if ($thread_id);
+		while (wait() != -1) {}
+
+
+		# Pull in the error output from each of the helpers
+		for ($thread_id=1; $thread_id<$num_cpus; $thread_id++) 
 		{
-			system("cat \"$thread_err_file\" >> \"$ERROR_FILE\"");
-			system("rm \"$thread_err_file\"");
+			my $thread_err_file = $ERROR_FILE;
+			$thread_err_file =~ s/\.err$/\.$thread_id\.err/;
+
+			if (-e $thread_err_file)
+			{
+				system("cat \"$thread_err_file\" >> \"$ERROR_FILE\"");
+				system("rm \"$thread_err_file\"");
+			}
 		}
-	}
 
 
-	# Now that the ugliness is over, the FUN!!!
-	# Combine all of our family-specific output data into
-	# one nice big output file.
-	#
-	# If we're doing a PANTHER run, we'll want to break
-	# these up across species.
-	#
-	if ($OPTIONS{'panther'})
-	{
-		foreach my $species (keys %SPECIES_TO_GENOME)
+		# Now that the ugliness is over, the FUN!!!
+		# Combine all of our family-specific output data into
+		# one nice big output file.
+		#
+		# If we're doing a PANTHER run, we'll want to break
+		# these up across species.
+		#
+		if ($OPTIONS{'panther'})
 		{
-			AggregateAllResults($rbg_dir_name,$species);
+			foreach my $species (keys %SPECIES_TO_GENOME)
+			{
+				AggregateAllResults($rbg_dir_name,$species);
+			}
 		}
-	}
-	else
-	{
-		AggregateAllResults($rbg_dir_name,0);
+		else
+		{
+			AggregateAllResults($rbg_dir_name,0);
+		}
+
 	}
 
 
@@ -1699,17 +1725,21 @@ sub HelpAndDie
 	print "\n";
 	print "  USAGE: ./Run-Splash-Test.pl {OPT.S} [Gene-Super-Directory/] [Species-Guide.txt]\n";
 	print "\n";
-	print "  OPT.S: --full-genome      : Force use of full genome as target sequence.\n";
-	print "         --slurm            : Use srun to guide bathsearch (and miniprot) execution\n";
-	print "         --panther          : Assume that input HMMs are from PANTHER and that\n";
-	print "                               we're searching each HMM against all genomes.\n";
-	print "         --miniprot         : Run miniprot alongside Splash.\n";
-	print "                               (This requires having pre-run 'GenPANTHERConsSeqs.pl')\n";
-	print "         --err-kills        : If a bathsearch run fails, kill the script\n";
-	print "                               (by default, the error is simply logged).\n";
-	print "         --cpus/-n    [int] : Set the number of threads to use (default:1).\n";
-	print "         --out-dir/-o [str] : Name the output directory (default:'Splash-Results').\n";
-	print "         --gene/-g    [str] : Run on a single gene within the input directory.\n";
+	print "  OPT.S: --full-genome       : Force use of full genome as target sequence.\n";
+	print "         --panther           : Assume that input HMMs are from PANTHER and that\n";
+	print "                                we're searching each HMM against all genomes.\n";
+	print "         --miniprot          : Run miniprot alongside Splash.\n";
+	print "                                (This requires having pre-run 'GenPANTHERConsSeqs.pl')\n";
+	print "         --err-kills         : If a bathsearch run fails, kill the script\n";
+	print "                                (by default, the error is simply logged).\n";
+	print "         --cpus/-n     [int] : Set the number of threads to use (default:1).\n";
+	print "         --slurm/-s    [int] : Use srun to guide bathsearch (and miniprot) execution.\n";
+	print "                                The provided integer is the job ID, from [1..cpus],\n";
+	print "         --out-dir/-o  [str] : Name the output directory (default:'Splash-Results').\n";
+	print "         --gene/-g     [str] : Run on a single gene within the input directory.\n";
+	print "\n";
+	print "  ALT  : --summarize   [str] : Given the name of a SLURM-based output directory,\n";
+	print "                                run 'AggregateAllResults' (TODO)\n";
 	die   "\n\n";
 }
 
@@ -1774,9 +1804,6 @@ sub ParseCommandArguments
 	# How many CPUs do we want? (this should probably be communicated as 'jobs' or something...)
 	$OPTIONS{'num-cpus'} = 1;
 
-	# How many threads per job?  Currently, we don't support changing this.
-	$OPTIONS{'threads-per-job'} = 8;
-
 	# Are we also running miniprot?
 	$OPTIONS{'miniprot'} = 0;
 
@@ -1815,9 +1842,14 @@ sub ParseCommandArguments
 			$OPTIONS{'miniprot'} = 1;
 			$OPTIONS{'panther'}  = 1; # Miniprot forces PANTHER
 		}
-		elsif (lc($Arg =~ /^-?-?slurm$/))
+		elsif (lc($Arg =~ /^-?-?slurm$|^-s$/))
 		{
-			$OPTIONS{'slurm'} = 1; # Use srun on each system call
+			$arg_id++;
+			my $task_id = $ARGV[$arg_id];
+			die "\n  ERROR:  Task ID $task_id does not appear to be a positive integer...\n\n"
+				if ($task_id =~ /\D/);
+			$OPTIONS{'slurm'} = int($task_id); # Use srun on each system call
+
 		}
 		elsif (lc($Arg =~ /^-?-?err-kills$/))
 		{
@@ -1885,17 +1917,43 @@ sub ParseCommandArguments
 	}
 
 
-	# Determine the actual name of the output directory
-	my $base_out_dir_name = $OPTIONS{'output-dir'};
-	$base_out_dir_name =~ s/\/$//;
-	my $out_dir_name = $base_out_dir_name;
-	my $attempt = 1;
-	while (-d $out_dir_name) {
-		$attempt++;
-		$out_dir_name = $base_out_dir_name.'-'.$attempt;
-	}
-	$OPTIONS{'output-dir'} = $out_dir_name.'/';
 
+	# Determine the actual name of the output directory
+	# If we're using slurm, the output directory and the
+	# 'Results-by-Gene' subdirectory should be available
+	# ahead of time.
+	if (!$OPTIONS{'slurm'})
+	{
+
+		my $base_out_dir_name = $OPTIONS{'output-dir'};
+		$base_out_dir_name =~ s/\/$//;
+	
+		my $out_dir_name = $base_out_dir_name;
+		my $attempt = 1;
+		while (-d $out_dir_name) {
+			$attempt++;
+			$out_dir_name = $base_out_dir_name.'-'.$attempt;
+		}
+	
+		$OPTIONS{'output-dir'} = $out_dir_name.'/';
+	
+	}
+	else
+	{
+
+		my $out_dir_name = $OPTIONS{'output-dir'};
+		$out_dir_name = $out_dir_name.'/' if ($out_dir_name !~ /\/$/);
+
+		die "\n  ERROR:  Slurm-ified running requires that the output directory already exists (failed to locate '$out_dir_name')\n\n"
+			if (!(-d $out_dir_name));
+
+		my $rbg_dir_name = $out_dir_name.'Results-by-Gene/';
+		die "\n  ERROR:  Slurm-ified running requires that the Results-by-Gene directory already exists (failed to locate '$rbg_dir_name')\n\n"
+			if (!(-d $rbg_dir_name));
+
+		$OPTIONS{'output-dir'} = $out_dir_name;
+
+	}
 
 }
 
