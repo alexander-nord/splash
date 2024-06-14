@@ -1410,7 +1410,8 @@ sub BigBadSplash
 
 	# We need to make sure that we have consistency in our accesses of
 	# family directories across runs / tasks, so sort 'em!
-	@FamilyDirs = sort @FamilyDirs;
+	@FamilyDirs  = sort @FamilyDirs;
+	my $num_fams = scalar(@FamilyDirs);
 
 
 	# Make a directory to hold the results
@@ -1423,18 +1424,59 @@ sub BigBadSplash
 	}
 
 
-	# Start thinking thread-ily
-	my $num_fams = scalar(@FamilyDirs);
+
+	# The way we handle process splitting depends on whether or not
+	# we're slurming
 	my $num_cpus = $OPTIONS{'num-cpus'};
 	$num_cpus    = $num_fams if ($num_cpus > $num_fams);
 
 
-	my $thread_id = 0;
-	my $active_threads = 1;
-	my $pid = 0;
+	my $master_thread  = 1;
+	my $thread_id      = 0;
+	my $thread_portion = int($num_cpus/$num_fams);
 
-	if (!$OPTIONS{'slurm'})
+
+	my $start_fam_id;
+	my $end_fam_id;
+	if ($OPTIONS{'slurm'})
 	{
+
+		$OPTIONS{'threads-per-job'} = int($OPTIONS{'threads-per-job'}/4);
+
+		my $task_id = $OPTIONS{'slurm'} - 1;
+
+		# This task gets four threads.  What a treat!
+		# But where do they *generally* start?
+		my $pid = 0;
+		my $active_threads = 1;
+		while ($active_threads < 4) 
+		{
+			if ($pid = fork)
+			{
+				die "\n  ERROR: Fork failed\n\n" if (not defined $pid);
+				$active_threads++;
+			}
+			else
+			{
+				$thread_id = (4 * $task_id) + $active_threads;
+				$master_thread = 0;
+				last;
+			}
+		}
+
+		$thread_id = 4 * $task_id if ($master_thread);
+
+		$start_fam_id =  $thread_id    * $thread_portion;
+		$end_fam_id   = ($thread_id+1) * $thread_portion;
+		$end_fam_id   = $num_fams if ($thread_id+1 == 4*$num_cpus)
+
+	}
+	else
+	{
+
+		# This is just our run-of-the-mill process splitting
+		my $pid = 0;
+		my $active_threads = 1;
 		while ($active_threads < $num_cpus) 
 		{
 			if ($pid = fork)
@@ -1445,24 +1487,21 @@ sub BigBadSplash
 			else
 			{
 				$thread_id = $active_threads;
+				$master_thread = 0;
 				last;
 			}
 		}
-	}
-	else
-	{
-		$thread_id = $OPTIONS{'slurm'} - 1; # NOICE 'N' EASY!
+
+		$start_fam_id =  $thread_id    * $thread_portion;
+		$end_fam_id   = ($thread_id+1) * $thread_portion;
+		$end_fam_id   = $num_fams if ($thread_id == $num_cpus-1);
+
 	}
 
 
 	# I don't think the system calls that write to
 	# the error file would race, but let's play it safe	 
 	$ERROR_FILE =~ s/\.err$/\.$thread_id\.err/ if ($thread_id);
-
-
-	my $start_fam_id =  $thread_id    * int($num_fams/$num_cpus);
-	my   $end_fam_id = ($thread_id+1) * int($num_fams/$num_cpus);
-	$end_fam_id = $num_fams if ($thread_id == $num_cpus-1);
 
 
 	# DEBUGGING
@@ -1502,12 +1541,14 @@ sub BigBadSplash
 
 
 	# End of the real work!
+	exit(0) if (!$master_thread);
+	while (wait() != -1) {}
+
+
+	# If we weren't slurming, thread 0 can start aggregating
+	# data across all of our processes!
 	if (!$OPTIONS{'slurm'})
 	{
-
-		exit(0) if ($thread_id);
-		while (wait() != -1) {}
-
 
 		# Pull in the error output from each of the helpers
 		for ($thread_id=1; $thread_id<$num_cpus; $thread_id++) 
