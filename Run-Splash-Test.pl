@@ -1433,7 +1433,7 @@ sub BigBadSplash
 
 	my $master_thread  = 1;
 	my $thread_id      = 0;
-	my $thread_portion = int($num_cpus/$num_fams);
+	my $thread_portion = int($num_fams/$num_cpus);
 
 
 	my $start_fam_id;
@@ -1441,7 +1441,10 @@ sub BigBadSplash
 	if ($OPTIONS{'slurm'})
 	{
 
+		# If we're using slurm, each task gets split into 4 threads,
+		# so we'll need to adjust our threads per job and thread portion
 		$OPTIONS{'threads-per-job'} = int($OPTIONS{'threads-per-job'}/4);
+		$thread_portion = int($num_fams/(4 * $num_cpus));
 
 		my $task_id = $OPTIONS{'slurm'} - 1;
 
