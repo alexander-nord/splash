@@ -2501,12 +2501,8 @@ int ExcessiveGapContent
     return 1;
 
 
-  if (AD->hmmfrom == 117 && AD->hmmto == 361) {
-    fprintf(stdout,"  Num total gaps: %d\n",num_gaps);
-  }
-
-
   return 0;
+
 
 }
 
