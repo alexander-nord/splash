@@ -9,6 +9,7 @@ sub Min { my $A = shift; my $B = shift; return $A if ($A<$B); return $B; }
 
 
 sub AggregateAllResults;
+sub RunPostSlurmAggregation;
 sub CompileBasicResults;
 sub GetSumPctCoverage;
 sub FamilySplash;
@@ -600,6 +601,37 @@ sub AggregateAllResults
 
 	close($FinalResults);
 
+
+}
+
+
+
+
+
+
+
+
+
+
+###########################################################################
+#
+#  Subroutine: RunPostSlurmAggregation
+#
+sub RunPostSlurmAggregation
+{
+
+	my $splash_results_dir_name = $OPTIONS{'post-slurm'};
+
+	my $rbg_dir_name = $splash_results_dir_name.'Results-by-Gene/';
+	die "\n  ERROR:  Failed to locate '$rbg_dir_name'\n\n"
+		if (!(-d $rbg_dir_name));
+
+	$OPTIONS{'output-dir'} = $splash_results_dir_name;
+
+	foreach my $species (keys %SPECIES_TO_GENOME)
+	{
+		AggregateAllResults($rbg_dir_name,$species);
+	}
 
 }
 
@@ -1769,6 +1801,8 @@ sub HelpAndDie
 	print "                                we're searching each HMM against all genomes.\n";
 	print "         --miniprot          : Run miniprot alongside Splash.\n";
 	print "                                (This requires having pre-run 'GenPANTHERConsSeqs.pl')\n";
+	print "         --summarize   [str] : Given the name of a SLURM-based output directory,\n";
+	print "                                run 'AggregateAllResults' (Still requires input info!)\n";
 	print "         --err-kills         : If a bathsearch run fails, kill the script\n";
 	print "                                (by default, the error is simply logged).\n";
 	print "         --cpus/-n     [int] : Set the number of threads to use (default:1).\n";
@@ -1776,9 +1810,6 @@ sub HelpAndDie
 	print "                                The provided integer is the job ID, from [1..cpus],\n";
 	print "         --out-dir/-o  [str] : Name the output directory (default:'Splash-Results').\n";
 	print "         --gene/-g     [str] : Run on a single gene within the input directory.\n";
-	print "\n";
-	print "  ALT  : --summarize   [str] : Given the name of a SLURM-based output directory,\n";
-	print "                                run 'AggregateAllResults' (TODO)\n";
 	die   "\n\n";
 }
 
@@ -1849,6 +1880,9 @@ sub ParseCommandArguments
 	# Are we using SLURM?  If so, use an 'srun' with supporting data.
 	$OPTIONS{'slurm'} = 0;
 
+	# Are we aggregating output data from a SLURM-based run?
+	$OPTIONS{'post-slurm'} = 0;
+
 	# How much sequence do we want to pull in around any tightly
 	# defined nucleotide ranges?
 	$OPTIONS{'num-extra-nucls'} = 5000;
@@ -1889,6 +1923,15 @@ sub ParseCommandArguments
 				if ($task_id =~ /\D/);
 			$OPTIONS{'slurm'} = int($task_id); # Use srun on each system call
 
+		}
+		elsif (lc($Arg =~ /^-?-?summarize$/))
+		{
+			$arg_id++;
+			my $result_dir_name = $ARGV[$arg_id];
+			die "\n  ERROR:  Failed to locate result directory '$result_dir_name'\n\n"
+				if (!(-e $result_dir_name));
+			$result_dir_name = $result_dir_name.'/' if ($result_dir_name !~ /\/$/);
+			$OPTIONS{'post-slurm'} = $result_dir_name;
 		}
 		elsif (lc($Arg =~ /^-?-?err-kills$/))
 		{
@@ -1961,7 +2004,12 @@ sub ParseCommandArguments
 	# If we're using slurm, the output directory and the
 	# 'Results-by-Gene' subdirectory should be available
 	# ahead of time.
-	if (!$OPTIONS{'slurm'})
+	if ($OPTIONS{'post-slurm'})
+	{
+		RunPostSlurmAggregation();
+		exit(0);
+	}
+	elsif (!$OPTIONS{'slurm'})
 	{
 
 		my $base_out_dir_name = $OPTIONS{'output-dir'};
