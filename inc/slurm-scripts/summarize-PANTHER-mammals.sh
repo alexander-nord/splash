@@ -14,3 +14,4 @@ OUT_DIR_NAME="/xdisk/twheeler/alexnord/results/Splash-PANTHER-Output"
 cd $HOME/splash
 
 time perl Run-Splash-Test.pl --summarize $OUT_DIR_NAME $IN_DIR_NAME $SPECIES_GUIDE 1>summarize.out 2>summarize.err
+
