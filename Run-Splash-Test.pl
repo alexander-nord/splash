@@ -1164,6 +1164,10 @@ sub FamilySplash
 			{
 				my $file_base_name = $1;
 
+				# We don't want to build an HMM on this if it's a
+				# consensus FASTA and we're not miniprot-ing
+				if (!$OPTIONS{'miniprot'} && $lc($file_name) =~ /\.cons\.[^\.]+$/) { next; }
+
 				# In case runtime was killed while there was a 'target' file,
 				# we don't want to treat that as a query
 				if ($file_base_name !~ /\.target$/ && !(-e $family_dir_name.$file_base_name.'.bath.hmm')) 
