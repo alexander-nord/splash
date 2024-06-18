@@ -2287,6 +2287,7 @@ sub AnticipateMiniprot
 {
 	my $miniprot = $0;
 	$miniprot =~ s/[^\/]+$/miniprot\/miniprot/;
+	return $miniprot;
 }
 
 ###########################################################################
