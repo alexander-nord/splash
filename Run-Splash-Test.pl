@@ -1228,7 +1228,7 @@ sub FamilySplash
 
 
 	# If we didn't find any HMMs (or HMM-ables, or consensus seqs) shout, scream, and cry
-	if (scalar(@InputHMMs) == 0 && scalar(@InputConsSeqs))
+	if (scalar(@InputHMMs) == 0 && scalar(@InputConsSeqs) == 0)
 	{
 		my $err_message = "Failed to locate any HMM or sequence files in directory '$family_dir_name'\n";
 		system("echo \"$err_message\" >> $ERROR_FILE");
