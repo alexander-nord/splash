@@ -46,7 +46,7 @@ elif (species == "fruit_fly"   or species == "drosophila_melanogaster"):
 elif (species == "stickleback" or species == "gasterosteus_aculeatus"):
 	
 	# Aqua
-	splash_face_color = "#9df3db"
+	splash_face_color = "#2ae2ae"
 	species = "Stickleback"
 
 
