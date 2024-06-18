@@ -1335,12 +1335,13 @@ sub FamilySplash
 
 
 		# MINIPROT TIME!
+		my $mp_out_dir_name = $fam_out_dir_name.'miniprot/';
+		die "\n  ERROR:  Failed to create miniprot output directory '$mp_out_dir_name'\n\n"
+			if (system("mkdir \"$mp_out_dir_name\""));
+
+
 		for (my $target_id=0; $target_id<scalar(@TargetFileNames); $target_id++)
 		{
-
-			my $mp_out_dir_name = $fam_out_dir_name.'miniprot/';
-			die "\n  ERROR:  Failed to create miniprot output directory '$mp_out_dir_name'\n\n"
-				if (system("mkdir \"$mp_out_dir_name\""));
 
 			my $target_file_name = $TargetFileNames[$target_id];
 			$target_file_name    =~ s/\.[^\.]+$/\.mpi/;
