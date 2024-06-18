@@ -81,7 +81,7 @@ my $ERROR_FILE = $OPTIONS{'output-dir'}.'Splash.err';
 # Alright, let's figure this stuff out!
 if    ($OPTIONS{'single-gene'}  ) { FamilySplash($OPTIONS{'protein-input'}); }
 elsif ($OPTIONS{'protein-input'}) { BigBadSplash($OPTIONS{'protein-input'}); }
-else  {   die "\n  ERROR:  Failed to recognize protein input\n\n";           }
+else  {     die "\n  ERROR:  Failed to recognize protein input\n\n";         }
 
 
 1;
@@ -1343,7 +1343,7 @@ sub FamilySplash
 				if (system("mkdir \"$mp_out_dir_name\""));
 
 			my $target_file_name = $TargetFileNames[$target_id];
-			$target_file_name    =~ s/\.[^\.]+$/\.msi/;
+			$target_file_name    =~ s/\.[^\.]+$/\.mpi/;
 			my $query_id         = $QueryIDs[$target_id];
 			my $out_file_name    = $mp_out_dir_name.$query_id.'.out';
 			my $err_file_name    = $mp_out_dir_name.$query_id.'.err';
@@ -2195,15 +2195,15 @@ sub ConfirmGenome
 	}
 
 
-	# If we're using miniprot, be sure we have the '.msi' index
+	# If we're using miniprot, be sure we have the '.mpi' index
 	# pre-computed
-	my $msi_file_name = $genome;
-	$msi_file_name =~ s/\.[^\.]+$/\.msi/;
+	my $mpi_file_name = $genome;
+	$mpi_file_name =~ s/\.[^\.]+$/\.mpi/;
 	if ($OPTIONS{'miniprot'}) 
 	{
-		if (!(-e $msi_file_name) && system("$MINIPROT -t1 -d \"$msi_file_name\" \"$genome\""))
+		if (!(-e $mpi_file_name) && system("$MINIPROT -t2 -d \"$mpi_file_name\" \"$genome\""))
 		{
-			die "\n  ERROR:  Failed to produce an msi index for genomic file '$genome'\n\n";
+			die "\n  ERROR:  Failed to produce an mpi index for genomic file '$genome'\n\n";
 		}
 	}
 
