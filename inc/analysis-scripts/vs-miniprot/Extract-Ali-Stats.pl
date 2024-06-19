@@ -75,7 +75,7 @@ foreach my $species (@Species)
 	
 	print $SpeciesCSV "MP-Time(S),MP-Max-Mem(MB),MP-Chr,";
 	print $SpeciesCSV "MP-Ali-Start,MP-Ali-End,MP-Peak-Coverage,";
-	print $SpeciesCSV "MP-Num-Exons,MP-Pct-ID\n";
+	print $SpeciesCSV "MP-Num-Exons,MP-Pct-ID";
 	
 	print $SpeciesCSV "\n";
 
