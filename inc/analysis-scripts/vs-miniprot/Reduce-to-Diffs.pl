@@ -4,7 +4,7 @@ use strict;
 use POSIX;
 
 
-if (@ARGV != 1) { die "\n  USAGE:  ./Reduce-To-Diffs.pl [MP-vs-Splash-Output]\n\n"; }
+if (@ARGV != 1) { die "\n  USAGE:  ./Reduce-to-Diffs.pl [MP-vs-Splash-Output]\n\n"; }
 
 
 my $results_dir_name = $ARGV[0];
