@@ -234,21 +234,31 @@ sub GatherSplashStats
 
 	# There are ~5 cases where it appears the program died,
 	# so we need to catch those...
-	my $program_died = 0;
+	my $peak_coverage = 0.0;
 
 	while (my $line = <$OutFile>)
 	{
 
-		next if ($line !~ /\| = Exon Set 1 \((\d+)/);
-		$num_exons = $1;
+		next if ($line !~ /\| = Exon Set \d+ \((\d+)/);
+		my $es_num_exons = $1;
 
 		$line = <$OutFile>;
 		$line =~ /\| = Model Positions (\d+)\.\.(\d+)/;
-		$ali_start = $1;
-		$ali_end   = $2;
+		my $es_ali_start = $1;
+		my $es_ali_end   = $2;
 
-		$coverage = int(1000.0 * ($ali_end - $ali_start + 1) / $fam_seq_len) / 10.0;
-		$coverage = $coverage.'%';
+		my $es_coverage = int(1000.0 * ($es_ali_end - $es_ali_start + 1) / $fam_seq_len) / 10.0;
+
+		# Is this the best exon set we've seen so far?
+		next if ($es_coverage < $peak_coverage);
+
+		$peak_coverage = $es_coverage;
+
+		$num_exons = $es_num_exons;
+		$ali_start = $es_ali_start;
+		$ali_end   = $es_ali_end;
+		$coverage  = $es_coverage.'%';
+
 
 		$line = <$OutFile>;
 		$line =~ /\| = Target Seq Name (\S+)/;
@@ -344,8 +354,6 @@ sub GatherSplashStats
 		$pct_id = int(1000.0 * $matches / ($matches + $mismatches)) / 10.0;
 		$pct_id = $pct_id.'%';
 
-		last;
-
 	}
 
 	close($OutFile);
@@ -358,14 +366,11 @@ sub GatherSplashStats
 
 	if ($pct_id =~ /\%/)
 	{
-
 		# In order to be a "full success" (for fairness to miniprot)
 		# we need at least 10% coverage
 		$coverage =~ s/\%//;
 		return 1 if ($coverage * 1.0 >= 10.0);
-
 		return 0;
-
 	}
 
 
