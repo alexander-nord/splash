@@ -341,6 +341,7 @@ sub GatherSplashStats
 				if (!$query_line)
 				{
 					close($OutFile);
+					print $SpeciesCSV "$time,$rss,-,-,-,-,-,-,";
 					$splash_out_file_name =~ /\/([^\/]+)$/;
 					print STDERR " [ SPLASH ERROR ]--> $1\n";
 					return 0;
