@@ -18,50 +18,37 @@ if (len(sys.argv) != 3):
 
 
 # Default : Lime
-best_face_color = "#c2f08d"
-best_edge_color = "#90dc39"
-sum_face_color  = "#d2efb1"
-sum_edge_color  = "#b9e38a"
-
+species_color = "#c2f08d"
+species       = "None"
 
 species = sys.argv[2].lower()
 
 if   (species == "human"       or species == "homo_sapiens"):
         
 	# Lavender
-	best_face_color = "#d19efb"
-	best_edge_color = "#8327d0"
-	sum_face_color  = "#e0c8f4"
-	sum_edge_color  = "#b380dd"
+	species_color = "#d19efb"
 	species         = "Human"
     
+
 elif (species == "chicken"     or species == "gallus_gallus"):
 	
 	# Amber
-	best_face_color = "#fcc06d"
-	best_edge_color = "#ea9c12"
-	sum_face_color  = "#f4e1a7"
-	sum_edge_color  = "#e7c765"
-	species         = "Chicken"
+	species_color = "#fcc06d"
+	species       = "Chicken"
 
 
 elif (species == "fruit_fly"   or species == "drosophila_melanogaster"):
 	
 	# Rose
-	best_face_color = "#f8b8e6"
-	best_edge_color = "#b61087"
-	sum_face_color  = "#fccce2"
-	sum_edge_color  = "#f391be"
-	species         = "Fly"
+	species_color = "#f8b8e6"
+	species       = "Fly"
+
 
 elif (species == "stickleback" or species == "gasterosteus_aculeatus"):
 	
 	# Aqua
-	best_face_color = "#2ae2ae"
-	best_edge_color = "#3da98b"
-	sum_face_color  = "#c4f3d7"
-	sum_edge_color  = "#9ae6b9"
-	species         = "Stickleback"
+	species_color = "#2ae2ae"
+	species       = "Stickleback"
 
 
 
@@ -76,16 +63,56 @@ CoverageDiffs = []
 PctIDDiffs    = []
 
 
+pos_coverage_pos_pct = 0;
+pos_coverage_nil_pct = 0;
+pos_coverage_neg_pct = 0;
+
+nil_coverage_pos_pct = 0;
+nil_coverage_nil_pct = 0;
+nil_coverage_neg_pct = 0;
+
+neg_coverage_pos_pct = 0;
+neg_coverage_nil_pct = 0;
+neg_coverage_neg_pct = 0;
+
+
 for index,row in Data.iterrows():
 
+
 	CoverageMatch = re.match(pct_regex,row['Peak-Coverage-Diff'])
-	CoverageDiffs.append(float(CoverageMatch.group(1)))
+	coverage_diff = float(CoverageMatch.group(1))
 
-	PctIDMatch = re.match(pct_regex,row['Pct-ID-Diff'])
-	PctIDDiffs.append(float(PctIDMatch.group(1)))
+	PctIDMatch  = re.match(pct_regex,row['Pct-ID-Diff'])
+	pct_id_diff = float(PctIDMatch.group(1))
+
+	CoverageDiffs.append(coverage_diff)
+	PctIDDiffs.append(pct_id_diff)
 
 
-plt.scatter(CoverageDiffs,PctIDDiffs,color=best_face_color,s=12)
+	if (coverage_diff > 0.0):
+		if   (pct_id_diff > 0.0):
+			pos_coverage_pos_pct += 1
+		elif (pct_id_diff < 0.0):
+			pos_coverage_neg_pct += 1
+		else:
+			pos_coverage_nil_pct += 1
+	elif (coverage_diff < 0.0):
+		if   (pct_id_diff > 0.0):
+			neg_coverage_pos_pct += 1
+		elif (pct_id_diff < 0.0):
+			neg_coverage_neg_pct += 1
+		else:
+			neg_coverage_nil_pct += 1
+	else:
+		if   (pct_id_diff > 0.0):
+			nil_coverage_pos_pct += 1
+		elif (pct_id_diff < 0.0):
+			nil_coverage_neg_pct += 1
+		else:
+			nil_coverage_nil_pct += 1
+
+
+plt.scatter(CoverageDiffs,PctIDDiffs,color=species_color,s=12)
 
 plt.plot([-100,100],[   0,  0],color="black",linewidth=0.5)
 plt.plot([   0,  0],[-100,100],color="black",linewidth=0.5)
@@ -94,3 +121,21 @@ plt.gca().set_xlim([-100.0,100.0])
 plt.gca().set_ylim([-100.0,100.0])
 
 plt.savefig(species+'.png')
+
+
+print("\n")
+print( " Cov / Pct")
+print("-");
+print(f"  +  /  +  : {pos_coverage_pos_pct}")
+print(f"  +  /  0  : {pos_coverage_nil_pct}")
+print(f"  +  /  -  : {pos_coverage_neg_pct}")
+print("-");
+print(f"  0  /  +  : {nil_coverage_pos_pct}")
+print(f"  0  /  0  : {nil_coverage_nil_pct}")
+print(f"  0  /  -  : {nil_coverage_neg_pct}")
+print("-");
+print(f"  -  /  +  : {neg_coverage_pos_pct}")
+print(f"  -  /  0  : {neg_coverage_nil_pct}")
+print(f"  -  /  -  : {neg_coverage_neg_pct}")
+print("\n")
+
