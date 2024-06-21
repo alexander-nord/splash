@@ -55,11 +55,19 @@ while (my $csv_name = readdir($ResultsDir))
 		{
 			$ElementToColumn{$element} = $col_id;
 		}
+		elsif ($element eq 'Splash-Num-Exons')
+		{
+			$ElementToColumn{$element} = $col_id;
+		}
 		elsif ($element eq 'MP-Peak-Coverage')
 		{
 			$ElementToColumn{$element} = $col_id;
 		}
 		elsif ($element eq 'MP-Pct-ID')
+		{
+			$ElementToColumn{$element} = $col_id;
+		}
+		elsif ($element eq 'MP-Num-Exons')
 		{
 			$ElementToColumn{$element} = $col_id;
 		}
@@ -75,11 +83,16 @@ while (my $csv_name = readdir($ResultsDir))
 
 		my @Elements = split(/\,/,$line);
 		
-		my $family       = $Elements[$ElementToColumn{'Family'}               - 1];
-		my $spl_coverage = $Elements[$ElementToColumn{'Splash-Peak-Coverage'} - 1];
-		my $spl_pct_id   = $Elements[$ElementToColumn{'Splash-Pct-ID'}        - 1];
-		my $mp_coverage  = $Elements[$ElementToColumn{'MP-Peak-Coverage'}     - 1];
-		my $mp_pct_id    = $Elements[$ElementToColumn{'MP-Pct-ID'}            - 1];
+		my $family        = $Elements[$ElementToColumn{'Family'}               - 1];
+
+		my $spl_coverage  = $Elements[$ElementToColumn{'Splash-Peak-Coverage'} - 1];
+		my $spl_pct_id    = $Elements[$ElementToColumn{'Splash-Pct-ID'}        - 1];
+		my $spl_num_exons = $Elements[$ElementToColumn{'Splash-Num-Exons'}     - 1];
+
+		my $mp_coverage   = $Elements[$ElementToColumn{'MP-Peak-Coverage'}     - 1];
+		my $mp_pct_id     = $Elements[$ElementToColumn{'MP-Pct-ID'}            - 1];
+		my $mp_num_exons  = $Elements[$ElementToColumn{'MP-Num-Exons'}         - 1];
+
 
 		if (!$mp_coverage)
 		{
@@ -90,6 +103,13 @@ while (my $csv_name = readdir($ResultsDir))
 
 		$spl_coverage =~ s/\%//;
 		$mp_coverage  =~ s/\%//;
+
+
+		if ($spl_coverage < 10.0 || $mp_coverage < 10.0) { next; }
+
+		if ($spl_num_exons < 2   || $mp_num_exons < 2  ) { next; }
+
+
 		my $coverage_diff = int(10.0 * ($spl_coverage - $mp_coverage))/10.0;
 		$coverage_diff = $coverage_diff.'%';
 
