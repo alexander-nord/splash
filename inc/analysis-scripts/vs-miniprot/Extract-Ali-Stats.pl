@@ -537,13 +537,13 @@ sub GetTimeAndMaxRSS
 			if ($time =~ /^([^:]+):([^:]+)$/)
 			{
 				$minutes = int($1);
-				$seconds =     $2 ;
+				$seconds = int($2 * 1.0);
 			}
 			elsif ($time =~ /^([^:]+):([^:]+):([^:]+)$/)
 			{
 				$hours   = int($1);
 				$minutes = int($2);
-				$seconds =     $3 ;
+				$seconds = int($3 * 1.0);
 			}
 			else
 			{
@@ -552,12 +552,7 @@ sub GetTimeAndMaxRSS
 				next;
 			}
 
-			$minutes += 60 * $hours;
-
-			$seconds =~ s/\.\d+$//;
-			$minutes = int(100.0 * $minutes + int($seconds) / 60.0) / 100.0;
-
-			$time = $minutes;
+			$time = (3600 * $hours) + (60 * $minutes) + $seconds;
 
 		}
 		elsif ($line =~ /^\s*Maximum resident set size \(kbytes\): (\d+)/)
