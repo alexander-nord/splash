@@ -18,7 +18,7 @@ if (len(sys.argv) != 3):
 
 
 # Default : Lime
-bath_face_color   = "#90dc39"
+bath_face_color   = "#cacac8"
 splash_face_color = "#c2f08d"
 
 
